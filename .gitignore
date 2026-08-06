@@ -1,0 +1,21 @@
+# Local agent settings — machine-specific
+.claude/settings.local.json
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Never commit secrets. The repo holds pointers only (spec §12.4).
+*.env
+.env*
+*.key
+*.pem
+credentials*.json
+token*.json
+
+# Build/data artifacts — the LMS repo proper lives on the Mac, but guard anyway
+*.db
+*.db-wal
+*.db-shm
+__pycache__/
