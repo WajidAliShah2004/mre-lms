@@ -69,6 +69,44 @@ Sidecars (§6.3): every filed artifact gets `<name>.meta.json`; where OCR ran, a
 
 **Why it matters:** [BUILD_PLAYBOOK.md](BUILD_PLAYBOOK.md) omitted `AMOUNT`, [LMS_AGENT_PROMPTS.md](LMS_AGENT_PROMPTS.md) included it. Getting this wrong means a re-file of the whole tree when the full system arrives — which is the one thing the convention exists to prevent. BUILD_PLAYBOOK.md corrected Aug 6.
 
+### D-015 — OpenClaw attack surface minimised to 3 plugins / 0 bundled skills
+**Status:** Decided · Aug 6 2026 · applied on the Mac
+
+OpenClaw was onboarded with general-purpose assistant defaults. Measured baseline was **50 of 67 plugins enabled and 16 of 53 skills ready**. That is the correct default for a personal assistant and the wrong one for a system whose job is ingesting hostile email.
+
+**End state: 3 plugins enabled** — `lmstudio` (the model backend), `document-extract` (Day 4 OCR/attachment text), `memory-core` (backs the enabled `session-memory` hook). **0 bundled skills ready** — correct, not an overshoot: D-002 says every SKILL.md is hand-authored in-repo, so the right number of bundled skills is zero and ours are added deliberately.
+
+**Disabled and why:**
+- **31 cloud model providers** (`anthropic`, `openai`, `google`, `mistral`, `cohere`, `meta`, `microsoft`, `xai`, `together`, `openrouter`, `litellm`, `huggingface`, `deepgram`, `elevenlabs`, `azure-speech`, `voyage`, and others). D-003/D-004 were previously enforced only by the *absence of an API key*. They are now enforced by the absence of a code path.
+- **`clawrouter`** — a second, independent `text-inference` capability. `lmstudio` provides its own `text-inference: lmstudio`, so clawrouter was a parallel inference path with nothing left to route to.
+- **`bonjour`** — advertised the gateway over mDNS, contradicting the Tailscale-only posture.
+- **`browser`, `web-readability`, `canvas`** — page fetching and HTML eval in a system that reads untrusted email is the trifecta.
+- **`device-pair`** — Telegram is the sole control channel (D-005).
+- **`file-transfer`, `phone-control`, `opencode`, `opencode-go`, `ollama`, `sglang`, `vllm`, `talk-voice`, `tts-local-cli`, `vydra`** — unused surface.
+- **7 escalation skills**: `clawhub` (**installs third-party skills — a live D-002 violation**), `skill-creator`, `node-connect`, `node-inspect-debugger`, `python-debugpy`, `browser-automation`, `canvas`.
+- **9 remaining ready skills**: `diagram-maker`, `healthcheck`, `meme-maker`, `notion`, `spike`, `taskflow`, `taskflow-inbox-triage`, `video-frames`, `weather`.
+
+**The failure mode this exposed — read this before the next update.** `openclaw.json` disabled ~38 skills *by name*. There are 53. The 16 that were ready were exactly the ones nobody had enumerated. **OpenClaw offers no default-deny for skills or plugins** — control is per-name only (`openclaw plugins enable/disable`, `skills.entries.<name>.enabled`); `skills curator` is only pin/restore/status/unpin. So this is a denylist, and **every OpenClaw update can ship new skills that default to ready**. RUNBOOK.md's update procedure must diff `openclaw skills list` and `openclaw plugins list` before and after every update and explicitly disable anything new. Without that check this hole reopens silently.
+
+**Also note:** `openclaw skills install` and `openclaw skills search` remain available at the CLI regardless of the `clawhub` skill being disabled. Disabling the skill closes the *agent-reachable* path; the *operator-reachable* path stays open by design. D-002 therefore requires operator discipline in RUNBOOK.md, not just a config flag.
+
+**Re-enable deliberately when needed:** `telegram` (Phase 7) and `imessage` (Day 4) plugins are currently disabled.
+
+### D-016 — `gateway.auth.token` moved to Keychain via an exec SecretRef
+**Status:** Decided · Aug 7 2026 · applied
+
+The token was plaintext in `openclaw.json` (flagged by both `openclaw doctor` and `secrets audit`). `openclaw secrets configure` offers **env / file / exec** providers — no native Keychain provider — so the fix is an **exec** provider that shells out to `security` at resolve time. The token now lives only in the login Keychain (`-a lms -s lms/gateway-auth-token`); the config holds a reference. This is better than the env-ref workaround [PHASES.md](PHASES.md) anticipated: the value never enters an environment variable or the LaunchAgent plist, so `ai.openclaw.gateway.plist` needed no edit at all.
+
+Provider: command `/usr/bin/security`, args `["find-generic-password","-a","lms","-s","lms/gateway-auth-token","-w"]`, trusted dirs `/usr/bin`, JSON-only `No` (the command returns a raw string), symlinks `No`.
+
+**`allowInsecure` command-path checks is set to `true` — deliberately.** OpenClaw requires the exec command to be owned by the current user (uid 501); `/usr/bin/security` is owned by root, so the strict check rejects it. The alternative was a user-owned wrapper script. That would be *worse*: a script under `~/` is writable by anything running as `mleca` — exactly the injected-agent scenario this build defends against — whereas `/usr/bin/security` requires root to modify. Combined with `trusted dirs = /usr/bin`, the provider can only execute a root-owned, Apple-signed binary from a pinned directory. The flag's name describes the skipped assertion, not the resulting posture. **Do not "fix" this by pointing it at a wrapper script.**
+
+**Token was rotated on Aug 7** — the original was printed to a terminal during migration and had to be treated as exposed. Rotation is trivial; the lesson is the habit. Read-backs must always end `>/dev/null && echo OK`. The Telegram bot token (Phase 7) and mailbox credentials (Day 3) are far more sensitive than a loopback-bound gateway token, and the same slip there would be materially worse.
+
+**Verify after every reboot.** Resolution happens at gateway start, from the *login* Keychain, and the gateway is a user LaunchAgent — so both come up at login and that ordering is consistent. But a Keychain prompt at boot would mean the gateway silently fails to start unattended. Phase 9's warm-reboot and cold-boot tests must confirm the gateway resolves the token with no interaction.
+
+**Audit delta:** `browser control` went `enabled` → `disabled`. Remaining: `tools.elevated: enabled` (open), plus two warnings — `gateway.trusted_proxies_missing` (**justified**: loopback-only, no reverse proxy, accepted not fixed) and `gateway.probe_failed / missing scope: operator.read` (blocked on C2).
+
 ### D-014 — Call transcripts are the first thing cut if the week slips
 **Status:** Decided (contingency) · [GUIDELINES_7DAY_BUILD.md:40](GUIDELINES_7DAY_BUILD.md:40)
 Email + photographed mail + the to-do list are the visible value. Day 4's call-transcript ingestion (C15) goes first, before anything else is touched.
@@ -105,6 +143,12 @@ Changes nothing in Phases 2–9; surfaced in Phase 1 only because the user accou
 - (b) **Tailscale + macOS Screen Sharing (recommended)** — what Q213 actually implies.
 
 **Ordering hazard:** confirm the machine is still reachable from an outside network *before* ending the session that turns on default-deny. Getting this wrong locks you out of a machine you may not be standing next to.
+
+**Raised stakes as of Aug 7.** RustDesk is no longer just occasional access — it is the **build channel**. All development is being relayed through it (commands and files hand-carried between the Windows workstation and the Mac). Losing it mid-build doesn't cost a support session, it costs the remaining build days.
+
+Two consequences:
+- Nothing touches egress filtering (Phase 8) until this decision is made and the replacement path is *verified working from an outside network*. Not "configured" — verified.
+- If option (b) wins, stand up Tailscale + Screen Sharing and confirm it end-to-end **while RustDesk still works**, then cut over. Never the reverse order.
 
 > **Chosen:**
 > **Date:**
