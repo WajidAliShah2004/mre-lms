@@ -11,6 +11,22 @@
 # that needs a legal name or EIN will land in UNASSIGNED until they're filled.
 # Anything still reading TODO(C16) at acceptance is a defect, not a stub.
 #
+# WHAT THE WEBSITES COULD AND COULD NOT SUPPLY (Sept 8)
+# The four public sites were read to fill this file. They gave: trading names,
+# confirmed email addresses, phone numbers, one street address, the people, and
+# a set of real-world aliases better than anything guessed. Routing is now
+# materially more accurate than it was.
+#
+# They did NOT give, and cannot give:
+#   * Legal names. "MLE Consulting Agency" is what the marketing says. The
+#     formation document may read "MLE Consulting Agency LLC", or something
+#     else entirely. A trading name and a legal name agree until they don't,
+#     and the moment they don't is a tax notice filed against the wrong entity.
+#   * EINs. These are never published, by design.
+#
+# So C16 is NOT closed by this pass. It is narrowed to two fields per business,
+# both of which live on the formation documents and nowhere else.
+#
 # NEVER put credentials in this file. Mailbox secrets live in the macOS
 # Keychain; this file holds addresses only, for routing.
 
@@ -30,13 +46,25 @@ people:
       - "mattyeps@gmail.com"
 
   P_JG:
-    name: "Jesse Gwilt"
+    name: "Jessie Gwilt"
     role: fiancee
-    tree: "PERSONAL/Jesse"
+    tree: "PERSONAL/Jessie"
+    # SPELLING CONFLICT, both variants kept deliberately.
+    # mrecai.com spells her "Jessie"; the Aug 6 planning docs spelled her
+    # "Jesse". Rather than pick one and lose the other, both match.
+    #
+    # DUAL ROLE — this is a real classification hazard, not a note.
+    # She is Matthew's fiancee AND Chief Marketing Officer of MRECAI. Mail
+    # mentioning her is therefore genuinely ambiguous between PERSONAL/Jessie
+    # and BUSINESS/B_MRE, and the correct answer depends on content, not on
+    # the name. The classifier must not route to her on a name match alone;
+    # an mrecai.com recipient address outranks her name (routing.precedence).
     aliases:
+      - "Jessie Gwilt"
       - "Jesse Gwilt"
       - "J. Gwilt"
-    emails: []
+      - "Jessie"
+    emails: []          # TODO(C16) — likely has an mrecai.com address as CMO
 
   P_AE:
     name: "TODO(C16) — mother, full legal name and spelling"
@@ -64,16 +92,29 @@ people:
 businesses:
   B_MRE:
     name: "TODO(C16) — legal name on the formation documents"
-    short: "MRE Consulting & Insurance"
+    short: "MRECAI Consulting & Insurance"
     tree: "MRECAI"
     ein: "TODO(C16)"
+    # Tax, insurance and accounting firm. Founded 2024.
+    # 11 W Mill Dr, Great Neck, NY 11021 · +1 (929) 919-3574
+    # Matthew R. Epstein, President & Founder.
     domains:
       - "mrecai.com"
     emails:
-      - "matthew@mrecai.com"
+      - "matthew@mrecai.com"    # CONFIRMED Sept 8 — matches the site footer.
+                                # An earlier note spelled it "mathew"; that was
+                                # wrong. One letter here means mail never arrives.
     aliases:
       - "MRECAI"
       - "MRE Consulting"
+      - "MRE Consulting & Insurance"
+      - "MRECAI Consulting & Insurance"
+      - "MRECAI LLC"            # social handles are mrecaillc / MRECAIllc
+    # Known counterparties — these appear in real mail and are NOT entities.
+    # Listed so a future reader does not mistake them for missing businesses.
+    #   PSG Global Tax & Accounting Services LLC (Parineet Sehgal) — accounting partner
+    #   Grober Imbey — insurance partnership, "50+ years of insurance expertise"
+    #   NovaEdge Solutions — the web/dev agency behind these sites
 
   B_CHS:
     name: "TODO(C16) — legal name; client flagged this one as incomplete"
@@ -91,12 +132,19 @@ businesses:
 
   B_ATL:
     name: "TODO(C16) — legal name on the formation documents"
-    short: "Atlase AI"
+    short: "A.T.L.A.S. ENGINE"
     tree: "ATLASE"
     ein: "TODO(C16)"
+    # "Advanced Targeting & Lead Automation System Engine" — autonomous B2B
+    # lead generation platform. Built by NovaEdge Solutions. The site lists no
+    # address, no phone, and no contact email — unusually thin for an entity
+    # that will receive mail.
     domains:
       - "atlase.ai"
-      - "atlas.te"
+      - "atlas.te"              # VERIFY — from the Aug 6 planning docs, never
+                                # confirmed. ".te" is not a valid TLD; this is
+                                # probably a typo for atlas.tech or atlas.team.
+      - "mrecai.tech"           # *** VERIFY BEFORE TRUSTING — see note below ***
     emails:
       - "mre@atlase.ai"
       - "matthew@atlase.ai"
@@ -105,20 +153,44 @@ businesses:
       - "Atlas"
       - "Atlase AI"
       - "Atlas Engine"
+      - "A.T.L.A.S."
+      - "ATLAS ENGINE"
+      - "ATLASE HQ"
+
+    # --- mrecai.tech: a routing hazard, deliberately flagged ---------------
+    # The domain reads "mrecai" but the page title is "ATLASE HQ". If routing
+    # went on the domain name it would file Atlase mail into MRECAI's tree —
+    # the exact class of error the registry exists to prevent, and one that
+    # only shows up as documents in the wrong business's folder months later.
+    #
+    # Assigned to B_ATL because the page's own title is the only evidence
+    # available, and evidence beats the spelling of a domain. The site is
+    # otherwise empty (title tag and nothing else), so it may be a staging or
+    # placeholder host.
+    #
+    # ASK MATTHEW: is mrecai.tech an Atlase property or an MRECAI one?
+    # If MRECAI, move this one line and nothing else changes.
 
   B_MLE:
     name: "TODO(C16) — legal name on the formation documents"
-    short: "MLE Consulting Agency LLC"
+    short: "MLE Consulting Agency"
     tree: "MLECA"
     ein: "TODO(C16)"
+    # AI, automation and technology consulting for small businesses.
+    # +1 402-282-1836 — note the Nebraska area code, not NY like MRECAI.
+    # Business card on the site reads "Matthew Epstein, President".
+    # The site calls MRECAI its "sister company".
     domains:
       - "mleca.com"
+      - "www.mleca.com"
     emails:
-      - "matthew@mleca.com"   # VERIFY: inferred from the Sept 7 document,
-                              # which listed "Matthew - MLECA" without an address.
+      - "matthew@mleca.com"   # CONFIRMED Sept 8 — appears in the site footer.
+                              # Was inferred from the Sept 7 document, which
+                              # listed only "Matthew - MLECA" with no address.
     aliases:
       - "MLECA"
       - "MLE Consulting"
+      - "MLE Consulting Agency"
 
 # Terminal buckets. Not businesses, not people — but valid classifier outputs.
 system:
