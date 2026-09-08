@@ -140,7 +140,12 @@ def test_sidecar_and_task_carry_what_the_filename_cannot(conn, roots, registry, 
 
     meta = json.loads(result.path.with_name(result.path.name + ".meta.json")
                       .read_text(encoding="utf-8"))
-    assert meta["confidence"] == 0.93
+    # 0.95, not the model's own 0.93: this artifact is addressed to
+    # matthew@mrecai.com, so routing decided the entity and the rule's floor
+    # applies (D-023). decided_by is what makes that legible six months later —
+    # without it the sidecar shows a confidence nobody can account for.
+    assert meta["confidence"] == 0.95
+    assert meta["decided_by"] == "rule"
     assert meta["prompt_hash"], "no provenance — a bad prompt revision would be untraceable"
     assert meta["ocr_engine"] is None
 

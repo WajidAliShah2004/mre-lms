@@ -31,6 +31,13 @@ ROOT = Path(__file__).resolve().parents[2]
 PROMPTS = ROOT / "prompts"
 
 
+# Confidence floor applied when deterministic routing decided the entity.
+# Not 1.0: the rule is certain about the ENTITY, and the rest of the row still
+# came from a model. Leaving a gap below 1.0 keeps that distinction visible in
+# the archive sidecars.
+ROUTED_CONFIDENCE = 0.95
+
+
 class ClassificationError(RuntimeError):
     pass
 
@@ -255,12 +262,29 @@ class Classifier:
         confidence = float(raw.get("confidence", 0.0))
         decided_by = "model"
 
-        # Deterministic routing wins. The model may have read something in the
-        # body that looked like a different entity; an address match is fact.
-        if routed is not None and entity_id != routed.entity_id:
+        # Deterministic routing wins — whether or not the model agreed.
+        #
+        # This used to read `if routed is not None and entity_id !=
+        # routed.entity_id`, so the rule's certainty was applied ONLY on
+        # disagreement. That is exactly backwards. When the model agrees with
+        # the rule we are more confident, not less, and yet the model's own
+        # number survived unchanged.
+        #
+        # Found on the Mac (D-023). An 87-byte invoice reading "Bill to:
+        # MRECAI" routed to B_MRE by alias_in_body; the model also said B_MRE
+        # but — reasonably, given how little text there was — at confidence
+        # 0.15. The branch did not fire, 0.15 stayed, ingest quarantined it for
+        # being below the 0.60 floor. A document whose entity we knew for
+        # certain went to the review queue because a model was appropriately
+        # humble about a thin document.
+        #
+        # `confidence` means "how sure are we of this filing decision". Once a
+        # rule has decided the entity, that IS the filing decision, and the
+        # model is only being consulted about the trimmings.
+        if routed is not None:
             entity_id = routed.entity_id
             decided_by = "rule"
-            confidence = max(confidence, 0.95)
+            confidence = max(confidence, ROUTED_CONFIDENCE)
 
         try:
             self.registry.get(entity_id)

@@ -105,6 +105,74 @@ def test_routing_overrides_a_disagreeing_model(registry):
 
 
 # ---------------------------------------------------------------------------
+# D-023 — the rule's certainty applies when the model AGREES too
+#
+# Found on the Mac. An 87-byte invoice ("Bill to: MRECAI") routed to B_MRE
+# deterministically; the model agreed but at confidence 0.15, because there was
+# very little text to go on. The override branch only fired on DISAGREEMENT, so
+# 0.15 survived and ingest quarantined a document whose entity was never in
+# doubt.
+#
+# The asymmetry is the bug: agreement is stronger evidence than disagreement,
+# and it was the case being handled worse.
+# ---------------------------------------------------------------------------
+
+def test_agreement_with_the_rule_is_still_rule_decided(registry):
+    model = FakeModel({**GOOD, "entity_id": "B_MRE", "confidence": 0.15})
+    c = Classifier(registry, client=model).classify(
+        Artifact(recipient="matthew@mrecai.com", body="Bill to: MRECAI"))
+    assert c.entity_id == "B_MRE"
+    assert c.decided_by == "rule", "the rule decided this, not the model"
+
+
+def test_a_diffident_model_cannot_quarantine_a_routed_document(registry):
+    """The exact Mac failure, as a unit test.
+
+    A document we routed by address or alias must file. Sending it to review
+    because a model was unsure about a thin document wastes the one thing
+    deterministic routing was built to guarantee.
+    """
+    model = FakeModel({**GOOD, "entity_id": "B_MRE", "confidence": 0.15})
+    c = Classifier(registry, client=model).classify(
+        Artifact(recipient="matthew@mrecai.com", body="Bill to: MRECAI"))
+    assert not c.needs_review, f"routed document quarantined: {c.review_reason}"
+    assert c.confidence >= registry.min_confidence
+
+
+def test_agreement_and_disagreement_reach_the_same_confidence(registry):
+    """Symmetry is the property; the two paths must not diverge again."""
+    agree = Classifier(registry, client=FakeModel(
+        {**GOOD, "entity_id": "B_MRE", "confidence": 0.15})).classify(
+        Artifact(recipient="matthew@mrecai.com", body="x"))
+    disagree = Classifier(registry, client=FakeModel(
+        {**GOOD, "entity_id": "B_ATL", "confidence": 0.15})).classify(
+        Artifact(recipient="matthew@mrecai.com", body="x"))
+    assert agree.confidence == disagree.confidence
+    assert agree.entity_id == disagree.entity_id == "B_MRE"
+
+
+def test_an_unrouted_document_still_respects_the_model(registry):
+    """The floor must not leak into the path where no rule matched.
+
+    Without a rule the model IS the decision, and a diffident model there is a
+    genuine signal that a human should look.
+    """
+    model = FakeModel({**GOOD, "entity_id": "B_MRE", "confidence": 0.15})
+    c = Classifier(registry, client=model).classify(
+        Artifact(body="an invoice with nothing identifying on it"))
+    assert c.decided_by == "model"
+    assert c.needs_review, "no rule matched, so low confidence must still flag"
+
+
+def test_a_confident_model_is_not_dragged_down_by_the_floor(registry):
+    """max(), not assignment. 0.99 must survive."""
+    model = FakeModel({**GOOD, "entity_id": "B_MRE", "confidence": 0.99})
+    c = Classifier(registry, client=model).classify(
+        Artifact(recipient="matthew@mrecai.com", body="x"))
+    assert c.confidence == pytest.approx(0.99)
+
+
+# ---------------------------------------------------------------------------
 # Bad model output never becomes a filing decision
 # ---------------------------------------------------------------------------
 

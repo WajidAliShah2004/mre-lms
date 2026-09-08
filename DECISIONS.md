@@ -279,6 +279,37 @@ Also hardened while in there, because reasoning models do all of these in practi
 
 **The general lesson, and the reason to keep doing this.** The units were fine. What was broken was the seam between the code and the runtime, and seams are invisible to unit tests by construction. Two bugs found in one afternoon on the Mac — this one, and the `--once` stability counter — both at seams, neither reachable from the workstation.
 
+### D-023 — A rule that decided the entity outranks the model's confidence, whether or not the model agreed
+**Status:** Decided and fixed · Sept 8 2026 · **measured, not assumed**
+
+The document immediately after the D-022 fix still quarantined. Reason recorded by `why.py`:
+
+```
+QUARANTINED   confidence 0.15 below 0.60
+```
+
+Not a parse failure this time. The document was 87 bytes — `ACME SUPPLY COMPANY / INVOICE 5588 / Date: 2026-09-02 / Bill to: MRECAI / TOTAL DUE: $2,310.00`. `alias_in_body` matched `MRECAI` and routed it to `B_MRE` deterministically, before the model was consulted at all. The model then also said `B_MRE` — but at confidence **0.15**, which is a reasonable thing to say about five lines of text.
+
+The override in `_validate` read:
+
+```python
+if routed is not None and entity_id != routed.entity_id:   # only on DISAGREEMENT
+```
+
+So the rule's certainty was applied **only when the model contradicted it**. On agreement — the case where the evidence is strongest — the branch never fired, the model's 0.15 survived, and `ingest.py` quarantined a document whose entity was never in doubt.
+
+**The asymmetry is the whole bug.** Agreement between an address match and a model is stronger evidence than disagreement, and it was the case being handled worse. Deterministic routing exists precisely so that thin, ambiguous, or hostile documents still file correctly; letting a diffident model veto it gives back the guarantee that routing was built to provide.
+
+**Fix:** whenever routing decided the entity, `decided_by = "rule"` and `confidence = max(confidence, ROUTED_CONFIDENCE)` — unconditionally. The floor is 0.95 rather than 1.0 because the rule is certain about the *entity* while the rest of the row still came from a model, and that distinction should stay visible in the archive sidecar.
+
+**Scope kept narrow.** The floor applies only on the routed path. With no rule matched the model *is* the decision, and a low confidence there is a real signal that a human should look — `test_an_unrouted_document_still_respects_the_model` pins that boundary.
+
+**Tests added** (5, and one corrected). The corrected one is the interesting record: `test_sidecar_and_task_carry_what_the_filename_cannot` asserted the sidecar's confidence was the model's `0.93`, but its fixture is addressed to `matthew@mrecai.com` and was therefore routed all along. The old assertion was passing while describing behaviour that was wrong. It now asserts `0.95` **and** `decided_by == "rule"`, so the sidecar explains the number rather than just carrying it.
+
+**Why no test caught it.** Every routing test used a *disagreeing* model, because disagreement is the dramatic case and the one the injection story is about. Nothing exercised agreement, so the branch that only fires on disagreement looked complete. The Mac supplied the boring case that the test suite never thought to.
+
+**Third bug at a seam, third one found by running a real document.** Not a seam between code and runtime this time, but between two components that were each correct alone — routing knew the entity, the model reported its own uncertainty honestly, and the join discarded the better of the two.
+
 ### D-014 — Call transcripts are the first thing cut if the week slips
 **Status:** Decided (contingency) · [GUIDELINES_7DAY_BUILD.md:40](GUIDELINES_7DAY_BUILD.md:40)
 Email + photographed mail + the to-do list are the visible value. Day 4's call-transcript ingestion (C15) goes first, before anything else is touched.
