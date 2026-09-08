@@ -54,6 +54,10 @@ class Artifact:
     received_date: str | None = None
     attachments: list[str] = field(default_factory=list)
     is_html: bool | None = None
+    # Raw message headers, when the source has any. Empty for photographed
+    # mail, which is why the List-Unsubscribe override simply does not fire on
+    # a photograph rather than needing a special case.
+    headers: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -77,6 +81,12 @@ class Classification:
     prompt_hash: str = ""
     needs_review: bool = False
     review_reason: str | None = None
+    # Set by taxonomy overrides (D-027) — e.g. BULK for List-Unsubscribe mail.
+    # Deliberately not in as_row(): the classifications table has no column for
+    # it, and inventing one here would mean a schema migration for a field
+    # nothing reads yet. It reaches the sidecar and the brief through the
+    # rationale, which is where a human actually looks.
+    tags: list[str] = field(default_factory=list)
 
     def as_row(self) -> dict[str, Any]:
         """Shape the classifications table expects."""
@@ -176,6 +186,36 @@ def _match_alias(registry: Registry, text: str):
 # Prompt rendering
 # ---------------------------------------------------------------------------
 
+def _rationale(model_text: str | None, override_notes: list[str]) -> str:
+    """The model's reasoning, prefixed by any override that overruled it.
+
+    Order matters. The rationale is read by a human deciding whether a filing
+    was right, and "the model thought X" is misleading when the model's answer
+    was discarded. Saying so first, in the same field, means the reviewer never
+    has to work out why the category and the reasoning disagree.
+    """
+    text = (model_text or "").strip()
+    if override_notes:
+        prefix = f"[override: {'; '.join(override_notes)}] "
+        return (prefix + text)[:200]
+    return text[:200]
+
+
+def _category_block(tree: str, categories: dict[str, list[str]],
+                    descriptions: dict[str, str]) -> list[str]:
+    """One line per category: the name, then what belongs in it.
+
+    A category with no description still renders — silently dropping it would
+    hide the omission, and a category the model cannot see is a category
+    nothing ever files into.
+    """
+    lines = [f"{tree}:"]
+    for name in sorted(categories):
+        desc = descriptions.get(name)
+        lines.append(f"  {name} — {desc}" if desc else f"  {name}")
+    return lines
+
+
 def render_prompt(registry: Registry, art: Artifact, *,
                   routing_hint: str | None = None) -> tuple[str, str, Sanitised_t]:
     template = load_prompt()
@@ -189,12 +229,19 @@ def render_prompt(registry: Registry, art: Artifact, *,
             bits.append(f"({ent.role})")
         entity_lines.append(" ".join(bits))
 
-    # Only the relevant tree, not both. The prompt has a ~2,500 token budget
-    # and a prompt that grows with the taxonomy degrades silently as the
-    # taxonomy grows.
-    personal = ", ".join(sorted(registry.personal_categories))
-    business = ", ".join(sorted(registry.business_categories))
-    categories = f"PERSONAL: {personal}\nBUSINESS: {business}"
+    # Names alone were not enough (D-026). BUSINESS.FINANCE and BUSINESS.VENDORS
+    # both take invoices, and the only thing separating them — which direction
+    # the money moves — is not deducible from the words "FINANCE" and
+    # "VENDORS". Two identical Acme invoices filed to different folders on
+    # consecutive runs because the model was being asked to guess a convention
+    # nobody had written down.
+    categories = "\n".join(
+        _category_block("PERSONAL", registry.personal_categories,
+                        registry.descriptions.get("personal", {})),
+    ) + "\n\n" + "\n".join(
+        _category_block("BUSINESS", registry.business_categories,
+                        registry.descriptions.get("business", {})),
+    )
 
     body_wrapped, s = sanitise.wrap_untrusted(art.body, is_html=art.is_html)
 
@@ -251,16 +298,24 @@ class Classifier:
             return self._quarantine(
                 f"model error: {exc}", model="", prompt_hash=phash)
 
-        return self._validate(raw, completion.model, phash, routed=ent, how=how)
+        fired = self.registry.match_overrides(
+            f"{art.subject}\n{art.body}", art.headers)
+
+        return self._validate(raw, completion.model, phash, routed=ent, how=how,
+                              overrides=fired)
 
     # -- validation -------------------------------------------------------
 
     def _validate(self, raw: dict, model: str, phash: str,
-                  routed=None, how: str | None = None) -> Classification:
+                  routed=None, how: str | None = None,
+                  overrides: list | None = None) -> Classification:
         entity_id = raw.get("entity_id", "")
         category = raw.get("category", "")
+        subcategory = raw.get("subcategory")
+        urgency = raw.get("urgency", "NORMAL")
         confidence = float(raw.get("confidence", 0.0))
         decided_by = "model"
+        tags: list[str] = []
 
         # Deterministic routing wins — whether or not the model agreed.
         #
@@ -286,6 +341,29 @@ class Classifier:
             decided_by = "rule"
             confidence = max(confidence, ROUTED_CONFIDENCE)
 
+        # Deterministic overrides from taxonomy.yaml (D-027).
+        #
+        # These are the signals where the answer is known from the words on the
+        # page and the model is not being consulted: a summons is a legal
+        # matter whatever else it says, a lapse notice is CRITICAL whatever the
+        # model felt about it. The block had been sitting in taxonomy.yaml
+        # describing this behaviour in the imperative while nothing read it.
+        #
+        # Note what is NOT touched: `confidence`. It means "how sure are we of
+        # the entity", and matching the word "subpoena" tells you a great deal
+        # about the category and nothing at all about whose subpoena it is. A
+        # summons we could not route still goes to review, which is correct.
+        override_notes: list[str] = []
+        for ov in (overrides or []):
+            if ov.category:
+                category, decided_by = ov.category, "rule"
+                subcategory = ov.subcategory
+            if ov.urgency:
+                urgency = ov.urgency
+            if ov.tag:
+                tags.append(ov.tag)
+            override_notes.append(ov.describe())
+
         try:
             self.registry.get(entity_id)
         except RegistryError:
@@ -294,8 +372,7 @@ class Classifier:
                 model=model, prompt_hash=phash, raw=raw)
 
         try:
-            self.registry.validate_category(entity_id, category,
-                                            raw.get("subcategory"))
+            self.registry.validate_category(entity_id, category, subcategory)
         except RegistryError as exc:
             return self._quarantine(str(exc), model=model, prompt_hash=phash,
                                     raw=raw, entity_id=entity_id)
@@ -308,8 +385,8 @@ class Classifier:
             domain=raw.get("domain", "PERSONAL"),
             entity_id=entity_id,
             category=category,
-            subcategory=raw.get("subcategory"),
-            urgency=raw.get("urgency", "NORMAL"),
+            subcategory=subcategory,
+            urgency=urgency,
             confidence=confidence,
             requires_reply=bool(raw.get("requires_reply", False)),
             due_date=raw.get("due_date"),
@@ -318,7 +395,8 @@ class Classifier:
             descriptor=raw.get("descriptor", ""),
             amount_cents=raw.get("amount_cents"),
             currency=raw.get("currency") or "USD",
-            rationale=(raw.get("rationale") or "")[:200],
+            rationale=_rationale(raw.get("rationale"), override_notes),
+            tags=tags,
             decided_by=decided_by,
             model=model,
             prompt_hash=phash,

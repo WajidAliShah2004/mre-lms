@@ -54,9 +54,13 @@ class FakeModel:
                           elapsed_s=0.01, finish_reason="stop")
 
 
+# A bill FROM Acme TO us. Under D-026 that is unambiguously VENDORS: the
+# money moves out. It used to read FINANCE/invoices, which was defensible only
+# because the taxonomy offered a bare `invoices` under both categories and
+# said nothing about which one meant what.
 INVOICE = {
-    "domain": "BUSINESS", "entity_id": "B_MRE", "category": "FINANCE",
-    "subcategory": "invoices", "urgency": "HIGH", "confidence": 0.93,
+    "domain": "BUSINESS", "entity_id": "B_MRE", "category": "VENDORS",
+    "subcategory": "invoices-received", "urgency": "HIGH", "confidence": 0.93,
     "requires_reply": False, "due_date": "2026-09-30",
     "counterparty": "acme-supply", "descriptor": "september invoice",
     "amount_cents": 124500, "rationale": "invoice with a due date",
@@ -90,8 +94,8 @@ def test_business_document_files_and_creates_a_task(conn, roots, registry, tmp_p
 
     assert result.status == "FILED"
     assert result.path.exists()
-    assert result.path.parent == roots.archive / "MRECAI" / "FINANCE" / "invoices"
-    assert result.path.name.startswith("2026-09-01__MRE__FINANCE__")
+    assert result.path.parent == roots.archive / "MRECAI" / "VENDORS" / "invoices-received"
+    assert result.path.name.startswith("2026-09-01__MRE__VENDORS__")
     assert "USD1245-00" in result.path.name
 
 
@@ -301,7 +305,7 @@ def test_reingesting_the_same_bytes_is_a_noop(conn, roots, registry, tmp_path):
     assert first.status == "FILED"
     assert second.status == "DUPLICATE"
     assert second.path == first.path
-    filed = list((roots.archive / "MRECAI" / "FINANCE" / "invoices").glob("*.pdf"))
+    filed = list((roots.archive / "MRECAI" / "VENDORS" / "invoices-received").glob("*.pdf"))
     assert len(filed) == 1
 
 

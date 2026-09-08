@@ -42,7 +42,7 @@ personal:
   VEHICLES:
     - registration
     - insurance-auto
-    - maintenance
+    - servicing        # not "maintenance" — HOME already has one (D-026)
     - loans-auto
   TRAVEL:
     - bookings
@@ -50,7 +50,10 @@ personal:
     - receipts
   WEDDING:
     - vendors
-    - contracts
+    # A venue or caterer contract is genuinely both a wedding matter and a
+    # legal one. WEDDING wins — see the description block — and the name says
+    # so, so it cannot collide with LEGAL/contracts.
+    - vendor-contracts
     - payments
     - logistics
   SUBSCRIPTIONS:
@@ -66,7 +69,10 @@ business:
     - correspondence
     - renewals
   FINANCE:
-    - invoices
+    # invoices-issued, NOT "invoices". See the descriptions block below —
+    # FINANCE and VENDORS both used to contain a bare "invoices", which is
+    # how two identical Acme invoices landed in two different folders (D-026).
+    - invoices-issued
     - receipts
     - statements
     - commissions
@@ -82,20 +88,60 @@ business:
     - continuing-education
     - regulator
   VENDORS:
-    - contracts
-    - invoices
+    - vendor-contracts   # not "contracts" — LEGAL has one (D-026)
+    - invoices-received
     - subscriptions
   LEGAL:
     - formation
     - contracts
     - ip
     - disputes
+    - court            # a subpoena can be served on a business too, and the
+                       # jury-duty override below sets subcategory `court`
+                       # regardless of which tree the document routed to
   OPERATIONS:
     - hr
     - facilities
     - technology
     - marketing
   UNSORTED: []
+
+# What each category is FOR.
+#
+# Added after D-026. The prompt used to hand the model a bare comma-separated
+# list of category names and nothing else, which is fine while the names are
+# self-evident and useless the moment two of them overlap. Two byte-identical
+# Acme invoices — same counterparty, same layout, different amounts — filed to
+# MRECAI/FINANCE and MRECAI/VENDORS on consecutive runs. Neither was wrong.
+# Nothing in the config or the prompt said which was right.
+#
+# The line that matters is the direction of the money, and it was never
+# written down anywhere. It is now.
+#
+# These are rendered into the prompt beside each category name. Keep them to
+# one line: the prompt has a ~2,500 token budget and this block grows with the
+# taxonomy.
+descriptions:
+  business:
+    CLIENTS:     "A named insurance or consulting client of ours: their policies, applications, claims, renewals, and correspondence."
+    FINANCE:     "Money coming IN, or the accounts as a whole. Invoices WE issued to a client, commissions we earned, bank and card statements, payroll we run."
+    VENDORS:     "Money going OUT. An invoice or bill addressed TO us by a supplier, contractor, or service — anything where we are the party that pays. Also their contracts and subscriptions."
+    TAX:         "Anything from or to a tax authority: filings, notices, assessments, 1099s, estimated payments."
+    COMPLIANCE:  "Licences, appointments, continuing education, and regulator correspondence — the right to operate."
+    LEGAL:       "Where the legal instrument itself is the point: formation documents, client and partnership agreements, intellectual property, disputes and litigation. A supplier's service agreement is VENDORS."
+    OPERATIONS:  "Running the business internally: hiring, premises, software and hardware, marketing."
+    UNSORTED:    "Use only when no category above fits. It goes to a human, which is the correct outcome for a genuine ambiguity."
+  personal:
+    FINANCE:     "Personal money: banking, investments, credit cards, loans, personal tax."
+    HOME:        "The residence: mortgage, utilities, property insurance, maintenance, HOA."
+    HEALTH:      "Medical, dental, vision, health insurance, pharmacy."
+    LEGAL:       "Estate, personal contracts, court matters including jury duty and summonses, identity documents. A wedding contract goes to WEDDING, not here."
+    FAMILY:      "Correspondence and matters concerning parents or Jessie in a personal capacity, not a business one."
+    VEHICLES:    "A car: registration, auto insurance, servicing, auto loans. Work on the house goes to HOME."
+    TRAVEL:      "Bookings, itineraries, travel receipts. Honeymoon travel goes to WEDDING."
+    WEDDING:     "Anything for the wedding, and it outranks the others: a caterer's contract is WEDDING, not LEGAL; a venue deposit is WEDDING, not FINANCE."
+    SUBSCRIPTIONS: "Personal recurring services, active or cancelled."
+    UNSORTED:    "Use only when no category above fits. It goes to a human, which is the correct outcome for a genuine ambiguity."
 
 # Urgency is orthogonal to category and drives notification, not filing.
 urgency:
@@ -105,8 +151,25 @@ urgency:
   LOW:       "Informational, worth keeping."
   NONE:      "Bulk or marketing. Filed, surfaced only in counts."
 
-# Signals that force a category regardless of model output. Deterministic,
-# checked in code before classification. A hit here is not a suggestion.
+# Signals that force a category or urgency regardless of model output.
+# Deterministic. A hit here is not a suggestion.
+#
+# HOW THIS IS APPLIED (D-027). Matching runs on the document text and headers,
+# and the result is imposed on the model's answer inside Classifier._validate,
+# before category validation. It runs AFTER the model rather than instead of
+# it, deliberately: we still want the counterparty, amount, dates and
+# descriptor the model extracted. We simply do not let it choose the category
+# when a hard signal is present.
+#
+# An override never touches `confidence`. Confidence means "how sure are we of
+# the ENTITY" (see the prompt), and knowing a document is a summons tells you
+# nothing about whose summons it is. A matched override on an entity we could
+# not route still goes to review, which is right.
+#
+# Until Sept 8 2026 this block was read by nothing at all. It sat here for
+# weeks describing behaviour in the imperative — "forces", "is not a
+# suggestion" — while jury duty, the client's own worked example from the
+# Aug 5 meeting, was decided by whatever the model happened to say.
 overrides:
   - match: { header: "List-Unsubscribe", present: true }
     category: null            # does not set category

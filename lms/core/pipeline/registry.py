@@ -61,6 +61,37 @@ class Entity:
         return self.name
 
 
+@dataclass(frozen=True)
+class Override:
+    """A deterministic signal that outranks the model's category or urgency.
+
+    Declared in taxonomy.yaml. Until D-027 the block existed and nothing read
+    it, so every rule in it — jury duty included — was decided by the model.
+    """
+    match_any_text: tuple[str, ...] = ()
+    match_header: str | None = None
+    category: str | None = None
+    subcategory: str | None = None
+    urgency: str | None = None
+    tag: str | None = None
+
+    def matches(self, text: str, headers: dict[str, str]) -> bool:
+        if self.match_header:
+            wanted = self.match_header.lower()
+            if any(k.lower() == wanted for k in headers):
+                return True
+        if self.match_any_text:
+            haystack = (text or "").lower()
+            return any(p in haystack for p in self.match_any_text)
+        return False
+
+    def describe(self) -> str:
+        """What matched, for the rationale a human reads in the review queue."""
+        if self.match_header:
+            return f"header {self.match_header}"
+        return f"text {', '.join(self.match_any_text)}"
+
+
 @dataclass
 class Registry:
     entities: dict[str, Entity]
@@ -68,6 +99,23 @@ class Registry:
     business_categories: dict[str, list[str]]
     min_confidence: float
     precedence: list[str]
+    descriptions: dict[str, dict[str, str]] = field(default_factory=dict)
+    overrides: list[Override] = field(default_factory=list)
+
+    def describe_categories(self, entity_id: str) -> dict[str, str]:
+        """Category -> one-line description, for the tree this entity files in."""
+        ent = self.get(entity_id)
+        tree = "business" if ent.kind == "business" else "personal"
+        if ent.kind == "system":
+            merged = dict(self.descriptions.get("personal", {}))
+            merged.update(self.descriptions.get("business", {}))
+            return merged
+        return self.descriptions.get(tree, {})
+
+    def match_overrides(self, text: str,
+                        headers: dict[str, str] | None = None) -> list[Override]:
+        headers = headers or {}
+        return [o for o in self.overrides if o.matches(text, headers)]
 
     # -- lookups ------------------------------------------------------------
 
@@ -186,10 +234,76 @@ def load_registry(config_dir: Path | str = CONFIG_DIR) -> Registry:
         if "UNSORTED" not in tree:
             raise RegistryError(f"{tree_name} taxonomy must define UNSORTED")
 
+    descriptions = {
+        tree: {str(k): str(v) for k, v in (block or {}).items()}
+        for tree, block in (taxonomy_raw.get("descriptions") or {}).items()
+    }
+
+    overrides = _load_overrides(taxonomy_raw.get("overrides") or [],
+                               personal=personal, business=business)
+
     return Registry(
         entities=entities,
         personal_categories=personal,
         business_categories=business,
         min_confidence=float(routing.get("min_confidence", 0.60)),
         precedence=_as_list(routing.get("precedence")),
+        descriptions=descriptions,
+        overrides=overrides,
     )
+
+
+def _load_overrides(raw: list[Any], *, personal: dict[str, list[str]],
+                    business: dict[str, list[str]]) -> list[Override]:
+    """Parse and VALIDATE the overrides block at load time.
+
+    Validation at load matters more here than anywhere else in this file. An
+    override is by definition the case where we have decided not to trust the
+    model, so a typo in it — a category that does not exist, an urgency that
+    is not a real level — would replace a merely uncertain answer with an
+    impossible one, and the document would quarantine for a reason pointing at
+    the model rather than at this file.
+    """
+    valid_urgency = {"CRITICAL", "HIGH", "NORMAL", "LOW", "NONE"}
+    out: list[Override] = []
+
+    for i, entry in enumerate(raw):
+        match = entry.get("match") or {}
+        any_text = tuple(str(t).lower() for t in _as_list(match.get("any_text")))
+        header = match.get("header")
+
+        if not any_text and not header:
+            raise RegistryError(
+                f"taxonomy overrides[{i}] matches nothing — it would never fire")
+
+        category = entry.get("category")
+        subcategory = entry.get("subcategory")
+        urgency = entry.get("urgency")
+
+        if urgency and urgency not in valid_urgency:
+            raise RegistryError(
+                f"taxonomy overrides[{i}] sets unknown urgency {urgency!r}")
+
+        # A forced category must exist in BOTH trees. An override fires on text,
+        # and text does not know whether the document routed to a person or a
+        # business — so a rule that is only legal in one tree is a rule that
+        # quarantines every document it fires on in the other.
+        if category:
+            for tree_name, tree in (("personal", personal), ("business", business)):
+                if category not in tree:
+                    raise RegistryError(
+                        f"taxonomy overrides[{i}] forces category {category!r}, "
+                        f"which does not exist in the {tree_name} tree")
+                if subcategory and subcategory not in tree[category]:
+                    raise RegistryError(
+                        f"taxonomy overrides[{i}] forces subcategory "
+                        f"{subcategory!r}, which is not under {category!r} in "
+                        f"the {tree_name} tree")
+
+        out.append(Override(
+            match_any_text=any_text, match_header=header,
+            category=category, subcategory=subcategory,
+            urgency=urgency, tag=entry.get("tag"),
+        ))
+
+    return out

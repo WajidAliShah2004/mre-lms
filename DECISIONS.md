@@ -362,6 +362,58 @@ Not merely untidy. It doubles the archive for every text document, and it puts a
 
 Worth noting how this was found. It is the fifth defect this build, and the first that no test could have caught, because it was never wrong in the code's own terms — filing did exactly what it was told, and D-024 changed what it was being told without anyone re-reading the result. It surfaced only because a real document went all the way through and the output was *looked at* rather than checked for a status string. The other four came from running one document end to end; this one came from reading what that produced.
 
+### D-026 — Two categories cannot both accept the same document type
+**Status:** Decided and fixed · Sept 8 2026 · **found by filing two documents instead of one**
+
+The second live document filed cleanly, and to the wrong place:
+
+```
+inv6023  →  MRECAI/FINANCE/…__MRE__FINANCE__acme-supply-company__…
+inv6024  →  MRECAI/VENDORS/…__MRE__VENDORS__acme-supply-company__…
+```
+
+Same counterparty, same layout, same document type, consecutive runs, different folders. **Neither answer was wrong.** `taxonomy.yaml` offered a subcategory literally named `invoices` under *both* `FINANCE` and `VENDORS`, and `render_prompt` handed the model a bare comma-separated list of category names with no descriptions at all. The distinction that decides it — **which direction the money moves** — existed only in the head of whoever wrote the taxonomy. The model was asked to guess a convention nobody had written down, and guessed differently twice.
+
+This is the defect that most directly breaks what the client asked for. "Determine if it's business, which business, save it" is not satisfied by an archive where you must check two folders to find a vendor's invoices.
+
+**Fix.** Each category now carries a one-line description of what belongs in it, rendered into the prompt beside the name — `VENDORS — Money going OUT…`, `FINANCE — Money coming IN…`. And the colliding subcategories are renamed to state the direction themselves: `invoices-issued` under FINANCE, `invoices-received` under VENDORS.
+
+**Then the property test found two more.** Rather than fix `invoices` and move on, `test_no_two_categories_share_a_subcategory_name` asserts the class: no subcategory name may appear under two categories in the same tree. It immediately caught `maintenance` under HOME and VEHICLES, `contracts` under LEGAL and WEDDING, and — after the first pass — `contracts` under LEGAL and VENDORS. The wedding one is a genuine coin flip: a caterer's contract is honestly both. Now `WEDDING` outranks, its description says so, and the subcategory is `vendor-contracts` so the names cannot collide either.
+
+Writing the assertion as a property rather than as three examples is the point. The next collision will be `receipts`, added by someone who did not read this file.
+
+### D-027 — The taxonomy overrides block was read by no code at all
+**Status:** Decided and fixed · Sept 8 2026 · **the worst defect this build, and entirely silent**
+
+`taxonomy.yaml` has carried this since the taxonomy was written:
+
+> *"Signals that force a category regardless of model output. Deterministic, checked in code before classification. A hit here is not a suggestion."*
+
+```
+grep -rn "overrides" --include=*.py .
+./tests/test_classify.py:94:def test_routing_overrides_a_disagreeing_model
+```
+
+One hit, and it is a test function name about entity routing. `Registry` had no field for it. `load_registry` parsed `personal`, `business`, and stopped. **Nothing had ever read the block.** Which means:
+
+- **Jury duty → `LEGAL/court`, urgency HIGH was not implemented.** This is the client's own worked example, the one he used in the Aug 5 meeting to describe what he wanted the system to do. A summons was being categorised by whatever the model happened to say that run.
+- **"notice of cancellation" / "policy will lapse" / "final notice" → CRITICAL was not implemented.** For an insurance business, a lapse notice is the single most expensive thing in the mailbox to miss.
+- **`List-Unsubscribe` → urgency NONE was not implemented**, so bulk mail competed with real mail for space in the morning brief.
+
+Worse than D-024, and for one reason: **it was silent.** No error, no quarantine, no wrong-looking output. It simply did not happen, and would have been discovered weeks from now by a summons sitting in `OPERATIONS` — or not discovered at all, since nobody knew to look.
+
+**Fix.** `Override` is parsed into the registry and applied in `Classifier._validate`, after the model and before category validation. After, deliberately: we still want the counterparty, amount, dates and descriptor the model extracted — we simply do not let it choose the category when a hard signal is present. The rationale is prefixed `[override: text jury duty]` so a reviewer seeing `LEGAL` beside reasoning about invoices knows the model's answer was discarded rather than that it reasoned badly.
+
+**What an override deliberately does not touch is `confidence`.** Confidence means confidence in the *entity* (D-023). Matching the word "subpoena" tells you a great deal about the category and nothing whatsoever about whose subpoena it is. An unroutable summons still goes to a human, which is right, and `test_an_override_does_not_raise_entity_confidence` pins it.
+
+Validation moved to load time, because an override is by definition the case where we decided not to trust the model — a typo in it replaces a merely uncertain answer with an impossible one, and quarantines pointing at the model instead of at the config. A forced category must exist in **both** trees, since an override fires on text and text does not know whether the document routed to a person or a business. Enforcing that immediately exposed that `court` existed only under personal `LEGAL`, so a subpoena served on one of the businesses would have quarantined every time.
+
+**The test that should have existed:** `test_every_declared_override_is_reachable` — every rule in the config must fire on some sample. That is a config-to-code coverage assertion, and its absence is exactly what let the block sit dead in plain sight while reading as though it were load-bearing.
+
+**Fifth and sixth defects, same boundary as all the others.** Code-to-runtime (D-022), process-to-filesystem (`--once`), rule-to-model (D-023), file-to-pipeline (D-024), stage-to-stage (D-025), and now **config-to-code, twice**: a taxonomy that under-specified what the code had to decide, and a config block the code never read. Every unit was correct in isolation. Every defect lived in what one layer assumed about the next.
+
+**151 passed, 1 xfailed** (up from 138).
+
 ### D-014 — Call transcripts are the first thing cut if the week slips
 **Status:** Decided (contingency) · [GUIDELINES_7DAY_BUILD.md:40](GUIDELINES_7DAY_BUILD.md:40)
 Email + photographed mail + the to-do list are the visible value. Day 4's call-transcript ingestion (C15) goes first, before anything else is touched.

@@ -173,6 +173,186 @@ def test_a_confident_model_is_not_dragged_down_by_the_floor(registry):
 
 
 # ---------------------------------------------------------------------------
+# D-026 — a category the model has to guess at is a category that scatters
+#
+# Two byte-identical Acme invoices, same counterparty and layout, filed to
+# MRECAI/FINANCE and MRECAI/VENDORS on consecutive live runs. Neither answer
+# was wrong: the business taxonomy offered a bare `invoices` under BOTH
+# categories, and the prompt listed category NAMES with no descriptions. The
+# distinction that matters — which direction the money moves — existed only in
+# the head of whoever wrote the taxonomy.
+# ---------------------------------------------------------------------------
+
+def test_no_two_categories_share_a_subcategory_name(registry):
+    """The collision, stated as a property rather than as one example.
+
+    A subcategory appearing under two categories means a document type with no
+    determined home. Catching the class matters more than catching `invoices`:
+    the next one will be `receipts` or `contracts`, added by someone who did
+    not read this file.
+    """
+    for tree_name, tree in (("personal", registry.personal_categories),
+                            ("business", registry.business_categories)):
+        seen: dict[str, str] = {}
+        collisions = []
+        for category, subs in tree.items():
+            for sub in subs:
+                if sub in seen:
+                    collisions.append(f"{sub!r} under both {seen[sub]} and {category}")
+                seen[sub] = category
+        assert not collisions, f"{tree_name}: " + "; ".join(collisions)
+
+
+def test_every_category_tells_the_model_what_belongs_in_it(registry):
+    """A category with no description is a category filed into by vibes."""
+    for tree in ("personal", "business"):
+        cats = (registry.personal_categories if tree == "personal"
+                else registry.business_categories)
+        described = registry.descriptions.get(tree, {})
+        missing = sorted(set(cats) - set(described))
+        assert not missing, f"{tree} categories with no description: {missing}"
+
+
+def test_the_prompt_carries_the_descriptions_not_just_the_names(registry):
+    """The descriptions are useless if they stay in the YAML."""
+    model = FakeModel(GOOD)
+    Classifier(registry, client=model).classify(Artifact(body="hello"))
+    assert "VENDORS —" in model.last_system, "categories rendered as bare names"
+    assert "Money going OUT" in model.last_system
+
+
+def test_finance_and_vendors_are_told_apart_by_direction(registry):
+    """The specific confusion, named in the prompt where the model reads it."""
+    model = FakeModel(GOOD)
+    Classifier(registry, client=model).classify(Artifact(body="hello"))
+    finance = [l for l in model.last_system.splitlines() if l.strip().startswith("FINANCE")]
+    vendors = [l for l in model.last_system.splitlines() if l.strip().startswith("VENDORS")]
+    assert any("IN" in l for l in finance), finance
+    assert any("OUT" in l for l in vendors), vendors
+
+
+# ---------------------------------------------------------------------------
+# D-027 — the overrides block was read by nothing
+#
+# taxonomy.yaml declared deterministic overrides and said, in the imperative,
+# that they "force a category regardless of model output" and are "checked in
+# code before classification". No code read the block. Jury duty — the
+# client's own worked example from the Aug 5 meeting — was decided by whatever
+# the model happened to say.
+# ---------------------------------------------------------------------------
+
+def test_the_overrides_block_is_actually_loaded(registry):
+    assert registry.overrides, "taxonomy.yaml declares overrides and none were loaded"
+
+
+def test_every_declared_override_is_reachable(registry):
+    """Config-to-code coverage: each rule must fire on something.
+
+    This is the test whose absence let the whole block sit dead. It asserts
+    that the config and the code agree about what exists — the exact boundary
+    every defect this build has lived on.
+    """
+    samples = {
+        "jury duty": ("You are summoned for jury duty on Oct 3.", {}),
+        "final notice": ("FINAL NOTICE: your policy will lapse.", {}),
+        "List-Unsubscribe": ("Newsletter", {"List-Unsubscribe": "<mailto:x@y.com>"}),
+    }
+    unreachable = [
+        ov.describe() for ov in registry.overrides
+        if not any(ov.matches(text, headers) for text, headers in samples.values())
+    ]
+    assert not unreachable, f"overrides no sample can trigger: {unreachable}"
+
+
+def test_jury_duty_is_legal_court_whatever_the_model_says(registry):
+    """The meeting's worked example. The model is deliberately wrong here."""
+    model = FakeModel({**GOOD, "domain": "PERSONAL", "entity_id": "P_MRE",
+                       "category": "FINANCE", "subcategory": "banking",
+                       "urgency": "LOW"})
+    c = Classifier(registry, client=model).classify(
+        Artifact(body="You are summoned for jury duty on October 3rd."))
+    assert c.category == "LEGAL"
+    assert c.subcategory == "court"
+    assert c.urgency == "HIGH"
+    assert c.decided_by == "rule"
+
+
+def test_a_lapse_notice_is_critical(registry):
+    """For an insurance business this is the most expensive thing to miss."""
+    model = FakeModel({**GOOD, "urgency": "LOW"})
+    c = Classifier(registry, client=model).classify(
+        Artifact(body="FINAL NOTICE. Your policy will lapse on 2026-09-20."))
+    assert c.urgency == "CRITICAL"
+
+
+def test_an_urgency_only_override_leaves_the_category_alone(registry):
+    """The lapse rule sets no category. It must not blank the model's."""
+    model = FakeModel({**GOOD, "category": "CLIENTS", "urgency": "LOW"})
+    c = Classifier(registry, client=model).classify(
+        Artifact(body="notice of cancellation for policy 88213"))
+    assert c.category == "CLIENTS"
+    assert c.urgency == "CRITICAL"
+    assert c.decided_by == "model", "an urgency rule did not decide the category"
+
+
+def test_bulk_mail_is_tagged_and_silenced(registry):
+    model = FakeModel({**GOOD, "urgency": "HIGH"})
+    c = Classifier(registry, client=model).classify(
+        Artifact(subject="Our September newsletter", body="read more",
+                 headers={"List-Unsubscribe": "<mailto:unsub@vendor.com>"}))
+    assert c.urgency == "NONE"
+    assert "BULK" in c.tags
+
+
+def test_an_override_does_not_raise_entity_confidence(registry):
+    """Knowing it is a summons says nothing about WHOSE summons it is.
+
+    Confidence means confidence in the entity. Letting a category rule inflate
+    it would file an unroutable document with a made-up entity instead of
+    sending it to the human it needs.
+    """
+    model = FakeModel({**GOOD, "entity_id": "P_MRE", "confidence": 0.20})
+    c = Classifier(registry, client=model).classify(
+        Artifact(body="a subpoena with no addressee anywhere on it"))
+    assert c.category == "LEGAL"
+    assert c.confidence == pytest.approx(0.20)
+    assert c.needs_review, "an unroutable summons must still reach a human"
+
+
+def test_the_rationale_says_an_override_fired(registry):
+    """A reviewer seeing LEGAL beside reasoning about invoices needs to know
+    the model's answer was discarded, not that it reasoned badly."""
+    model = FakeModel({**GOOD, "category": "FINANCE",
+                       "rationale": "looks like a vendor invoice"})
+    c = Classifier(registry, client=model).classify(Artifact(body="jury duty notice"))
+    assert c.rationale.startswith("[override:")
+    assert "jury duty" in c.rationale
+
+
+def test_an_override_forcing_an_impossible_category_is_caught_at_load(tmp_path):
+    """Load-time validation, because an override is where we stopped trusting
+    the model — a typo here replaces an uncertain answer with an impossible
+    one, and quarantines pointing at the model rather than at this file."""
+    import shutil
+
+    from core.pipeline.registry import RegistryError, load_registry as load
+
+    shutil.copy(CONFIG / "entities.yaml", tmp_path / "entities.yaml")
+    (tmp_path / "taxonomy.yaml").write_text(
+        "version: 1\n"
+        "personal:\n  LEGAL: [court]\n  UNSORTED: []\n"
+        "business:\n  VENDORS: [contracts]\n  UNSORTED: []\n"
+        "overrides:\n"
+        "  - match: { any_text: ['jury duty'] }\n"
+        "    category: LEGAL\n",
+        encoding="utf-8")
+
+    with pytest.raises(RegistryError) as exc:
+        load(tmp_path)
+    assert "business tree" in str(exc.value)
+
+
+# ---------------------------------------------------------------------------
 # Bad model output never becomes a filing decision
 # ---------------------------------------------------------------------------
 
