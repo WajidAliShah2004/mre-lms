@@ -35,7 +35,7 @@ from pathlib import Path
 from ..db import database as db
 from ..pipeline import filing, ingest
 from ..pipeline.classify import Artifact, Classifier
-from ..pipeline.registry import Registry
+from ..pipeline.registry import Registry, load_registry
 
 POLL_SECONDS = 5
 STABLE_POLLS = 2          # consecutive unchanged sizes before we touch it
@@ -209,9 +209,13 @@ def run(inbox: Path | None = None, *, once: bool = False) -> int:
     for tag in TAG_DIRS:
         (inbox / tag).mkdir(exist_ok=True)
 
-    registry = Registry.__new__(Registry)   # replaced below; keeps type checkers quiet
-    from ..pipeline.registry import load_registry
     registry = load_registry()
+
+    outstanding = registry.placeholders()
+    if outstanding:
+        print(f"WARNING: C16 unanswered for {', '.join(outstanding)} — "
+              "documents for these entities will file against placeholder "
+              "legal names.", flush=True)
 
     conn = db.connect(os.environ.get("LMS_DB", str(roots.archive.parent / "lms.db")))
     classifier = Classifier(registry)
