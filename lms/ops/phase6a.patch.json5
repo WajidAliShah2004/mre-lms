@@ -1,0 +1,61 @@
+// Phase 6 — the config actually applied on the Mac, 2026-09-08.
+//
+// Applied with:
+//     openclaw config patch --file ops/phase6a.patch.json5 --dry-run
+//     openclaw config patch --file ops/phase6a.patch.json5
+//     openclaw gateway restart
+//
+// `config patch` merges objects recursively and replaces arrays/scalars in
+// ONE validated write. That matters here: the live config carries the D-015
+// hardening and the D-016 Keychain SecretRef, and a sequence of `config set`
+// calls can half-apply if one fails partway.
+//
+// Idempotent — re-running changes nothing.
+
+{
+  tools: {
+    // profile:minimal was already set (D-015). It is a BASELINE that other
+    // rules add to. `allow: []` is an ABSOLUTE allowlist that replaces the
+    // profile-derived set entirely — the schema's words: "replaces
+    // profile-derived defaults for strict environments".
+    //
+    // Both are kept. The profile is the floor; the empty allowlist is the
+    // ceiling; the denylist blocks named tools "even when profile or provider
+    // rules would allow them". Three independent mechanisms, because under
+    // D-009 this is the containment boundary and not a defence-in-depth layer.
+    allow: [],
+    deny: ["bash", "exec", "shell", "browser", "canvas", "file-transfer"],
+  },
+
+  commands: {
+    // All four already defaulted to false. Set explicitly so that a future
+    // OpenClaw release changing a default cannot quietly re-open them —
+    // exactly the failure mode D-015 recorded for skills and plugins, where
+    // there is no default-deny and an update can ship new capability that
+    // defaults to on.
+    //
+    // commands.bash is the one that matters most: "run host shell commands".
+    // The LMS runs as Matthew's own user (D-009), so a chat message that
+    // reached that command would have his entire session.
+    bash: false,
+    config: false,   // /config reads and writes this file from chat
+    mcp: false,      // /mcp adds MCP servers from chat
+    plugins: false,  // /plugins toggles plugin enablement from chat
+  },
+}
+
+// DELIBERATELY NOT INCLUDED — models.mode: "replace"
+//
+// "replace" means only configured providers exist in the catalog. It is a
+// stronger form of D-003 than the current posture (31 cloud plugins disabled
+// individually), because it removes the built-in catalog rather than
+// switching entries off one by one.
+//
+// It was dry-run-validated and then held back, because `models.providers` is
+// currently EMPTY — the lmstudio plugin advertises `text-inference: lmstudio`
+// as a capability, and whether that also populates the model catalog is not
+// something the schema answers. If it does not, "replace" yields an empty
+// catalog and every agent run fails at first inference, not at restart. The
+// gateway would look healthy and the failure would surface hours later.
+//
+// Revisit once a provider entry exists and a test inference has run.

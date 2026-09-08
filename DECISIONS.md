@@ -217,6 +217,41 @@ The repository is at `https://github.com/WajidAliShah2004/mre-lms.git` — the d
 
 **Do not close D-020 by deleting it.** It closes when the transfer is done and verified by Matthew being able to clone it himself.
 
+### D-021 — Phase 6 applied; the zero-tool guarantee is global, not per-agent
+**Status:** Decided and applied · Sept 8 2026 · verified on the machine
+
+**What was wrong first.** The Phase 6 config was written from the v3.0 specification's vocabulary rather than from OpenClaw's actual schema. It was rejected by the validator (`Unrecognized key: "type"`), which is the good outcome — nothing was written. Reading `openclaw config schema` showed the differences were structural, not cosmetic:
+
+| Assumed | Actual |
+|---|---|
+| `agents.<name>.tools.allow` | **Does not exist.** Tool policy is global only |
+| `models.providers.<id>.type` | `api`; and the lmstudio plugin already advertises `text-inference` |
+| `scheduling.*` | `cron`, with jobs in `cron.store`, managed by CLI |
+| per-agent topology in config | `agents.list` (array) + `agents.defaults.skills` |
+
+**The correction improved the design.** Per-agent tool lists protect the agents someone remembered to configure. What OpenClaw actually offers is stronger:
+
+```
+tools.profile = minimal     baseline (already set, D-015)
+tools.allow   = []          absolute — "replaces profile-derived defaults"
+tools.deny    = [bash, exec, shell, browser, canvas, file-transfer]
+                            blocks "even when profile or provider rules would allow"
+```
+
+Three independent mechanisms covering **every** agent, including ones a future update introduces. Under D-009 there is no privilege boundary underneath this, so it is the containment boundary rather than a defence-in-depth layer.
+
+**Also applied — four chat commands pinned off.** All four already defaulted to `false`; they are now explicit, because D-015 established that OpenClaw has no default-deny and an update can ship changed defaults silently. `commands.bash` "runs host shell commands"; under D-009 a chat message reaching it would have Matthew's entire session.
+
+**Deliberately withheld: `models.mode: "replace"`.** It dry-run-validated. It would be a stronger form of D-003 — removing the built-in cloud catalog rather than disabling 31 plugins individually. It was **not** applied because `models.providers` is empty: the lmstudio plugin advertises a capability, but whether that populates the model *catalog* is not something the schema answers. If it does not, "replace" yields an empty catalog that fails at first inference rather than at restart — the gateway would look healthy and the failure would surface hours later. Revisit once a provider entry exists and a test inference has run.
+
+**Verified after restart:** gateway came back clean with an absolute empty allowlist; plugins 3 loaded / 64 disabled / 0 errors; `security audit --deep` 0 critical, 2 warn (both known and justified); `verify_setup.py` all six checks pass.
+
+**On D-016 — partial confirmation, and worth stating precisely.** Without `--allow-exec`, doctor prints "health probes skipped because gateway credentials use an exec SecretRef". With the flag that message is gone, so the exec provider was invoked and the Keychain reference resolves. But the audit still reports `probe_failed / missing scope: operator.read`, and doctor separately reports no command owner — **those are the same finding**, and both clear in Phase 7 with C2.
+
+This is *not* the verification D-016 asked for. Resolving on a warm restart, with the login Keychain already unlocked by an interactive session, is not the same as resolving at boot before anyone has logged in. **The cold-boot test in Phase 9 remains the only real proof**, and it has still never been run.
+
+**Repo correction.** `openclaw/agents/agents.fragment.json` previously described a config shape that does not exist — worse than no file, because a future maintainer would have believed it. It is now marked as documentation of *intent*, with the real mechanism recorded alongside. The config actually applied is `ops/phase6a.patch.json5`, committed verbatim so the machine and the repo cannot drift.
+
 ### D-014 — Call transcripts are the first thing cut if the week slips
 **Status:** Decided (contingency) · [GUIDELINES_7DAY_BUILD.md:40](GUIDELINES_7DAY_BUILD.md:40)
 Email + photographed mail + the to-do list are the visible value. Day 4's call-transcript ingestion (C15) goes first, before anything else is touched.

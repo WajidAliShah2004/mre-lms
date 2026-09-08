@@ -1,135 +1,113 @@
 {
   "_comment": [
-    "PHASE 6 — agent topology. This is a FRAGMENT, not a whole config.",
+    "AGENT TOPOLOGY — this file is DOCUMENTATION, not OpenClaw config.",
     "",
-    "The live ~/.openclaw/openclaw.json on the Mac already carries the D-015",
-    "hardening (3 plugins, 0 skills) and the D-016 exec SecretRef that resolves",
-    "gateway.auth.token from the login Keychain. Overwriting that file would",
-    "silently undo both — the gateway would come back with a plaintext token",
-    "and 64 re-enabled plugins, and nothing would report an error.",
+    "It was originally written as a mergeable openclaw.json fragment. That was",
+    "wrong: it described a schema that does not exist in OpenClaw 2026.7.1-2.",
+    "The real schema was read on 2026-09-08 (`openclaw config schema`) and the",
+    "differences were not cosmetic:",
     "",
-    "So this file is merged key-by-key per ops/PHASE6_APPLY.md, never copied",
-    "over the top.",
+    "  * There is no `agents.<name>.tools`. Tool policy is GLOBAL only —",
+    "    tools.profile / tools.allow / tools.deny / tools.byProvider. Per-agent",
+    "    tool lists are not a thing this version supports.",
+    "  * Per-agent entries live in `agents.list` (an array), and skills attach",
+    "    via `agents.defaults.skills`.",
+    "  * Model providers take `api`, not `type`. The lmstudio plugin already",
+    "    advertises `text-inference: lmstudio` as a capability.",
+    "  * There is no `scheduling` key. Scheduled work is `cron`, and jobs live",
+    "    in cron.store, managed by CLI rather than config.",
     "",
-    "CONTAINS NO SECRETS. Pointers only (spec 12.4)."
+    "The applied config is ops/phase6a.patch.json5. This file records the",
+    "INTENT — which agent does what, and why each one has nothing — so the",
+    "reasoning survives even though the shape changed.",
+    "",
+    "Kept as JSON so tests can assert against it."
   ],
 
-  "models": {
-    "providers": {
-      "lmstudio": {
-        "type": "openai-compatible",
-        "baseUrl": "http://localhost:1234/v1",
-        "apiKey": "not-required-loopback",
-        "_comment": "Loopback only. Verified with lsof: 127.0.0.1:1234, never *:1234. 'Serve on Local Network' stays off — that setting puts the model endpoint on the LAN."
-      }
-    },
-
-    "_no_cloud_tier": [
-      "TIER-C (cloud) is deliberately absent — D-003.",
-      "There is no API key on this machine and api.anthropic.com stays off the",
-      "egress allowlist.",
-      "",
-      "READ BEFORE ADDING ONE. The spec's cloud guards are NOT built:",
-      "block_cloud_if_tax_engagement, block_cloud_if_unredacted_pii,",
-      "reason-code gating, and the DEC-3/DEC-10 tax-and-privileged block.",
-      "Adding a key without building those first creates an unguarded path",
-      "from client NPI and tax data to a third party. The absence of a key is",
-      "not the control; the absence of the guards is the reason there is no key."
-    ],
-
-    "tiers": {
-      "TIER-L1": {
-        "provider": "lmstudio",
-        "role": "classification",
-        "resident": true,
-        "_size": "~35B MLX 4-bit",
-        "_comment": "Reads hostile text. Zero tools. See skills/lms-classifier."
-      },
-      "TIER-L2": {
-        "provider": "lmstudio",
-        "role": "drafting",
-        "resident": true,
-        "_size": "~122B MLX 4-bit"
-      },
-      "TIER-OCR": {
-        "provider": "lmstudio",
-        "role": "ocr-fallback",
-        "resident": false,
-        "_comment": "Apple Vision runs first; this is the low-confidence fallback."
-      },
-      "TIER-A": {
-        "provider": "lmstudio",
-        "role": "asr",
-        "resident": false,
-        "_comment": "Day 4 call transcripts — first thing cut if the week slips (D-014)."
-      },
-      "TIER-E": {
-        "provider": "lmstudio",
-        "role": "embedding",
-        "resident": false
-      }
-    }
-  },
+  "_how_the_zero_tool_guarantee_is_actually_enforced": [
+    "Not per-agent, as originally designed. Globally, in three layers:",
+    "",
+    "  tools.profile = minimal    the baseline (D-015)",
+    "  tools.allow   = []         absolute; replaces profile-derived defaults",
+    "  tools.deny    = [bash,...] blocks named tools regardless of the above",
+    "",
+    "Global turns out to be STRONGER than what was intended. A per-agent list",
+    "protects the agents someone remembered to configure. An empty global",
+    "allowlist covers every agent, including ones a future update introduces.",
+    "",
+    "Under D-009 the LMS runs as Matthew's own macOS user, so an injected agent",
+    "would inherit his Messages, iCloud and Keychain. There is no privilege",
+    "boundary underneath. This is what replaces it: agents read text and return",
+    "text; every effect is deterministic Python in core/, invoked by launchd.",
+    "",
+    "Verified by ops/verify_setup.py and tests/test_agents.py."
+  ],
 
   "agents": {
-    "_comment": [
-      "THREE AGENTS, ALL WITH ZERO TOOLS. This is not an oversight.",
-      "",
-      "Under D-009 the LMS runs as Matthew's own macOS user, so an injected",
-      "agent would inherit his full session reach — his Messages, his iCloud,",
-      "his Keychain. The privilege boundary that was supposed to contain that",
-      "does not exist.",
-      "",
-      "What replaces it: no model-facing agent can DO anything. Agents read",
-      "text and return text. Every effect — filing, naming, dedupe, task",
-      "creation, notification, sending — is deterministic Python in core/,",
-      "invoked by launchd, never by a model.",
-      "",
-      "That means prompt injection can at worst produce a wrong JSON field,",
-      "which lands in the review queue. It cannot produce an action, because",
-      "there is no action to reach.",
-      "",
-      "ops/verify_setup.py asserts these lists are empty at gateway start and",
-      "fails the check if any of them is not. Treat a failure as stop-the-line:",
-      "it means either this file was edited or an OpenClaw update introduced a",
-      "default-on tool (D-015: there is no default-deny for skills or plugins)."
-    ],
-
     "lms-orchestrator": {
-      "model": "TIER-L1",
+      "model_tier": "TIER-L1",
       "tools": { "allow": [] },
       "skill": "lms-orchestrator",
-      "_comment": "Sequences the pipeline by returning the next step as data. The step is executed by core/, which validates it against a fixed enum before acting."
+      "_role": "Returns the name of the next pipeline step from a fixed enum. core/ validates the name and runs the function. A name outside the enum is a hard error, so the worst case is an artifact in the wrong queue where a human sees it."
     },
 
     "lms-classifier": {
-      "model": "TIER-L1",
+      "model_tier": "TIER-L1",
       "tools": { "allow": [] },
       "skill": "lms-classifier",
       "responseFormat": "json_schema",
       "schemaPath": "prompts/classifier.schema.json",
-      "_comment": "The only agent that reads untrusted content. Constrained decoding means it cannot emit anything but the schema."
+      "_role": "The only component that reads untrusted content. Constrained decoding means it cannot emit anything but the schema."
     },
 
     "lms-drafter": {
-      "model": "TIER-L2",
+      "model_tier": "TIER-L2",
       "tools": { "allow": [] },
       "skill": "lms-drafter",
-      "_comment": "Writes reply text. Has no mailbox, no network, no send. Code puts the text in Gmail drafts; a Telegram tap is what sends it."
+      "_role": "Writes reply text. No mailbox, no network, no send. core/ puts the text in Gmail drafts; a Telegram tap is what sends it."
+    }
+  },
+
+  "models": {
+    "_comment": [
+      "Tier names are normative; model names are not. Substitute the current",
+      "MLX build — re-benchmarking is a quarterly ops item, not a build blocker.",
+      "",
+      "No cloud tier (D-003). The spec's cloud guards are NOT built:",
+      "block_cloud_if_tax_engagement, block_cloud_if_unredacted_pii,",
+      "reason-code gating, DEC-3/DEC-10. The absence of an API key is not the",
+      "control — the absence of those guards is the reason there is no key."
+    ],
+    "providers": {
+      "lmstudio": {
+        "baseUrl": "http://localhost:1234/v1",
+        "_verified": "lsof shows 127.0.0.1:1234, not *:1234. 'Serve on Local Network' stays off."
+      }
+    },
+    "tiers": {
+      "TIER-L1":  { "provider": "lmstudio", "role": "classification", "resident": true,  "_size": "~35B MLX 4-bit" },
+      "TIER-L2":  { "provider": "lmstudio", "role": "drafting",       "resident": true,  "_size": "~122B MLX 4-bit" },
+      "TIER-OCR": { "provider": "lmstudio", "role": "ocr-fallback",   "resident": false, "_comment": "Apple Vision first; this is the low-confidence fallback." },
+      "TIER-A":   { "provider": "lmstudio", "role": "asr",            "resident": false, "_comment": "Day 4. First thing cut if the week slips (D-014)." },
+      "TIER-E":   { "provider": "lmstudio", "role": "embedding",      "resident": false }
     }
   },
 
   "scheduling": {
-    "timezone": "America/New_York",
     "_comment": [
-      "A named zone, never a UTC offset (Rec 21). An offset like -05:00 is",
-      "correct for half the year and an hour wrong for the other half, and the",
-      "failure is silent: the morning brief simply arrives at 05:30 or 07:30",
-      "from November onward and nobody connects it to a config value.",
+      "INTENT ONLY. The live key is `cron`, and jobs are managed by the CLI,",
+      "not by this file. Recorded here so the intended times and the DST",
+      "reasoning are in one place.",
       "",
-      "ops/verify_setup.py computes the next fire time across the November",
-      "boundary and asserts the local hour is unchanged."
+      "America/New_York as a NAMED ZONE, never a UTC offset (Rec 21). An",
+      "offset is correct for half the year and silently an hour wrong for the",
+      "other half — the brief simply starts arriving at 05:30 from November",
+      "and nobody connects it to a config value.",
+      "",
+      "verify_setup.py check 4 asserts the local hour holds across the",
+      "November boundary."
     ],
+    "timezone": "America/New_York",
     "jobs": {
       "morning-brief":  { "cron": "30 6 * * *",   "_local": "06:30 ET" },
       "evening-close":  { "cron": "30 17 * * *",  "_local": "17:30 ET" },
@@ -144,14 +122,19 @@
     "_comment": [
       "ownerAllowFrom is EMPTY and that is a live gap, not a placeholder.",
       "",
-      "`openclaw doctor` reports it: 'No command owner is configured.' Until a",
+      "`openclaw doctor` says so: 'No command owner is configured.' Until a",
       "numeric Telegram id lands here, /halt — the sole remote kill switch",
-      "(D-005) — has no authorised sender. DM pairing lets someone talk to the",
-      "bot; it does not make them the owner.",
+      "(D-005) — has no authorised sender, and `security audit --deep` keeps",
+      "reporting 'gateway.probe_failed / missing scope: operator.read'.",
       "",
-      "Filled in Phase 7 from the id on Matthew's first message to the bot.",
-      "Format: [\"telegram:123456789\"] — the numeric id, never the @handle."
+      "Those two findings are the same finding. Filled in Phase 7 from the id",
+      "on Matthew's first message to the bot. Numeric id, never the @handle:",
+      "the Bot API only reports the numeric id, and handles can change."
     ],
-    "ownerAllowFrom": []
+    "ownerAllowFrom": [],
+    "bash": false,
+    "config": false,
+    "mcp": false,
+    "plugins": false
   }
 }

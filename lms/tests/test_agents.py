@@ -68,8 +68,52 @@ def test_no_cloud_provider(fragment):
     """D-003. The guards that would make a cloud tier safe are not built."""
     banned = {"anthropic", "openai", "google", "mistral", "cohere",
               "azure", "bedrock", "vertex", "openrouter", "together", "xai"}
-    providers = fragment["models"]["providers"]
+    providers = {k for k in fragment["models"]["providers"] if not k.startswith("_")}
     assert not (set(map(str.lower, providers)) & banned)
+
+
+# ---------------------------------------------------------------------------
+# The applied config — what is actually on the machine
+# ---------------------------------------------------------------------------
+
+PATCH = ROOT / "ops" / "phase6a.patch.json5"
+
+
+@pytest.fixture
+def patch_text():
+    assert PATCH.exists(), "the applied Phase 6 patch is missing from the repo"
+    return PATCH.read_text(encoding="utf-8")
+
+
+def test_applied_patch_locks_tools_absolutely(patch_text):
+    """tools.allow: [] replaces profile-derived defaults, it does not trim them.
+
+    This is the control that actually runs on the Mac. The per-agent lists in
+    agents.fragment.json describe intent; OpenClaw 2026.7.1-2 has no such key.
+    """
+    assert "allow: []" in patch_text
+
+
+def test_applied_patch_denies_shell_access(patch_text):
+    """commands.bash runs host shell commands as this user.
+
+    Under D-009 that is not a sandbox escape, it is the whole machine.
+    """
+    for needle in ("bash: false", "config: false", "mcp: false", "plugins: false"):
+        assert needle in patch_text, f"{needle} missing from the applied patch"
+    for tool in ("bash", "exec", "shell"):
+        assert f'"{tool}"' in patch_text, f"{tool} not in tools.deny"
+
+
+def test_models_mode_replace_is_documented_as_withheld(patch_text):
+    """It validated but was deliberately not applied.
+
+    models.providers is empty, so "replace" could yield an empty catalog and
+    fail at first inference rather than at restart. If someone applies it
+    later, this test should be updated deliberately, not silently.
+    """
+    assert "DELIBERATELY NOT INCLUDED" in patch_text
+    assert "models.mode" in patch_text
 
 
 def test_every_provider_is_loopback(fragment):
