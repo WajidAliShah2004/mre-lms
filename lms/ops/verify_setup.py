@@ -58,9 +58,27 @@ from zoneinfo import ZoneInfo
 # Re-exec rather than warn: a warning about the interpreter is one more thing
 # to read past.
 # ---------------------------------------------------------------------------
-_VENV_PY = Path(__file__).resolve().parents[1] / ".venv" / "bin" / "python"
+# Compared by sys.prefix, NOT by the resolved binary path.
+#
+# The first version of this compared Path(sys.executable).resolve() against
+# .venv/bin/python — and a venv's `python` is a symlink to the base
+# interpreter, so EVERY venv built on the same Python resolves to the same
+# file:
+#
+#     /tmp/va/bin/python -> /usr/bin/python3.10    sys.prefix = /tmp/va
+#     /tmp/vb/bin/python -> /usr/bin/python3.10    sys.prefix = /tmp/vb
+#     /usr/bin/python3   -> /usr/bin/python3.10    sys.prefix = /usr
+#
+# All three "match". The guard could not distinguish .venv from a different
+# venv or from the bare Homebrew install, so it fired or didn't for reasons
+# unconnected to which environment was active — and then printed the resolved
+# Homebrew path while claiming it was "the one the daemon uses".
+#
+# sys.prefix IS the environment. It is the only one of the three that differs.
+_VENV = Path(__file__).resolve().parents[1] / ".venv"
+_VENV_PY = _VENV / "bin" / "python"
 if (_VENV_PY.exists()
-        and Path(sys.executable).resolve() != _VENV_PY.resolve()
+        and Path(sys.prefix).resolve() != _VENV.resolve()
         and not os.environ.get("LMS_VERIFY_REEXEC")):
     os.environ["LMS_VERIFY_REEXEC"] = "1"
     os.execv(str(_VENV_PY), [str(_VENV_PY), str(Path(__file__).resolve()), *sys.argv[1:]])
@@ -305,13 +323,14 @@ def check_readers_available() -> None:
     # State the interpreter. Every answer below is only true of this one, and
     # the whole point of the re-exec above is that it is the same interpreter
     # the LaunchAgent runs.
-    venv = Path(__file__).resolve().parents[1] / ".venv" / "bin" / "python"
-    here = Path(sys.executable).resolve()
+    venv = Path(__file__).resolve().parents[1] / ".venv"
+    here = Path(sys.prefix).resolve()
     if venv.exists() and here == venv.resolve():
-        ok(f"interpreter: {here} (the one the daemon uses)")
+        ok(f"environment: {here} — the one the LaunchAgent runs")
     else:
-        warn(f"interpreter: {here} — this is NOT .venv/bin/python, so what "
-             f"follows may not describe the environment the daemon runs in")
+        warn(f"environment: {here} — NOT {venv}, so what follows may not "
+             f"describe where the daemon actually runs. If a stray venv is "
+             f"active in this shell, `deactivate` and re-run.")
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     try:

@@ -535,6 +535,39 @@ Second, smaller correction in the same pass: PDFKit and Vision are macOS framewo
 
 **Note what found this.** Not a test — the suite passes on both interpreters, because it never asserts *which* interpreter. It was found by two outputs in the same terminal contradicting each other, and by not letting that go. The eighth defect this build, and the second (after D-031) on the boundary between the code and the machine it runs on rather than between two pieces of code.
 
+### D-033 — An environment is identified by `sys.prefix`, not by the binary it symlinks to
+**Status:** Decided and fixed · Sept 8 2026 · **the D-032 fix was itself wrong**
+
+D-032's guard read:
+
+```python
+Path(sys.executable).resolve() != _VENV_PY.resolve()
+```
+
+Everything then passed, and the output said:
+
+```
+PASS  interpreter: /opt/homebrew/Cellar/python@3.12/…/bin/python3.12 (the one the daemon uses)
+```
+
+That path is not `.venv/bin/python`. It is the Homebrew interpreter, and the check called it a match — because a venv's `python` is a **symlink to the base interpreter**, so `.resolve()` collapses every venv onto the same file:
+
+```
+/tmp/va/bin/python -> /usr/bin/python3.10    sys.prefix = /tmp/va
+/tmp/vb/bin/python -> /usr/bin/python3.10    sys.prefix = /tmp/vb
+/usr/bin/python3   -> /usr/bin/python3.10    sys.prefix = /usr
+```
+
+All three compare equal. The guard could not distinguish `.venv` from a different venv or from the bare Homebrew install, so it re-exec'd or didn't for reasons unconnected to which environment was active, and then printed a path that contradicted its own claim.
+
+That is not hypothetical on this machine: a stray `path/to/venv` has been active in the shell since a mis-pasted `python3 -m venv path/to/venv` earlier in the build, which is why the prompt reads `(venv)`. Two venvs, one base interpreter, and a check that cannot tell them apart.
+
+**`sys.prefix` is the environment** — the one value of the three that differs. The guard and the report now use it, and the report says `environment:` rather than `interpreter:`, because the interpreter was never the question.
+
+**The pattern worth naming.** D-031 was "the code cannot run here". D-032 was "the check ran somewhere else". D-033 is "the check could not tell where it ran". Three failures in a row about the boundary between the program and its environment, each one found by the fix for the previous one being visibly inconsistent with its own output — not by a test. The suite passes under every interpreter, because no test asserts which environment it is running in, and it is not obvious one usefully could.
+
+**The general lesson:** when a comparison is meant to establish identity, check what actually carries the identity. `resolve()` answers "which file", and the question was "which environment".
+
 ### D-014 — Call transcripts are the first thing cut if the week slips
 **Status:** Decided (contingency) · [GUIDELINES_7DAY_BUILD.md:40](GUIDELINES_7DAY_BUILD.md:40)
 Email + photographed mail + the to-do list are the visible value. Day 4's call-transcript ingestion (C15) goes first, before anything else is touched.
