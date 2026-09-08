@@ -1,0 +1,157 @@
+{
+  "_comment": [
+    "PHASE 6 — agent topology. This is a FRAGMENT, not a whole config.",
+    "",
+    "The live ~/.openclaw/openclaw.json on the Mac already carries the D-015",
+    "hardening (3 plugins, 0 skills) and the D-016 exec SecretRef that resolves",
+    "gateway.auth.token from the login Keychain. Overwriting that file would",
+    "silently undo both — the gateway would come back with a plaintext token",
+    "and 64 re-enabled plugins, and nothing would report an error.",
+    "",
+    "So this file is merged key-by-key per ops/PHASE6_APPLY.md, never copied",
+    "over the top.",
+    "",
+    "CONTAINS NO SECRETS. Pointers only (spec 12.4)."
+  ],
+
+  "models": {
+    "providers": {
+      "lmstudio": {
+        "type": "openai-compatible",
+        "baseUrl": "http://localhost:1234/v1",
+        "apiKey": "not-required-loopback",
+        "_comment": "Loopback only. Verified with lsof: 127.0.0.1:1234, never *:1234. 'Serve on Local Network' stays off — that setting puts the model endpoint on the LAN."
+      }
+    },
+
+    "_no_cloud_tier": [
+      "TIER-C (cloud) is deliberately absent — D-003.",
+      "There is no API key on this machine and api.anthropic.com stays off the",
+      "egress allowlist.",
+      "",
+      "READ BEFORE ADDING ONE. The spec's cloud guards are NOT built:",
+      "block_cloud_if_tax_engagement, block_cloud_if_unredacted_pii,",
+      "reason-code gating, and the DEC-3/DEC-10 tax-and-privileged block.",
+      "Adding a key without building those first creates an unguarded path",
+      "from client NPI and tax data to a third party. The absence of a key is",
+      "not the control; the absence of the guards is the reason there is no key."
+    ],
+
+    "tiers": {
+      "TIER-L1": {
+        "provider": "lmstudio",
+        "role": "classification",
+        "resident": true,
+        "_size": "~35B MLX 4-bit",
+        "_comment": "Reads hostile text. Zero tools. See skills/lms-classifier."
+      },
+      "TIER-L2": {
+        "provider": "lmstudio",
+        "role": "drafting",
+        "resident": true,
+        "_size": "~122B MLX 4-bit"
+      },
+      "TIER-OCR": {
+        "provider": "lmstudio",
+        "role": "ocr-fallback",
+        "resident": false,
+        "_comment": "Apple Vision runs first; this is the low-confidence fallback."
+      },
+      "TIER-A": {
+        "provider": "lmstudio",
+        "role": "asr",
+        "resident": false,
+        "_comment": "Day 4 call transcripts — first thing cut if the week slips (D-014)."
+      },
+      "TIER-E": {
+        "provider": "lmstudio",
+        "role": "embedding",
+        "resident": false
+      }
+    }
+  },
+
+  "agents": {
+    "_comment": [
+      "THREE AGENTS, ALL WITH ZERO TOOLS. This is not an oversight.",
+      "",
+      "Under D-009 the LMS runs as Matthew's own macOS user, so an injected",
+      "agent would inherit his full session reach — his Messages, his iCloud,",
+      "his Keychain. The privilege boundary that was supposed to contain that",
+      "does not exist.",
+      "",
+      "What replaces it: no model-facing agent can DO anything. Agents read",
+      "text and return text. Every effect — filing, naming, dedupe, task",
+      "creation, notification, sending — is deterministic Python in core/,",
+      "invoked by launchd, never by a model.",
+      "",
+      "That means prompt injection can at worst produce a wrong JSON field,",
+      "which lands in the review queue. It cannot produce an action, because",
+      "there is no action to reach.",
+      "",
+      "ops/verify_setup.py asserts these lists are empty at gateway start and",
+      "fails the check if any of them is not. Treat a failure as stop-the-line:",
+      "it means either this file was edited or an OpenClaw update introduced a",
+      "default-on tool (D-015: there is no default-deny for skills or plugins)."
+    ],
+
+    "lms-orchestrator": {
+      "model": "TIER-L1",
+      "tools": { "allow": [] },
+      "skill": "lms-orchestrator",
+      "_comment": "Sequences the pipeline by returning the next step as data. The step is executed by core/, which validates it against a fixed enum before acting."
+    },
+
+    "lms-classifier": {
+      "model": "TIER-L1",
+      "tools": { "allow": [] },
+      "skill": "lms-classifier",
+      "responseFormat": "json_schema",
+      "schemaPath": "prompts/classifier.schema.json",
+      "_comment": "The only agent that reads untrusted content. Constrained decoding means it cannot emit anything but the schema."
+    },
+
+    "lms-drafter": {
+      "model": "TIER-L2",
+      "tools": { "allow": [] },
+      "skill": "lms-drafter",
+      "_comment": "Writes reply text. Has no mailbox, no network, no send. Code puts the text in Gmail drafts; a Telegram tap is what sends it."
+    }
+  },
+
+  "scheduling": {
+    "timezone": "America/New_York",
+    "_comment": [
+      "A named zone, never a UTC offset (Rec 21). An offset like -05:00 is",
+      "correct for half the year and an hour wrong for the other half, and the",
+      "failure is silent: the morning brief simply arrives at 05:30 or 07:30",
+      "from November onward and nobody connects it to a config value.",
+      "",
+      "ops/verify_setup.py computes the next fire time across the November",
+      "boundary and asserts the local hour is unchanged."
+    ],
+    "jobs": {
+      "morning-brief":  { "cron": "30 6 * * *",   "_local": "06:30 ET" },
+      "evening-close":  { "cron": "30 17 * * *",  "_local": "17:30 ET" },
+      "mail-poll":      { "cron": "*/5 * * * *" },
+      "lm-health-ping": { "cron": "*/5 * * * *" },
+      "nightly-backup": { "cron": "0 2 * * *",    "_local": "02:00 ET" },
+      "weekly-audit":   { "cron": "0 3 * * 0",    "_local": "Sun 03:00 ET" }
+    }
+  },
+
+  "commands": {
+    "_comment": [
+      "ownerAllowFrom is EMPTY and that is a live gap, not a placeholder.",
+      "",
+      "`openclaw doctor` reports it: 'No command owner is configured.' Until a",
+      "numeric Telegram id lands here, /halt — the sole remote kill switch",
+      "(D-005) — has no authorised sender. DM pairing lets someone talk to the",
+      "bot; it does not make them the owner.",
+      "",
+      "Filled in Phase 7 from the id on Matthew's first message to the bot.",
+      "Format: [\"telegram:123456789\"] — the numeric id, never the @handle."
+    ],
+    "ownerAllowFrom": []
+  }
+}
