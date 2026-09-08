@@ -504,6 +504,37 @@ And `verify_setup.py` gains **[7] Document readers available on this machine**, 
 
 **163 passed, 1 xfailed.**
 
+### D-032 — A pre-flight check must run in the environment it is checking
+**Status:** Decided and fixed · Sept 8 2026 · **the check was confidently wrong**
+
+`bringup_mac.sh` installed the PyObjC frameworks and reported them:
+
+```
+deps: pyobjc-framework-Quartz 12.2.2 pyobjc-framework-Vision 12.2.2 pytest 9.1.1 PyYAML 6.0.3
+```
+
+`./ops/verify_setup.py` then said:
+
+```
+FAIL  PDFKit UNAVAILABLE — EVERY PDF will quarantine unread, whatever it contains
+```
+
+And in the same session, the watcher filed a PDF:
+
+```
+[FILED] …/MRECAI/VENDORS/invoices-received/2026-09-06__MRE__VENDORS__acme-supply-company__…__USD3240-00__9223b73b.pdf
+```
+
+Both statements were produced honestly. `verify_setup.py` carries `#!/usr/bin/env python3`, so `./ops/verify_setup.py` runs under **Homebrew's python3** — which has no PyObjC. The LaunchAgent runs `.venv/bin/python`, which does. D-031's new check was inspecting a different interpreter from the one that does the work.
+
+**It was wrong in the harmless direction this time.** The same mismatch reversed — PyObjC present system-wide, absent from the venv — reports PASS while every PDF quarantines, and that is the direction that costs a day of looking at the wrong thing. A check that inspects a different environment than the thing it checks is worse than no check, because it converts an unknown into a confident falsehood.
+
+**Fix.** The script re-execs itself under `.venv/bin/python` when that exists and is not already the running interpreter, guarded by an env var against a loop. Re-exec rather than warn: a warning about the interpreter is one more thing to read past. Check [7] then states which interpreter produced its answers, and says so loudly when it is not the venv.
+
+Second, smaller correction in the same pass: PDFKit and Vision are macOS frameworks and can never exist on a Linux CI box, where `--skip-openclaw` is meant to be usable. A permanent FAIL there trains people to scroll past the section that also carries the real failures, so off-Darwin it is a WARN that says why.
+
+**Note what found this.** Not a test — the suite passes on both interpreters, because it never asserts *which* interpreter. It was found by two outputs in the same terminal contradicting each other, and by not letting that go. The eighth defect this build, and the second (after D-031) on the boundary between the code and the machine it runs on rather than between two pieces of code.
+
 ### D-014 — Call transcripts are the first thing cut if the week slips
 **Status:** Decided (contingency) · [GUIDELINES_7DAY_BUILD.md:40](GUIDELINES_7DAY_BUILD.md:40)
 Email + photographed mail + the to-do list are the visible value. Day 4's call-transcript ingestion (C15) goes first, before anything else is touched.

@@ -33,11 +33,37 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
+
+# ---------------------------------------------------------------------------
+# Run under the interpreter the DAEMON uses, not whatever the shebang found.
+#
+# The shebang is `#!/usr/bin/env python3`, so `./ops/verify_setup.py` resolves
+# to Homebrew's python3 — which has no PyObjC — while the LaunchAgent runs
+# .venv/bin/python, which does. Check [7] therefore reported "PDFKit
+# UNAVAILABLE — EVERY PDF will quarantine" at the same moment the watcher was
+# filing PDFs perfectly well.
+#
+# A check that inspects a different environment than the thing it is checking
+# is worse than no check. It was confidently wrong in the harmless direction
+# this time; the same mismatch reversed — PyObjC present system-wide, absent
+# from the venv — reports PASS while every PDF quarantines, and that is the
+# direction that costs a day.
+#
+# Re-exec rather than warn: a warning about the interpreter is one more thing
+# to read past.
+# ---------------------------------------------------------------------------
+_VENV_PY = Path(__file__).resolve().parents[1] / ".venv" / "bin" / "python"
+if (_VENV_PY.exists()
+        and Path(sys.executable).resolve() != _VENV_PY.resolve()
+        and not os.environ.get("LMS_VERIFY_REEXEC")):
+    os.environ["LMS_VERIFY_REEXEC"] = "1"
+    os.execv(str(_VENV_PY), [str(_VENV_PY), str(Path(__file__).resolve()), *sys.argv[1:]])
 
 REPO = Path(__file__).resolve().parents[1]
 FRAGMENT = REPO / "openclaw" / "agents" / "agents.fragment.json"
@@ -276,6 +302,17 @@ def check_readers_available() -> None:
     """
     print("\n[7] Document readers available on this machine")
 
+    # State the interpreter. Every answer below is only true of this one, and
+    # the whole point of the re-exec above is that it is the same interpreter
+    # the LaunchAgent runs.
+    venv = Path(__file__).resolve().parents[1] / ".venv" / "bin" / "python"
+    here = Path(sys.executable).resolve()
+    if venv.exists() and here == venv.resolve():
+        ok(f"interpreter: {here} (the one the daemon uses)")
+    else:
+        warn(f"interpreter: {here} — this is NOT .venv/bin/python, so what "
+             f"follows may not describe the environment the daemon runs in")
+
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     try:
         from core.pipeline import ocr
@@ -287,6 +324,8 @@ def check_readers_available() -> None:
 
     if ocr.vision_available():
         ok("Apple Vision — on-device OCR for photographed mail")
+    elif sys.platform != "darwin":
+        warn(f"Apple Vision unavailable on {sys.platform} — expected, macOS only")
     else:
         warn("Apple Vision UNAVAILABLE — photographed mail falls back to "
              "glm-ocr in LM Studio, which is slower. Install with: "
@@ -294,6 +333,11 @@ def check_readers_available() -> None:
 
     if ocr.pdfkit_available():
         ok("PDFKit — PDF text layer and page rasterisation")
+    elif sys.platform != "darwin":
+        # Not a defect off a Mac, and reporting it as one trains people to
+        # scroll past the section that also carries the real failures.
+        warn(f"PDFKit unavailable on {sys.platform} — expected, these are "
+             f"macOS frameworks. Meaningless off the target machine.")
     else:
         fail("PDFKit UNAVAILABLE — EVERY PDF will quarantine unread, whatever "
              "it contains, and PDF is the format most real mail arrives in. "
