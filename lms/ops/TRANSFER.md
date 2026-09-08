@@ -34,7 +34,7 @@ Two things to check before that push:
 cd ~/                      # or wherever the checkout belongs
 git clone <repo URL> lms-repo
 cd lms-repo/lms
-./ops/bringup_mac.sh /Volumes/Vault     # substitute the encrypted RAID volume
+./ops/bringup_mac.sh /Volumes/MacStudioHD    # the encrypted 12 TB array
 ```
 
 `bringup_mac.sh` is idempotent. It creates the storage trees, installs
@@ -59,17 +59,19 @@ three of the differences bite here specifically:
 
 - Touch any credential, mailbox, or network setting
 - Connect to LM Studio or OpenClaw
-- Encrypt a volume — it warns and asks, because encrypting in place without
-  the client's written approval is not a decision to take at a shell prompt
-  (C5 / D-011 is still Partial)
+- Encrypt a volume — it checks and warns. In practice this never fires:
+  `MacStudioHD` was already FileVault-encrypted when we found it, so C5 and
+  D-011 closed by observation (D-019). The check stays for the case where
+  someone points the script at a different volume.
 
 ## Order of operations on the Mac
 
 1. `bringup_mac.sh` — this document
 2. **Rotate the exposed credentials (D-017)** before anything reaches a
-   mailbox. Including the trivial account password, which under D-009 is
-   now the container for the entire system
-3. Phase 6 — OpenClaw config, agents, tier mapping
+   mailbox — seven web logins, changed in each provider's UI. The macOS
+   account that carried a trivial password no longer exists; it was deleted
+   on Sept 8 (D-018)
+3. Phase 6 — OpenClaw config and tool policy. **Applied Sept 8 (D-021)**
 4. Phase 7 — Telegram bot, `/halt`, and capture the numeric user id from his
    first message (this closes C2)
 5. Phase 8 — Tailscale verified from an outside network **before** default-deny

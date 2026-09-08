@@ -11,7 +11,7 @@
 # rather than on the workstation it was written on.
 #
 # Usage:
-#   ./ops/bringup_mac.sh /Volumes/Vault
+#   ./ops/bringup_mac.sh /Volumes/MacStudioHD
 #
 # The argument is the RAID volume that will hold the filed trees (C5).
 # Pick an ENCRYPTED volume. If you are unsure which are encrypted, run:
