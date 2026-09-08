@@ -35,6 +35,7 @@ class Entity:
     tree: str
     kind: str                      # person | business | system
     ein: str | None = None
+    short: str | None = None
     domains: list[str] = field(default_factory=list)
     emails: list[str] = field(default_factory=list)
     aliases: list[str] = field(default_factory=list)
@@ -44,6 +45,20 @@ class Entity:
     def is_placeholder(self) -> bool:
         """True while this entity still carries unanswered C16 values."""
         return PLACEHOLDER_MARKER in (self.name or "") or PLACEHOLDER_MARKER in (self.ein or "")
+
+    def short_or_name(self) -> str:
+        """A label safe to put in a prompt.
+
+        Prefers the trading name over `name`, because while C16 is unanswered
+        `name` reads "TODO(C16) — legal name on the formation documents" and
+        injecting that into the entity table would be both useless and quietly
+        confusing to the model.
+        """
+        if self.short:
+            return self.short
+        if PLACEHOLDER_MARKER in (self.name or ""):
+            return self.entity_id
+        return self.name
 
 
 @dataclass
@@ -131,6 +146,7 @@ def load_registry(config_dir: Path | str = CONFIG_DIR) -> Registry:
     for eid, body in (entities_raw.get("people") or {}).items():
         entities[eid] = Entity(
             entity_id=eid, name=body.get("name", eid), tree=body["tree"], kind="person",
+            short=body.get("short"),
             aliases=_as_list(body.get("aliases")), emails=_as_list(body.get("emails")),
             role=body.get("role"),
         )
@@ -138,7 +154,8 @@ def load_registry(config_dir: Path | str = CONFIG_DIR) -> Registry:
     for eid, body in (entities_raw.get("businesses") or {}).items():
         entities[eid] = Entity(
             entity_id=eid, name=body.get("name", eid), tree=body["tree"], kind="business",
-            ein=body.get("ein"), domains=_as_list(body.get("domains")),
+            ein=body.get("ein"), short=body.get("short"),
+            domains=_as_list(body.get("domains")),
             emails=_as_list(body.get("emails")), aliases=_as_list(body.get("aliases")),
         )
 
