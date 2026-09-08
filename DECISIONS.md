@@ -471,6 +471,39 @@ One more, smaller: the new suffix-walking test dialled LM Studio nine times and 
 
 Still not implemented, and now the honest list: `.docx`, `.xlsx`, and any other office format quarantine by name. That is the right behaviour until someone decides they are worth reading.
 
+### D-030 — A file that arrives empty is reported, not skipped
+**Status:** Decided and fixed · Sept 8 2026
+
+`cupsfilter` wrote a 0-byte PDF into the inbox. The watcher printed **neither `[FILED]` nor `[QUARANTINED]`**, wrote no log line, and created no row. It did nothing at all, and would have gone on doing nothing on every scan for as long as the file sat there.
+
+```python
+if path.stat().st_size == 0:
+    continue
+```
+
+Bare, unlogged, and ahead of the settle check. And there was a test asserting it: **`test_zero_byte_files_are_ignored`** — a test whose name states the defect as though it were the design. That is the **fourth** time this build that correcting behaviour exposed a test passing while describing the wrong thing.
+
+**Silence is the worst outcome available here.** A document that is loudly refused gets dealt with; one that vanishes does not. Under D-024 the pipeline already refuses to guess about a document it could not read — but that only helps if the document reaches the pipeline, and this one never did.
+
+**Fix.** The settle check runs first, so a file that is momentarily zero bytes because it is still being written is still left alone — the original guard was right about that case and wrong about every other one. A file that has *settled* at zero bytes is a failed delivery: a truncated AirDrop, a Shortcut that errored, a converter that wrote nothing. It is logged `EMPTY_FILE`, retired to `_failed` so it is not re-skipped forever, and returned as an `IngestResult` with status `EMPTY` so `--once` prints it. A log line nobody is watching is only marginally louder than silence.
+
+### D-031 — The readers were built and could not run on the target machine
+**Status:** Decided and fixed · Sept 8 2026 · **the gap between "shipped" and "works here"**
+
+`ops/bringup_mac.sh` installed `pyyaml pytest`. That is the whole dependency list, and it has been since Day 1.
+
+So on the Mac: `vision_available()` is False, `pdfkit_available()` is False. Photographed mail has been falling back to `glm-ocr` — slower, but it works. **PDFs, as of D-029, would have quarantined unread every single time, whatever they contained**, because both readers PDF support depends on were absent. I built the feature, tested it, shipped it, and it could not execute on the one machine it exists for.
+
+Nothing announced this. Each PDF would simply have failed on its own, one at a time, with a reason describing the symptom.
+
+**Fix, two parts.** `bringup_mac.sh` installs `pyobjc-framework-Vision` and `pyobjc-framework-Quartz`, and does not treat failure as fatal — a machine without them still files text and still reaches the model for images. It degrades honestly, but it degrades.
+
+And `verify_setup.py` gains **[7] Document readers available on this machine**, which is a different question from everything else in that script. The other six checks ask whether the *configuration* is right. This one asks whether the *code can run here* — and reports missing PDFKit as a hard FAIL, since PDF is the format most real mail arrives in.
+
+**A capability that is missing should be announced once, at setup, not rediscovered per document.** That is the same lesson as D-027's config-to-code coverage test, arriving from the opposite direction: there, config declared behaviour no code implemented; here, code implemented behaviour the environment could not support.
+
+**163 passed, 1 xfailed.**
+
 ### D-014 — Call transcripts are the first thing cut if the week slips
 **Status:** Decided (contingency) · [GUIDELINES_7DAY_BUILD.md:40](GUIDELINES_7DAY_BUILD.md:40)
 Email + photographed mail + the to-do list are the visible value. Day 4's call-transcript ingestion (C15) goes first, before anything else is touched.

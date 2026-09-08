@@ -43,7 +43,13 @@ _DATE_PATTERNS = [
 @dataclass
 class IngestResult:
     sha256: str
-    status: str                      # FILED | DUPLICATE | QUARANTINED | SUSPECTED_PHISHING
+    # FILED | DUPLICATE | QUARANTINED | SUSPECTED_PHISHING | EMPTY
+    #
+    # EMPTY is raised by the watcher, not by this module: a file that arrived
+    # with no bytes never reaches ingest_file, because there is nothing to
+    # hash, read or classify. It is a result rather than a silent skip so the
+    # operator sees it.
+    status: str
     path: Path | None = None
     classification: Classification | None = None
     ocr_engine: str | None = None

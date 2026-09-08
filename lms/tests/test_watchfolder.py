@@ -133,11 +133,56 @@ def test_settledness_survives_a_fresh_process(conn, roots, registry, inbox):
     assert len(results) == 1, "a fresh process could not ingest a settled file"
 
 
-def test_zero_byte_files_are_ignored(conn, roots, registry, inbox):
+def test_an_empty_file_that_has_settled_is_reported_not_ignored(conn, roots,
+                                                                registry, inbox):
+    """This test used to be `test_zero_byte_files_are_ignored`, and it asserted
+    the defect as though it were the design.
+
+    A zero-byte file was skipped with a bare `continue`, ahead of the settle
+    check and with no log line — so it was re-skipped on every scan forever and
+    left no trace anywhere. Found when `cupsfilter` wrote a 0-byte PDF into the
+    inbox and the watcher printed neither FILED nor QUARANTINED. Silence is the
+    worst outcome available: a document that is loudly refused gets dealt with,
+    and one that vanishes does not.
+    """
     f = inbox / "personal" / "empty.txt"
     f.touch()
     age(f, watchfolder.QUIET_SECONDS + 1)
+
+    results = scan(conn, roots, registry, inbox, watchfolder.WatchState())
+
+    assert [r.status for r in results] == ["EMPTY"]
+    assert not results[0].ok
+    assert "no content" in results[0].reason
+    actions = [r["action"] for r in conn.execute("SELECT action FROM actions_log")]
+    assert "EMPTY_FILE" in actions, "the skip left no trace in the log"
+
+
+def test_an_empty_file_is_moved_aside_so_it_is_not_seen_again(conn, roots,
+                                                              registry, inbox):
+    """Retiring it is what stops the silent re-skip on every future scan."""
+    f = inbox / "personal" / "empty.txt"
+    f.touch()
+    age(f, watchfolder.QUIET_SECONDS + 1)
+    state = watchfolder.WatchState()
+
+    scan(conn, roots, registry, inbox, state)
+    assert not f.exists(), "left in the inbox to be skipped again forever"
+    assert (inbox / "_failed" / "empty.txt").exists(), "the bytes were not kept"
+    assert scan(conn, roots, registry, inbox, state) == []
+
+
+def test_a_file_still_being_written_is_not_called_empty(conn, roots, registry, inbox):
+    """The settle check must come FIRST.
+
+    A file created and not yet written to is momentarily zero bytes. Calling
+    that a failed delivery would retire a document mid-flight — the original
+    bug's guard was right about this case and wrong about every other one.
+    """
+    f = inbox / "personal" / "arriving.txt"
+    f.touch()                                     # brand new, size 0
     assert scan(conn, roots, registry, inbox, watchfolder.WatchState()) == []
+    assert f.exists(), "a file still being written was retired"
 
 
 def test_is_settled_reads_mtime_not_a_counter(inbox):

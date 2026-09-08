@@ -110,7 +110,26 @@ PY="$VENV/bin/python"
 echo "    interpreter: $PY"
 "$PY" -m pip install --quiet --upgrade pip
 "$PY" -m pip install --quiet pyyaml pytest
-echo "    deps: $("$PY" -m pip list 2>/dev/null | grep -Ei 'pyyaml|pytest' | tr '\n' ' ')"
+
+# Apple's on-device readers, reached through PyObjC.
+#
+#   Vision  — OCR for photographed mail and scanned PDF pages
+#   Quartz  — PDFKit for a PDF's text layer, and page rasterisation
+#
+# Both run entirely on this machine (D-004). Without them Vision is
+# unavailable, PDFKit is unavailable, and EVERY PDF quarantines regardless of
+# what it contains — which is how this was found: PDF reading was built and
+# could not run here, because bringup installed pyyaml and pytest and nothing
+# else. The pipeline degrades honestly without them, but it degrades.
+#
+# Not fatal if the install fails: a machine with no PyObjC still files text and
+# still reaches the model for images. verify_setup.py names what is missing.
+if ! "$PY" -m pip install --quiet pyobjc-framework-Vision pyobjc-framework-Quartz; then
+  echo "    WARNING: PyObjC did not install — OCR and PDF reading will be" >&2
+  echo "             unavailable. Run ops/verify_setup.py for the detail." >&2
+fi
+
+echo "    deps: $("$PY" -m pip list 2>/dev/null | grep -Ei 'pyyaml|pytest|pyobjc-framework-(vision|quartz)' | tr '\n' ' ')"
 
 # ---------------------------------------------------------------------------
 # 4. Environment. Written to a file the LaunchAgent sources.

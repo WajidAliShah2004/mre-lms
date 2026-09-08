@@ -262,6 +262,48 @@ def check_lmstudio_loopback() -> None:
              "any mailbox connects.")
 
 
+def check_readers_available() -> None:
+    """Which document readers actually work on THIS machine.
+
+    Every other check here asks whether the configuration is right. This one
+    asks whether the code can run, which is a different question and the one
+    that bit: PDF support was built, shipped, and could not execute on the Mac
+    because PyObjC was never installed. Nothing said so. Each PDF simply
+    quarantined, one at a time, with a reason that described the symptom.
+
+    A capability that is missing should be announced once at setup, not
+    rediscovered per document.
+    """
+    print("\n[7] Document readers available on this machine")
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    try:
+        from core.pipeline import ocr
+    except Exception as exc:
+        fail(f"could not import the OCR module: {exc}")
+        return
+
+    ok("plain text (.txt, .md, .csv) — always available")
+
+    if ocr.vision_available():
+        ok("Apple Vision — on-device OCR for photographed mail")
+    else:
+        warn("Apple Vision UNAVAILABLE — photographed mail falls back to "
+             "glm-ocr in LM Studio, which is slower. Install with: "
+             ".venv/bin/pip install pyobjc-framework-Vision")
+
+    if ocr.pdfkit_available():
+        ok("PDFKit — PDF text layer and page rasterisation")
+    else:
+        fail("PDFKit UNAVAILABLE — EVERY PDF will quarantine unread, whatever "
+             "it contains, and PDF is the format most real mail arrives in. "
+             "Install with: .venv/bin/pip install pyobjc-framework-Quartz")
+
+    if ocr.pdfkit_available() and not ocr.vision_available():
+        warn("scanned PDFs cannot be read: the text layer will work, but a "
+             "scan needs Vision and it is missing")
+
+
 # ---------------------------------------------------------------------------
 
 def main() -> int:
@@ -277,6 +319,7 @@ def main() -> int:
     check_skills_declare_no_tools()
     check_no_cloud_provider()
     check_dst_boundary()
+    check_readers_available()
     if not args.skip_openclaw:
         check_openclaw_drift()
         check_lmstudio_loopback()

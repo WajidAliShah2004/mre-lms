@@ -196,10 +196,31 @@ def process_once(conn, roots: filing.StorageRoots, registry: Registry,
                     db.log_action(conn, "ICLOUD_TIMEOUT", detail=str(exc)[:400])
                     continue
 
-            if path.stat().st_size == 0:
-                continue
             if not is_settled(path):
                 continue          # still being written
+
+            # A settled zero-byte file is not a file in progress, it is a
+            # delivery that failed — a truncated AirDrop, a Shortcut that
+            # errored, a converter that wrote nothing.
+            #
+            # This used to be `if st_size == 0: continue`, ahead of the settle
+            # check and with no log line, so an empty file was skipped on every
+            # scan forever and left no trace anywhere. Found when cupsfilter
+            # produced a 0-byte PDF and the watcher printed neither FILED nor
+            # QUARANTINED — the worst possible outcome, because a document that
+            # is loudly refused gets dealt with and one that vanishes does not.
+            if path.stat().st_size == 0:
+                db.log_action(conn, "EMPTY_FILE", detail=path.name[:400])
+                dest = _retire(path, inbox, "_failed")
+                # Returned as a result, not just logged, so `--once` prints it.
+                # A log line nobody is watching is only marginally louder than
+                # silence.
+                results.append(ingest.IngestResult(
+                    sha256="", status="EMPTY", path=dest,
+                    reason=f"{path.name} arrived with no content — the delivery "
+                           f"failed upstream, nothing was written"))
+                continue
+
             if not state.claim(path):
                 continue          # already in flight this process
 
