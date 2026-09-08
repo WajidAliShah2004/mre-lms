@@ -29,3 +29,8 @@ __pycache__/
 # Python
 .pytest_cache/
 *.pyc
+.venv/
+
+# Generated per-machine by ops/bringup_mac.sh. Paths only, but machine-specific
+# — the Mac's volume layout is not the workstation's.
+lms/ops/lms.env

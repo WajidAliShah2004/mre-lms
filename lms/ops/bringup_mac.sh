@@ -85,16 +85,32 @@ echo "==> Python"
 # 3.9 in /usr/bin, and the launchd jobs added on Day 6 will not inherit this
 # shell's PATH — so a script that works when typed can fail silently at 06:30
 # against a different interpreter. Name the interpreter, do not inherit it.
-PY="/opt/homebrew/bin/python3.12"
-if [[ ! -x "$PY" ]]; then
-  echo "    $PY not found; install with: brew install python@3.12" >&2
-  echo "    falling back to $(command -v python3) — acceptable for tests," >&2
-  echo "    NOT acceptable once launchd jobs exist." >&2
-  PY="$(command -v python3)" || { echo "no python3 at all" >&2; exit 1; }
+BOOTSTRAP_PY="/opt/homebrew/bin/python3.12"
+if [[ ! -x "$BOOTSTRAP_PY" ]]; then
+  echo "    $BOOTSTRAP_PY not found; install with: brew install python@3.12" >&2
+  exit 1
 fi
+echo "    bootstrap: $BOOTSTRAP_PY ($("$BOOTSTRAP_PY" --version))"
+
+# Homebrew's Python is externally managed (PEP 668) and refuses system-wide
+# installs. The documented escape hatch is --break-system-packages; we do not
+# use it. A venv is correct here for reasons that outlast the error message:
+#
+#   * `brew upgrade python@3.12` will not move dependencies under a running
+#     service. A --user install shares its fate with Homebrew's.
+#   * The launchd jobs can name .venv/bin/python absolutely, so the scheduled
+#     run and the interactive run are provably the same interpreter.
+#   * Wiping and rebuilding is `rm -rf .venv` and re-running this script.
+VENV="$REPO_DIR/.venv"
+if [[ ! -x "$VENV/bin/python" ]]; then
+  echo "    creating venv at $VENV"
+  "$BOOTSTRAP_PY" -m venv "$VENV"
+fi
+PY="$VENV/bin/python"
 echo "    interpreter: $PY"
-"$PY" --version
-"$PY" -m pip install --quiet --user pyyaml pytest
+"$PY" -m pip install --quiet --upgrade pip
+"$PY" -m pip install --quiet pyyaml pytest
+echo "    deps: $("$PY" -m pip list 2>/dev/null | grep -Ei 'pyyaml|pytest' | tr '\n' ' ')"
 
 # ---------------------------------------------------------------------------
 # 4. Environment. Written to a file the LaunchAgent sources.
@@ -111,6 +127,8 @@ export LMS_QUARANTINE_ROOT="$QUARANTINE"
 export LMS_INBOX="$INBOX"
 export LMS_DB="$ARCHIVE/../lms.db"
 export TZ="America/New_York"
+# The interpreter every launchd job must name explicitly. Never "python3".
+export LMS_PYTHON="$PY"
 EOF
 chmod 600 "$REPO_DIR/ops/lms.env"
 
