@@ -1,0 +1,97 @@
+# Deterministic rules — evaluated in code, before and around the model.
+#
+# Everything here is enforced below the agent (spec §8.4). These are not
+# instructions to a model and cannot be talked out of by anything arriving
+# in an email. If a rule and the model disagree, the rule wins.
+
+version: 1
+
+# ---------------------------------------------------------------------------
+# Hard stops. There is no code path that does these, with or without approval
+# logic. They are asserted in tests and must never become configurable.
+# ---------------------------------------------------------------------------
+hard_stops:
+  never_delete_email: true
+  never_mark_read: true
+  never_delete_file: true
+  never_send_without_approval: true    # approval = an explicit Telegram tap
+  never_move_money: true
+  never_sign_or_bind: true
+  never_touch_non_lms_labels: true
+  never_click_links_in_message_bodies: true
+
+# ---------------------------------------------------------------------------
+# Phishing / fraud pre-checks. Run BEFORE classification. Any hit short-
+# circuits the pipeline: mark SUSPECTED_PHISHING, push to Telegram, file
+# nothing, draft nothing, take no other action.
+# ---------------------------------------------------------------------------
+phishing:
+  auth_failures:
+    - spf_fail
+    - dkim_fail
+    - dmarc_fail
+    - dmarc_none_from_known_domain   # a known counterparty domain with no DMARC
+
+  lookalike:
+    # Compared against every domain in entities.yaml plus known counterparties.
+    # Confusable-character normalisation then edit distance.
+    max_edit_distance: 2
+    check_homoglyphs: true
+    check_punycode: true
+
+  money_language:
+    - "wire transfer"
+    - "wiring instructions"
+    - "updated bank details"
+    - "change of account"
+    - "remittance advice"
+    - "beneficiary details"
+    - "gift card"
+    - "urgent payment"
+    - "invoice attached"          # weak on its own; scored, not conclusive
+    - "verify your account"
+    - "confirm your credentials"
+    - "password expires"
+
+  # A single auth failure OR lookalike hit is conclusive.
+  # Money language alone requires two independent hits.
+  conclusive_on:
+    - auth_failures
+    - lookalike
+  score_threshold: 2
+
+# ---------------------------------------------------------------------------
+# Unsubscribe. Header-only, per RFC 8058. The body of a marketing email is
+# untrusted content and its links are never followed.
+# ---------------------------------------------------------------------------
+unsubscribe:
+  method: list_unsubscribe_header_only
+  require_authenticated_sender: true    # SPF or DKIM must pass
+  require_one_click_post: true          # List-Unsubscribe-Post, not a GET
+  never_click_body_links: true
+  log_and_allow_undo_days: 30
+
+# ---------------------------------------------------------------------------
+# Untrusted content handling. Every byte that came from outside is wrapped
+# before it reaches a model, and the model that reads it has no tools.
+# ---------------------------------------------------------------------------
+sanitisation:
+  wrapper_open: "<<EXTERNAL_UNTRUSTED_CONTENT>>"
+  wrapper_close: "<</EXTERNAL_UNTRUSTED_CONTENT>>"
+  strip_html: true
+  strip_remote_images: true             # no tracking-pixel fetches
+  max_chars_to_model: 12000             # truncate, never summarise-then-trust
+  classifier_tools: []                  # asserted empty at startup
+
+# ---------------------------------------------------------------------------
+# Notification budget (spec §7). Prevents the system becoming noise, which is
+# the most likely way it stops being used.
+# ---------------------------------------------------------------------------
+notifications:
+  max_interrupts_per_day: 3
+  bypass_cap_for:
+    - CRITICAL
+    - SUSPECTED_PHISHING
+  morning_brief: "06:30"
+  evening_brief: "17:30"
+  timezone: "America/New_York"          # never a UTC offset — DST safety

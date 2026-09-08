@@ -1,0 +1,142 @@
+# Entity registry — the single source of truth for routing.
+#
+# Every classification resolves to exactly one entity_id from this file.
+# The classifier is given the ids and match hints below and nothing else;
+# it never invents an entity.
+#
+# NOTE ON PLACEHOLDERS
+# Values marked TODO(C16) are blocked on the client item C16 — legal names,
+# EINs, and exact spellings from the formation documents. The system RUNS
+# with placeholders (routing works off domains and aliases), but a document
+# that needs a legal name or EIN will land in UNASSIGNED until they're filled.
+# Anything still reading TODO(C16) at acceptance is a defect, not a stub.
+#
+# NEVER put credentials in this file. Mailbox secrets live in the macOS
+# Keychain; this file holds addresses only, for routing.
+
+version: 1
+
+people:
+  P_MRE:
+    name: "Matthew R. Epstein"
+    tree: "PERSONAL/Matthew"
+    aliases:
+      - "Matthew Epstein"
+      - "Matt Epstein"
+      - "M. Epstein"
+      - "Matthew R Epstein"
+      - "Matthew R. Epstein"
+    emails:
+      - "mattyeps@gmail.com"
+
+  P_JG:
+    name: "Jesse Gwilt"
+    role: fiancee
+    tree: "PERSONAL/Jesse"
+    aliases:
+      - "Jesse Gwilt"
+      - "J. Gwilt"
+    emails: []
+
+  P_AE:
+    name: "TODO(C16) — mother, full legal name and spelling"
+    role: mother
+    tree: "PERSONAL/Mother"
+    aliases: []
+    emails: []
+
+  P_PE:
+    name: "TODO(C16) — father, full legal name and spelling"
+    role: father
+    tree: "PERSONAL/Father"
+    aliases: []
+    emails: []
+
+  P_HH:
+    name: "Household"
+    role: shared
+    tree: "PERSONAL/Household"
+    # Catch-all for personal mail addressed to the residence rather than a
+    # person — utilities, HOA, property tax, homeowners insurance.
+    aliases: []
+    emails: []
+
+businesses:
+  B_MRE:
+    name: "TODO(C16) — legal name on the formation documents"
+    short: "MRE Consulting & Insurance"
+    tree: "MRECAI"
+    ein: "TODO(C16)"
+    domains:
+      - "mrecai.com"
+    emails:
+      - "matthew@mrecai.com"
+    aliases:
+      - "MRECAI"
+      - "MRE Consulting"
+
+  B_CHS:
+    name: "TODO(C16) — legal name; client flagged this one as incomplete"
+    short: "C.H. Shink & Associates Brokerage LLC"
+    tree: "CHSHINK"
+    ein: "TODO(C16)"
+    domains: []          # TODO(C16) — no domain supplied
+    emails: []           # OPEN: no mailbox in the Sept 7 list. Confirm whether
+                         # this entity receives email at all, or is document-only.
+    aliases:
+      - "C.H. Shink"
+      - "CH Shink"
+      - "Shink & Associates"
+      - "C H Shink"
+
+  B_ATL:
+    name: "TODO(C16) — legal name on the formation documents"
+    short: "Atlase AI"
+    tree: "ATLASE"
+    ein: "TODO(C16)"
+    domains:
+      - "atlase.ai"
+      - "atlas.te"
+    emails:
+      - "mre@atlase.ai"
+      - "matthew@atlase.ai"
+    aliases:
+      - "Atlase"
+      - "Atlas"
+      - "Atlase AI"
+      - "Atlas Engine"
+
+  B_MLE:
+    name: "TODO(C16) — legal name on the formation documents"
+    short: "MLE Consulting Agency LLC"
+    tree: "MLECA"
+    ein: "TODO(C16)"
+    domains:
+      - "mleca.com"
+    emails:
+      - "matthew@mleca.com"   # VERIFY: inferred from the Sept 7 document,
+                              # which listed "Matthew - MLECA" without an address.
+    aliases:
+      - "MLECA"
+      - "MLE Consulting"
+
+# Terminal buckets. Not businesses, not people — but valid classifier outputs.
+system:
+  UNASSIGNED:
+    tree: "_UNASSIGNED"
+    # Confidence below threshold, or genuinely ambiguous. Goes to review,
+    # never silently filed into a real entity.
+  JUNK:
+    tree: "_JUNK"
+    # Marketing and bulk mail. Filed, never deleted (hard rule: no deletes).
+
+# Routing precedence, highest first. Deterministic code applies these before
+# the model is consulted at all; the model only decides what code cannot.
+routing:
+  precedence:
+    - recipient_email     # exact match on an entity's `emails`
+    - sender_domain       # exact match on an entity's `domains`
+    - alias_in_subject
+    - alias_in_body
+    - model               # only reached when every rule above misses
+  min_confidence: 0.60    # below this → UNASSIGNED + quarantine + review

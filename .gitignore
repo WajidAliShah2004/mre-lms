@@ -1,5 +1,6 @@
-# Local agent settings — machine-specific
+# Local agent settings and scratch worktrees — machine-specific
 .claude/settings.local.json
+**/.claude/worktrees/
 
 # OS
 .DS_Store
@@ -14,8 +15,17 @@ desktop.ini
 credentials*.json
 token*.json
 
+# Client-supplied document containing plaintext account passwords.
+# Must never enter git history. Delete once credentials are rotated and
+# stored in Keychain / a password manager. (See DECISIONS.md D-008.)
+Completed System Setup and Access Requirements*.pdf
+
 # Build/data artifacts — the LMS repo proper lives on the Mac, but guard anyway
 *.db
 *.db-wal
 *.db-shm
 __pycache__/
+
+# Python
+.pytest_cache/
+*.pyc

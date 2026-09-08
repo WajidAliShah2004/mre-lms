@@ -1,0 +1,120 @@
+# Category taxonomy — trimmed from spec §5.3–5.4 for the 7-day scope.
+#
+# Only TOP-LEVEL categories appear in a filename (D-007). Subcategories are
+# folder depth below the category and are recorded in the metadata sidecar,
+# never in the name. Adding a category is cheap; renaming one means re-filing
+# the tree, so treat these as fixed once the first document lands.
+#
+# UNSORTED exists in both trees on purpose. A category the model cannot pick
+# must land somewhere real and reviewable, not be guessed at.
+
+version: 1
+
+personal:
+  FINANCE:
+    - banking
+    - investments
+    - credit-cards
+    - loans
+    - tax-personal
+  HOME:
+    - mortgage
+    - utilities
+    - insurance-property
+    - maintenance
+    - hoa
+  HEALTH:
+    - medical
+    - dental
+    - vision
+    - insurance-health
+    - pharmacy
+  LEGAL:
+    - estate
+    - contracts
+    - court            # jury duty, summonses — the meeting's worked example
+    - identity
+  FAMILY:
+    - mother
+    - father
+    - jesse
+    - correspondence
+  VEHICLES:
+    - registration
+    - insurance-auto
+    - maintenance
+    - loans-auto
+  TRAVEL:
+    - bookings
+    - itineraries
+    - receipts
+  WEDDING:
+    - vendors
+    - contracts
+    - payments
+    - logistics
+  SUBSCRIPTIONS:
+    - active
+    - cancelled
+  UNSORTED: []
+
+business:
+  CLIENTS:
+    - policies
+    - applications
+    - claims
+    - correspondence
+    - renewals
+  FINANCE:
+    - invoices
+    - receipts
+    - statements
+    - commissions
+    - payroll
+  TAX:
+    - filings
+    - notices
+    - 1099
+    - estimated
+  COMPLIANCE:
+    - licensing
+    - appointments
+    - continuing-education
+    - regulator
+  VENDORS:
+    - contracts
+    - invoices
+    - subscriptions
+  LEGAL:
+    - formation
+    - contracts
+    - ip
+    - disputes
+  OPERATIONS:
+    - hr
+    - facilities
+    - technology
+    - marketing
+  UNSORTED: []
+
+# Urgency is orthogonal to category and drives notification, not filing.
+urgency:
+  CRITICAL:  "Money leaves, a right lapses, or a legal deadline passes within 72h. Breaks the interrupt cap."
+  HIGH:      "Dated obligation within 14 days, or a named client waiting on a reply."
+  NORMAL:    "Action needed, no near deadline."
+  LOW:       "Informational, worth keeping."
+  NONE:      "Bulk or marketing. Filed, surfaced only in counts."
+
+# Signals that force a category regardless of model output. Deterministic,
+# checked in code before classification. A hit here is not a suggestion.
+overrides:
+  - match: { header: "List-Unsubscribe", present: true }
+    category: null            # does not set category
+    urgency: NONE
+    tag: BULK
+  - match: { any_text: ["jury duty", "summons", "subpoena"] }
+    category: LEGAL
+    subcategory: court
+    urgency: HIGH
+  - match: { any_text: ["notice of cancellation", "policy will lapse", "final notice"] }
+    urgency: CRITICAL

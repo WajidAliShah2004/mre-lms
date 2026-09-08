@@ -1,0 +1,78 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "LMS classification",
+  "description": "Passed to LM Studio as response_format.json_schema so the shape is guaranteed by constrained decoding rather than by asking politely. entity_id and category are validated again in code against entities.yaml before anything is filed.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "domain",
+    "entity_id",
+    "category",
+    "urgency",
+    "confidence",
+    "requires_reply",
+    "due_date",
+    "counterparty",
+    "descriptor",
+    "rationale"
+  ],
+  "properties": {
+    "domain": {
+      "type": "string",
+      "enum": ["PERSONAL", "BUSINESS", "MIXED"]
+    },
+    "entity_id": {
+      "type": "string",
+      "description": "Must match an id from the injected entity table exactly.",
+      "pattern": "^(P_[A-Z]+|B_[A-Z]+|UNASSIGNED|JUNK)$"
+    },
+    "category": {
+      "type": "string",
+      "pattern": "^[A-Z_]+$"
+    },
+    "subcategory": {
+      "type": ["string", "null"],
+      "pattern": "^[a-z0-9-]+$"
+    },
+    "urgency": {
+      "type": "string",
+      "enum": ["CRITICAL", "HIGH", "NORMAL", "LOW", "NONE"]
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0
+    },
+    "requires_reply": {
+      "type": "boolean"
+    },
+    "due_date": {
+      "type": ["string", "null"],
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "doc_date": {
+      "type": ["string", "null"],
+      "description": "The date on the document itself, which is what the filename uses. Null falls back to the received date.",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "counterparty": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "descriptor": {
+      "type": "string",
+      "maxLength": 60
+    },
+    "amount_cents": {
+      "type": ["integer", "null"]
+    },
+    "currency": {
+      "type": ["string", "null"],
+      "maxLength": 5
+    },
+    "rationale": {
+      "type": "string",
+      "maxLength": 200
+    }
+  }
+}

@@ -107,6 +107,116 @@ Provider: command `/usr/bin/security`, args `["find-generic-password","-a","lms"
 
 **Audit delta:** `browser control` went `enabled` → `disabled`. Remaining: `tools.elevated: enabled` (open), plus two warnings — `gateway.trusted_proxies_missing` (**justified**: loopback-only, no reverse proxy, accepted not fixed) and `gateway.probe_failed / missing scope: operator.read` (blocked on C2).
 
+### D-009 — LMS runs under Matthew's macOS user (option a)
+**Status:** Decided · Sept 7 2026 · developer, with client authorisation to operate his accounts
+**Supersedes the recommendation in [PHASES.md](PHASES.md) Phase 1 item 7, which was option (b).**
+
+iMessage (`~/Library/Messages/chat.db`, C13) and iCloud Drive (C12, C14) are bound to the logged-in macOS session and are invisible from a separate account. Rather than run a split reader daemon, everything runs under Matthew's user.
+
+Note this was already the observed state — the Aug 7 commit recorded the gateway running as uid 501 (`mleca`), not `lms`. This decision makes that deliberate instead of accidental.
+
+**What this costs — state it plainly.** Privilege separation is gone. The spec's §4.1 principle 8 ("enforce below the agent") loses its outermost layer: an agent that is successfully injected inherits Matthew's full session reach — his Messages, his iCloud, his Keychain items, his Drive. Option (b) existed to contain exactly that.
+
+**Compensating controls, now load-bearing rather than defence-in-depth.** Each of these was a second line under option (b). Under option (a) there is no first line, so none of them may be relaxed without revisiting this decision:
+
+1. The classifier — the only component that reads hostile text — has **zero tools** (`lms-classifier/SKILL.md`, asserted at startup and in `tests/test_hard_stops.py`).
+2. Filing, naming, dedupe, and notification are deterministic code. No model decides where a document goes or whether it is kept.
+3. The hard stops in `config/rules.yaml` are enforced in code and asserted in tests — no delete, no mark-read, no send without an explicit Telegram tap, no money, no signing.
+4. `actions_log` is append-only at the schema level (triggers, not convention).
+5. Default-deny egress (Phase 8) becomes the containment boundary that the user account no longer provides. **It is now mandatory, not a hardening nicety.**
+6. Untrusted content is wrapped, HTML-stripped, and remote images blocked before any model sees it.
+
+**Revisit this if** the drafting agent ever gains filesystem tools, a cloud tier is added, or the system starts handling attorney-privileged material. Any of those three changes the risk enough that option (b) should be rebuilt.
+
+### D-017 — Client credentials were transmitted in plaintext; full rotation required
+**Status:** OPEN — rotation not yet performed · Sept 7 2026 · **treat as an incident, not paperwork**
+
+The client supplied *System Setup and Access Requirements* (PDF, authored in ChatGPT Canvas) containing plaintext passwords for **seven accounts**: GitHub, five email accounts, and Backblaze — plus the password for the newly created OpenClaw macOS user.
+
+**Exposure path:** typed into a third-party AI product → exported to PDF → placed in a git working tree that did **not** ignore it → read into an AI assistant session. Any one of those is disqualifying on its own.
+
+**This is the second occurrence.** C7 already carries "confirm the keys exposed on 2026-08-06 have been rotated" — still unconfirmed. D-016 recorded the same lesson after the gateway token was printed to a terminal: *"Rotation is trivial; the lesson is the habit."* The habit has not formed.
+
+**Required actions, none optional:**
+
+| # | Action | Status |
+|---|---|---|
+| 1 | Rotate all 7 account passwords | Pending |
+| 2 | Replace the OpenClaw macOS user password — it was set to `123456` | Pending |
+| 3 | Confirm the Aug 6 exposure (C7) was rotated | Pending |
+| 4 | Delete the PDF from disk once values are in Keychain / a password manager | Pending |
+| 5 | Verify the PDF never entered git history | Ignore rule added Sept 7; history clean at `a41ebc9` |
+| 6 | Identify the `rescueadmin` macOS account | Pending |
+
+**On item 2 specifically.** D-009 above makes the macOS user account the container for the entire system. A six-digit sequential password on that account means the container is decorative. This must be fixed before that account runs anything.
+
+**Going forward:** credentials are transmitted through a password manager share or entered by Matthew directly. Not a document, not a chat message, not a PDF. This supersedes nothing in D-008 — it is the delivery mechanism, which D-008 never addressed because nobody imagined it needed saying.
+
+### D-018 — Account cleanup: three abandoned accounts removed (closes C21)
+**Status:** Decided and applied · Sept 8 2026 · verified on the machine
+
+Recon found **four** accounts where the docs assumed two. Three were abandoned setup attempts, created one per day and never used again:
+
+| uid | account | created | what it actually was |
+|---|---|---|---|
+| 501 | `mleca` | — | Matthew's. The only real account |
+| 502 | `OpenClaw` | Aug 4 14:06 | Admin, FileVault-enabled, password `123456`. Its entire shell history was one line: `curl -fsSL https://openclaw.ai/install.sh \| bash`. Used for six minutes to run the installer |
+| 503 | `rescueadmin` | Aug 5 11:37 | Temporary admin for a home-folder relocation. User record already deleted; home left behind. Only real file was a Perplexity export, `home-folder-relocation-adjudication-and-guide-v2.pplx.docx` |
+| 504 | `lms` | Aug 6 01:45 | The non-admin service account from Phase 1 item 5. Stub home, 924 KB, one 3-byte file, never logged into |
+
+**This is the archaeology behind D-009.** The privilege-separation design was attempted three times in three days and abandoned each time, which is why the gateway ended up running as `mleca`. D-009 records that as a deliberate choice; this records that it was also the de-facto outcome of three failed attempts.
+
+**The finding that mattered:** `OpenClaw` was an **administrator** *and* **FileVault-enabled** with the password `123456`. That combination means anyone with the password reaches full disk and full admin — and it had been sitting there since Aug 4. It was not the account running anything: the gateway runs as `mleca` (uid 501) with config in `/Users/mleca/.openclaw`.
+
+**Applied:** both home directories archived to `/Volumes/MacStudioHD/_pre-lms-archive/` with a 3,757-line manifest before deletion (`Library` excluded — the iCloud placeholder tree hangs `tar`). Account deleted via `sysadminctl -deleteUser`; the other two homes removed.
+
+**Verified after:** `fdesetup list` → `mleca` only. Admin group → `root mleca _mbsetupuser`. Four accounts became one.
+
+**Residue:** `/Users/.pending_delete_*` cannot be fully removed while the `bird` daemon holds the iCloud placeholder directories. It holds no data, but it is owned by **uid 502** — a uid macOS may reuse for the next account created, which would silently inherit ownership. Clear it after the next reboot.
+
+**Superseded assumption:** C21 asked "does `rescueadmin` belong to the client?" The answer is that it was never a client account at all — all three were developer setup debris.
+
+### D-019 — C5 closed: the RAID is one already-encrypted 12 TB volume
+**Status:** Decided · Sept 8 2026 · observed, no client approval needed
+
+The client's document named three volumes to encrypt — **Bulk**, **MacStudioHome**, **Vault**. None of them exist. What is actually attached:
+
+```
+disk6-disk9   4 x 4 TB physical members
+disk10        Apple_APFS 12.0 TB  (the array as one device)
+disk11s1      MacStudioHD  FileVault: Yes (Unlocked)  11 TB free, empty
+```
+
+So there is nothing to encrypt and no approval to obtain — C5 and D-011 are closed by observation. The client was describing an older layout, or misremembering.
+
+**Archive root is `/Volumes/MacStudioHD/LMS`.**
+
+Two consequences worth recording:
+
+1. **4 × 4 TB presenting as 12 TB is single-disk parity — redundancy, not backup.** D-012 is unchanged: one flood, one theft, or one bad write still takes everything. The off-site target remains required.
+2. **The model cache belongs on MacStudioHD, not the boot volume.** The internal disk has 231 GB free against a ~150 GB resident model stack. It fits, barely, with no headroom for growth or a second tier.
+
+### D-020 — Interim remote is a contractor-owned repo; must be transferred before handover
+**Status:** Decided — **temporary, with a close condition** · Sept 8 2026
+
+The repository is at `https://github.com/WajidAliShah2004/mre-lms.git` — the developer's account, not Matthew's. This **deviates from D-006 and C1**, which require a private remote the client owns "not a contractor account (§12.4)."
+
+**Why it was accepted:** Day 1–2 code had no home and every phase after Phase 3 writes into the repo. Waiting on the client to create a repo would have blocked the build for the sake of a step that is reversible in thirty seconds.
+
+**Why the deviation is tolerable but not fine:**
+- The repo holds **pointers only** — no credentials, no client documents, no filed artifacts. The exposure if the account were compromised is the design, not the data.
+- GitHub's **Settings → Transfer ownership** moves the repo in place, preserving full history, issues, and commit attribution. This is not a "re-create it later" debt.
+
+**What is genuinely at risk while this stands:** the exact failure C1 existed to prevent — the client's system living in a contractor's account. If this engagement ended today, Matthew would own a Mac he cannot rebuild from source.
+
+**Close condition — one of these, before handover, not at handover:**
+1. Transfer the repo to Matthew's `Mleca18` account (preferred: preserves everything), **or**
+2. Matthew creates `Mleca18/mre-lms` and this becomes a mirror push target, with the contractor copy deleted at handover.
+
+**Also required regardless:** confirm the repository is **Private**. A public repo here would put the entity registry, taxonomy, routing rules, and the full security design — including which defences exist and which do not — on the open internet.
+
+**Do not close D-020 by deleting it.** It closes when the transfer is done and verified by Matthew being able to clone it himself.
+
 ### D-014 — Call transcripts are the first thing cut if the week slips
 **Status:** Decided (contingency) · [GUIDELINES_7DAY_BUILD.md:40](GUIDELINES_7DAY_BUILD.md:40)
 Email + photographed mail + the to-do list are the visible value. Day 4's call-transcript ingestion (C15) goes first, before anything else is touched.
@@ -121,19 +231,6 @@ The Aug 5 meeting agreed to shared email passwords with 2FA disabled. Written re
 **No mailbox connects until this is answered.** If Matthew insists on the original approach, record his acknowledgement here verbatim, store credentials only in the macOS Keychain, and rotate + re-enable 2FA at handover (spec §12.4).
 
 > **Answer (record here):**
-> **Date:**
-
-### D-009 — Service account vs. user-session integrations
-**Status:** OPEN · must be settled **before Day 4** · [PHASES.md:67](PHASES.md:67)
-LMS services run under a non-admin `lms` user, but iMessage (`~/Library/Messages/chat.db`, C13) and iCloud Drive (C12, C14) are bound to Matthew's own macOS session and are invisible from a separate account.
-
-- (a) Run LMS under Matthew's user — everything works, privilege separation lost, an injected agent inherits his session's reach. Contradicts spec §4.1 principle 8.
-- (b) **Split it (recommended)** — gateway and agents under `lms`; a minimal, tool-less reader daemon in Matthew's session hands artifacts to the queue read-only. Keeps the boundary; costs one extra component.
-- (c) Drop both channels from scope — cheapest, but photographed mail is core to the meeting's ask.
-
-Changes nothing in Phases 2–9; surfaced in Phase 1 only because the user account is created there.
-
-> **Chosen:**
 > **Date:**
 
 ### D-010 — Remote-access path

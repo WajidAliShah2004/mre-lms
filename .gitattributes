@@ -1,0 +1,31 @@
+# Line endings are pinned because this repo is authored on Windows and runs on
+# macOS. Without this, Git's autocrlf turns LF into CRLF on checkout, and a
+# shell script with a CRLF shebang fails as:
+#
+#     ./ops/bringup_mac.sh: bad interpreter: /usr/bin/env bash^M: no such file
+#
+# which reads like a missing interpreter rather than a line-ending problem and
+# costs an hour to diagnose. YAML and SQL are less dramatic but still parse
+# wrong or carry stray \r into values.
+
+# Everything text: normalise to LF in the repo.
+* text=auto eol=lf
+
+# Executed or parsed on the Mac — must be LF, no exceptions.
+*.sh   text eol=lf
+*.py   text eol=lf
+*.yaml text eol=lf
+*.yml  text eol=lf
+*.sql  text eol=lf
+*.json text eol=lf
+*.md   text eol=lf
+*.ini  text eol=lf
+
+# Binary — never touched.
+*.pdf    binary
+*.docx   binary
+*.png    binary
+*.jpg    binary
+*.heic   binary
+*.db     binary
+*.tar.gz binary

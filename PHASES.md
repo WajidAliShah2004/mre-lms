@@ -12,38 +12,44 @@ Per the Aug 5 meeting: **no Hostinger VPS** — this is a Mac-only setup.
 
 One list, so nothing stalls silently. Each phase below references this table rather than restating it. Status column is maintained here — update it as answers land, and record decisions in `DECISIONS.md`.
 
+**Status values:** `Closed` · `Asked — awaiting` · `Partial` · `Open` · `Dropped` · `Deferred`.
+`Asked` is not `Closed`. The point of this table is that a question in flight still blocks the day it blocks.
+
+**Last reconciled:** Sept 7 2026, against the client's *System Setup and Access Requirements* document. The original Aug 17 acceptance date is void — Days 1–7 were never run, and the schedule needs re-dating with Matthew present.
+
 ### Blocks setup phases
 
 | # | Item | What exactly | Blocks | Status |
 |---|---|---|---|---|
-| C1 | **Private git remote** | A private repo he owns (not a contractor account), with push access for the developer (§12.4) | Phase 3 | Open |
-| C2 | **Telegram** | Account paired, 2FA enabled, and his **user id** for `commands.ownerAllowFrom` | Phase 7 — also clears the open `operator.read` audit finding | Open |
-| C3 | **Tailscale** | Account/tailnet, login on the Mac | Phase 8 | Open |
-| C4 | **Remote-access decision** | Keep RustDesk (allowlist its relays, remove at handover) **or** switch to Tailscale + macOS Screen Sharing (recommended) | Phase 8 — must be settled *before* default-deny egress, or the machine locks you out | Open |
-| C5 | **RAID volumes** | Which volumes hold LMS data/models, and approval to encrypt in place | Phase 1 item 4 | Open |
-| C6 | **Off-site backup target** | B2/S3 account + credentials — there is no VPS to back up to (D-000) | Phase 8 item 5 | Open |
-| C7 | **FileVault recovery key custody** | Sealed envelope held by him; confirm the keys exposed on 2026-08-06 were rotated | Phase 1 | Open |
-| C8 | **Named unlock owner** | Who physically unlocks the Mac after a power cut, and how they find out | Phase 1 item 3 / RUNBOOK | Open |
+| C1 | **Private git remote** | A private repo he owns (not a contractor account), with push access for the developer (§12.4) | Phase 3 | **Reopened — Partial (D-020)** — client *account* exists (`Mleca18`) but no repo. Interim remote is `WajidAliShah2004/mre-lms`, a **contractor** account. Unblocks the build; must be transferred to `Mleca18` before handover, and confirmed Private now |
+| C2 | **Telegram** | Account paired, 2FA enabled, and his **user id** for `commands.ownerAllowFrom` | Phase 7 — also clears the open `operator.read` audit finding | **Partial** — @handle supplied. The config field takes the *numeric* id, which we capture from his first message to the bot during Phase 7. 2FA still unconfirmed |
+| C3 | **Tailscale** | Account/tailnet, login on the Mac | Phase 8 | **Closed** — account created, installed on the Mac |
+| C4 | **Remote-access decision** | Keep RustDesk (allowlist its relays, remove at handover) **or** switch to Tailscale + macOS Screen Sharing (recommended) | Phase 8 — must be settled *before* default-deny egress, or the machine locks you out | **Closed** — Tailscale. RustDesk stays as the build channel until Tailscale + Screen Sharing is *verified from an outside network*, then removed. Never the reverse order (D-010) |
+| C5 | **RAID volumes** | Which volumes hold LMS data/models, and approval to encrypt in place | Phase 1 item 4 | **Closed by observation (D-019)** — Bulk/MacStudioHome/Vault do not exist. The array is one already-encrypted 12 TB volume, `MacStudioHD`, empty. Nothing to encrypt, no approval needed. Archive root = `/Volumes/MacStudioHD/LMS` |
+| C6 | **Off-site backup target** | B2/S3 account + credentials — there is no VPS to back up to (D-000) | Phase 8 item 5 | **Closed** — Backblaze account created. Credentials to Keychain, then rotate (D-017) |
+| C7 | **FileVault recovery key custody** | Sealed envelope held by him; confirm the keys exposed on 2026-08-06 were rotated | Phase 1 | **Open** — listed on his own to-do, not yet done. Rotation of the Aug 6 exposure still unconfirmed |
+| C8 | **Named unlock owner** | Who physically unlocks the Mac after a power cut, and how they find out | Phase 1 item 3 / RUNBOOK | **Open** |
+| C21 | **Abandoned accounts** | Four accounts existed, not two. Identify and remove the dead ones | Phase 1 / Phase 8 — hardening around unknown admins is not hardening | **Closed (D-018)** — `OpenClaw` (502, admin + FileVault + password `123456`), `rescueadmin` (503), `lms` (504) all removed after archiving. Only `mleca` remains; only `mleca` is admin; only `mleca` can unlock the disk |
 
 ### Blocks the feature build (BUILD_PLAYBOOK.md)
 
 | # | Item | What exactly | Blocks | Status |
 |---|---|---|---|---|
-| C9 | **Credential / MFA decision** | The written recommendation (keep 2FA on; app passwords or internal Workspace OAuth app) sent, and his answer recorded as D-008 | Day 3 — no mailbox connects until this lands | Open |
-| C10 | **Email accounts** | Complete list of addresses across personal and all four entities | Day 3 | Open |
-| C11 | **Google Workspace** | Admin access; four Shared Drives created (MRECAI, C.H. Shink, Atlase, MLECA); OAuth grant | Day 3 | Open |
-| C12 | **iCloud Drive** | Signed in on both Mac and iPhone; personal folder root confirmed | Day 4 | Open |
-| C13 | **iMessage** | Messages signed in on the Mac; Full Disk Access granted; group-chat opt-in list | Day 4 — see the service-account conflict, Phase 1 item 8 | Open |
-| C14 | **Photographed mail** | iOS Shortcut installed on his phone, and he actually uses it | Day 4 | Open |
-| C15 | **Call transcripts** | Where they come from (Retell / Twilio / carrier voicemail) and read access | Day 4 — first thing to cut if the week slips | Open |
-| C16 | **Entities & people** | Legal names, EINs, name variants, and exact spellings for the five people | Day 2 | Open |
+| C9 | **Credential / MFA decision** | The written recommendation (keep 2FA on; app passwords or internal Workspace OAuth app) sent, and his answer recorded as D-008 | Day 3 — no mailbox connects until this lands | **Answered by action, not by choice** — raw passwords supplied for all five mailboxes; neither option selected. See D-017. Rotate and move to app passwords at minimum |
+| C10 | **Email accounts** | Complete list of addresses across personal and all four entities | Day 3 | **Closed** — five addresses supplied and loaded into `entities.yaml`. Note: **no C.H. Shink mailbox**. Confirm the entity is document-only, or supply the address |
+| C11 | **Google Workspace** | Admin access; four Shared Drives created (MRECAI, C.H. Shink, Atlase, MLECA); OAuth grant | Day 3 | **Asked — awaiting** |
+| C12 | **iCloud Drive** | Signed in on both Mac and iPhone; personal folder root confirmed | Day 4 | **Partial** — developer authorised to perform the Mac side. The **iPhone** side and the Apple ID 2FA prompt still need Matthew in the room |
+| C13 | **iMessage** | Messages signed in on the Mac; Full Disk Access granted; group-chat opt-in list | Day 4 — see D-009 | **Partial** — developer authorised for sign-in and FDA. The **group-chat opt-in list stays his decision**: it scopes whose messages get ingested, which is not a setting a contractor should pick. Default remains none |
+| C14 | **Photographed mail** | iOS Shortcut installed on his phone, and he actually uses it | Day 4 | **Open** — developer builds and sends the Shortcut; installation and first-run Allow are on his phone. The only deliverable that depends on a habit rather than a setting |
+| C15 | **Call transcripts** | Where they come from (Retell / Twilio / carrier voicemail) and read access | Day 4 — first thing to cut if the week slips | **Open** |
+| C16 | **Entities & people** | Legal names, EINs, name variants, and exact spellings for the five people | Day 2 | **Open — highest-value blocker.** This *is* `config/entities.yaml`. Placeholders are in place and marked `TODO(C16)`; `tests/test_registry.py::test_no_placeholders_remain` is the acceptance gate and currently xfails by design |
 
 ### Confirmations and purchases
 
 | # | Item | Note | Status |
 |---|---|---|---|
-| C17 | **Hostinger decommission** | Confirm nothing needed remains on it *before* deletion | Open |
-| C18 | **7-day descope sign-off** | The scope change from the Aug 5 meeting, in writing | Open |
+| C17 | **Hostinger decommission** | Confirm nothing needed remains on it *before* deletion | **Dropped** — developer judgment, Sept 7 |
+| C18 | **7-day descope sign-off** | The scope change from the Aug 5 meeting, in writing | **Dropped** — developer accepted the risk of an unsigned descope, Sept 7 |
 | C19 | **UPS** (~$150–250) | Deferred purchase; Phase 1's power-recovery procedure is the interim mitigation | Deferred |
 | C20 | **2× hardware security keys** (~$60) | Deferred purchase; the *decision* on MFA posture (C9) is not deferred | Deferred |
 
