@@ -38,9 +38,20 @@ from ..pipeline.classify import Artifact, Classifier
 from ..pipeline.registry import Registry, load_registry
 
 POLL_SECONDS = 5
-STABLE_POLLS = 2          # consecutive unchanged sizes before we touch it
 MATERIALISE_TIMEOUT = 120  # iCloud can be slow on a large scan
 DATALESS_SUFFIX = ".icloud"
+
+# A file is considered finished when nothing has written to it for this long.
+#
+# This replaced an in-memory "stable across N consecutive polls" counter, which
+# was wrong in a way unit tests could not see: the counter lived in the
+# process, so `--once` reset it on every invocation and could never ingest
+# anything at all. Found by running it on the Mac, not by testing it.
+#
+# mtime is better than a counter for three reasons: it is stateless, it
+# survives a daemon restart mid-upload, and it means the same thing to a
+# person reading the folder as it does to the code.
+QUIET_SECONDS = 5
 
 # The Shortcut writes into one of these. A subfolder is easier to hit reliably
 # from Shortcuts than a filename convention, and it survives a rename.
@@ -49,24 +60,42 @@ TAG_DIRS = {"business": "BUSINESS", "personal": "PERSONAL"}
 SKIP_NAMES = {".DS_Store", ".localized"}
 
 
+def is_settled(path: Path, quiet_seconds: int = QUIET_SECONDS,
+               now: float | None = None) -> bool:
+    """True when nothing has written to this file for `quiet_seconds`.
+
+    A photo still uploading has its mtime bumped on every write, so a quiet
+    mtime means the writer has finished. Ingesting mid-write produces a
+    truncated image, an empty OCR, and — worst of all — a hash that will never
+    match the finished file, so the finished file later files a SECOND time as
+    a different document.
+    """
+    try:
+        st = path.stat()
+    except OSError:
+        return False
+    return ((now or time.time()) - st.st_mtime) >= quiet_seconds
+
+
 @dataclass
 class WatchState:
-    """Size seen per path, and how many polls it has been unchanged."""
-    sizes: dict[Path, int] = field(default_factory=dict)
-    stable: dict[Path, int] = field(default_factory=dict)
+    """Paths already handed to the pipeline in this process.
 
-    def observe(self, path: Path, size: int) -> bool:
-        """Record a size. True once the file has been stable long enough."""
-        if self.sizes.get(path) == size:
-            self.stable[path] = self.stable.get(path, 0) + 1
-        else:
-            self.sizes[path] = size
-            self.stable[path] = 0
-        return self.stable[path] >= STABLE_POLLS
+    Not a stability counter any more — settledness is mtime-based and
+    stateless. This only stops a long-running daemon re-submitting a file it
+    is already working on, which matters because OCR and inference take
+    seconds and the poll loop does not wait for them.
+    """
+    in_flight: set[Path] = field(default_factory=set)
+
+    def claim(self, path: Path) -> bool:
+        if path in self.in_flight:
+            return False
+        self.in_flight.add(path)
+        return True
 
     def forget(self, path: Path) -> None:
-        self.sizes.pop(path, None)
-        self.stable.pop(path, None)
+        self.in_flight.discard(path)
 
 
 def is_dataless(path: Path) -> bool:
@@ -167,11 +196,12 @@ def process_once(conn, roots: filing.StorageRoots, registry: Registry,
                     db.log_action(conn, "ICLOUD_TIMEOUT", detail=str(exc)[:400])
                     continue
 
-            size = path.stat().st_size
-            if size == 0:
+            if path.stat().st_size == 0:
                 continue
-            if not state.observe(path, size):
-                continue          # still settling
+            if not is_settled(path):
+                continue          # still being written
+            if not state.claim(path):
+                continue          # already in flight this process
 
             tag = tag_for(path, inbox)
             art = Artifact(source="photo", source_ref=path.name)

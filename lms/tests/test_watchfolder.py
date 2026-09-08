@@ -83,29 +83,64 @@ def scan(conn, roots, registry, inbox, state, response=BILL):
 # Stability — the half-written file problem
 # ---------------------------------------------------------------------------
 
-def test_a_growing_file_is_not_touched_until_it_settles(conn, roots, registry, inbox):
-    """A photo still uploading must not be ingested mid-write."""
+def age(path: Path, seconds: int) -> None:
+    """Backdate mtime, so a settled file can be simulated without sleeping."""
+    import os
+    st = path.stat()
+    os.utime(path, (st.st_atime, st.st_mtime - seconds))
+
+
+def test_a_file_still_being_written_is_not_touched(conn, roots, registry, inbox):
+    """A photo mid-upload has a fresh mtime and must be left alone."""
     f = inbox / "personal" / "bill.pdf"
-    state = watchfolder.WatchState()
+    f.write_bytes(b"partial upload")
+    assert scan(conn, roots, registry, inbox, watchfolder.WatchState()) == []
 
-    f.write_bytes(b"partial")
-    assert scan(conn, roots, registry, inbox, state) == []      # first sighting
 
-    f.write_bytes(b"partial and then some more")                 # still growing
-    assert scan(conn, roots, registry, inbox, state) == []
+def test_a_quiet_file_is_ingested(conn, roots, registry, inbox):
+    f = inbox / "personal" / "bill.pdf"
+    f.write_bytes(b"a complete electric bill from con edison")
+    age(f, watchfolder.QUIET_SECONDS + 1)
 
-    # Now stable across two consecutive polls
-    assert scan(conn, roots, registry, inbox, state) == []
-    results = scan(conn, roots, registry, inbox, state)
+    results = scan(conn, roots, registry, inbox, watchfolder.WatchState())
     assert len(results) == 1
     assert results[0].status == "FILED"
 
 
+def test_settledness_survives_a_fresh_process(conn, roots, registry, inbox):
+    """The bug the unit tests missed and the Mac caught.
+
+    Stability used to be an in-memory counter, so every `--once` invocation
+    started from zero and could never reach the threshold. Three scans in
+    three separate processes ingested nothing at all.
+
+    A NEW WatchState per scan simulates exactly that. It must still work.
+    """
+    f = inbox / "personal" / "bill.pdf"
+    f.write_bytes(b"an electric bill")
+    age(f, watchfolder.QUIET_SECONDS + 1)
+
+    results = scan(conn, roots, registry, inbox, watchfolder.WatchState())
+    assert len(results) == 1, "a fresh process could not ingest a settled file"
+
+
 def test_zero_byte_files_are_ignored(conn, roots, registry, inbox):
-    (inbox / "personal" / "empty.pdf").touch()
-    state = watchfolder.WatchState()
-    for _ in range(4):
-        assert scan(conn, roots, registry, inbox, state) == []
+    f = inbox / "personal" / "empty.pdf"
+    f.touch()
+    age(f, watchfolder.QUIET_SECONDS + 1)
+    assert scan(conn, roots, registry, inbox, watchfolder.WatchState()) == []
+
+
+def test_is_settled_reads_mtime_not_a_counter(inbox):
+    f = inbox / "personal" / "x.pdf"
+    f.write_bytes(b"data")
+    assert not watchfolder.is_settled(f)
+    age(f, watchfolder.QUIET_SECONDS + 1)
+    assert watchfolder.is_settled(f)
+
+
+def test_missing_file_is_not_settled(inbox):
+    assert not watchfolder.is_settled(inbox / "personal" / "gone.pdf")
 
 
 # ---------------------------------------------------------------------------
@@ -121,10 +156,8 @@ def test_subfolder_supplies_the_personal_business_tag(inbox):
 def test_handled_files_are_moved_aside_never_deleted(conn, roots, registry, inbox):
     f = inbox / "personal" / "bill.pdf"
     f.write_bytes(b"an electric bill from con edison")
-    state = watchfolder.WatchState()
-
-    for _ in range(3):
-        scan(conn, roots, registry, inbox, state)
+    age(f, watchfolder.QUIET_SECONDS + 1)
+    scan(conn, roots, registry, inbox, watchfolder.WatchState())
 
     assert not f.exists(), "file was left in the inbox and will be rescanned"
     moved = list((inbox / "_done").glob("*.pdf"))
@@ -134,9 +167,9 @@ def test_handled_files_are_moved_aside_never_deleted(conn, roots, registry, inbo
 def test_retired_files_are_not_rescanned(conn, roots, registry, inbox):
     f = inbox / "personal" / "bill.pdf"
     f.write_bytes(b"an electric bill")
+    age(f, watchfolder.QUIET_SECONDS + 1)
     state = watchfolder.WatchState()
-    for _ in range(3):
-        scan(conn, roots, registry, inbox, state)
+    scan(conn, roots, registry, inbox, state)
 
     assert scan(conn, roots, registry, inbox, state) == []
     assert len(list(roots.archive.rglob("*.pdf"))) == 1
@@ -144,12 +177,11 @@ def test_retired_files_are_not_rescanned(conn, roots, registry, inbox):
 
 def test_a_name_collision_in_done_does_not_overwrite(conn, roots, registry, inbox):
     """Two photos both called IMG_0001.jpg is the normal case, not an edge one."""
-    state = watchfolder.WatchState()
     for content in (b"first bill", b"second different bill"):
         f = inbox / "personal" / "IMG_0001.pdf"
         f.write_bytes(content)
-        for _ in range(3):
-            scan(conn, roots, registry, inbox, state)
+        age(f, watchfolder.QUIET_SECONDS + 1)
+        scan(conn, roots, registry, inbox, watchfolder.WatchState())
 
     assert len(list((inbox / "_done").glob("*.pdf"))) == 2
 
@@ -161,10 +193,9 @@ def test_a_name_collision_in_done_does_not_overwrite(conn, roots, registry, inbo
 def test_quarantined_files_go_to_failed_not_done(conn, roots, registry, inbox):
     f = inbox / "personal" / "unclear.pdf"
     f.write_bytes(b"illegible scrawl")
-    state = watchfolder.WatchState()
-
-    for _ in range(3):
-        scan(conn, roots, registry, inbox, state, {**BILL, "confidence": 0.2})
+    age(f, watchfolder.QUIET_SECONDS + 1)
+    scan(conn, roots, registry, inbox, watchfolder.WatchState(),
+         {**BILL, "confidence": 0.2})
 
     assert list((inbox / "_failed").glob("*.pdf"))
     assert not list((inbox / "_done").glob("*.pdf"))
@@ -176,6 +207,8 @@ def test_one_bad_file_does_not_stop_the_others(conn, roots, registry, inbox, mon
     bad = inbox / "personal" / "bad.pdf"
     good.write_bytes(b"a perfectly good electric bill")
     bad.write_bytes(b"boom")
+    age(good, watchfolder.QUIET_SECONDS + 1)
+    age(bad, watchfolder.QUIET_SECONDS + 1)
 
     real = watchfolder.ingest.ingest_file
 
@@ -186,10 +219,7 @@ def test_one_bad_file_does_not_stop_the_others(conn, roots, registry, inbox, mon
 
     monkeypatch.setattr(watchfolder.ingest, "ingest_file", explode)
 
-    state = watchfolder.WatchState()
-    results = []
-    for _ in range(3):
-        results = scan(conn, roots, registry, inbox, state)
+    results = scan(conn, roots, registry, inbox, watchfolder.WatchState())
 
     assert any(r.status == "FILED" for r in results), "the good file was not processed"
     actions = [r["action"] for r in conn.execute("SELECT action FROM actions_log")]
