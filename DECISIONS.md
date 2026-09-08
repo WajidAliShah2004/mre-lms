@@ -443,6 +443,34 @@ System prompt is now ~1,600 tokens against the ~2,500 budget the file allows for
 
 **155 passed, 1 xfailed.**
 
+### D-029 — PDFs are read text-layer first, rasterised only if there isn't one
+**Status:** Built · Sept 8 2026 · the gap D-024 named out loud
+
+Since D-024 every PDF quarantined with *"PDF reading is not implemented yet"* — correct, loud, and useless, because a PDF is the format most real mail actually arrives in. Nothing about it was blocked on Matthew.
+
+**Two different formats wear the extension.** A generated PDF — an emailed invoice, a policy document — carries its text as text. A scan is pixels in a PDF wrapper and needs the same OCR as a phone photo. `extract_pdf` tries the text layer first via PDFKit, and falls through to page rasterisation into Vision only when the text layer comes back under `MIN_USEFUL_CHARS`.
+
+Order matters for a reason beyond speed. **OCR of a generated PDF introduces errors into a document that had none** — a transposed digit in an account number that was perfectly legible in the source. If the text is already there, reading it is exact.
+
+The `usable` threshold also catches the awkward middle case: a scan behind a generated fax cover sheet. Reading only the text layer would file the document on the strength of its letterhead and never look at the pages carrying the content.
+
+**Decisions inside it:**
+
+- **Pages render to in-memory `CGImage`s and never touch disk.** A rendered page of somebody's tax return has no business existing as a temp file, and `_vision_read_cgimage` — split out of `vision_ocr` — means a PDF page goes through the identical recognition path as a photograph.
+- **A white ground is filled before drawing.** A PDF page is transparent by default, and Vision reads dark-on-transparent as dark-on-black, which recognises very badly.
+- **`MAX_PDF_PAGES = 20`.** One inference call per page: twenty pages is a long insurance policy, two hundred is either a mistake or a way to occupy the machine for an hour. Pages past the cap are not read and the engine string says `+truncated-20of200`, so a truncated document never looks complete.
+- **A password-protected PDF raises rather than falling through to rasterisation.** Rendering it produces blank pages, and blank pages OCR to a *successful empty read* — a locked document misreported as an unreadable one. It is filed unread with a reason that says which it is.
+
+**And one entry point.** `read_any()` now dispatches every readable suffix, and `ingest` calls nothing else. D-024 was `READABLE_SUFFIXES` and the code acting on it disagreeing; `test_every_readable_suffix_has_a_reader` walks the set and demands a real reader for every member, so the set and the dispatch can no longer drift apart. That test is the fix for the *class*, not the instance.
+
+**A test was passing while describing the wrong thing again — the third time this build.** `test_an_unreadable_format_is_quarantined_before_the_model` used a `.pdf` to mean "a format with no reader". It kept passing after PDFs became readable, for entirely the wrong reason. It now uses `.docx`, which is genuinely unsupported.
+
+One more, smaller: the new suffix-walking test dialled LM Studio nine times and took the suite from 9s to 37s. It takes a stub client now. **A test that reaches the network is a test people start skipping.**
+
+**161 passed, 1 xfailed.**
+
+Still not implemented, and now the honest list: `.docx`, `.xlsx`, and any other office format quarantine by name. That is the right behaviour until someone decides they are worth reading.
+
 ### D-014 — Call transcripts are the first thing cut if the week slips
 **Status:** Decided (contingency) · [GUIDELINES_7DAY_BUILD.md:40](GUIDELINES_7DAY_BUILD.md:40)
 Email + photographed mail + the to-do list are the visible value. Day 4's call-transcript ingestion (C15) goes first, before anything else is touched.

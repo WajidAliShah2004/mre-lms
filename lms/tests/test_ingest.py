@@ -255,13 +255,16 @@ def test_an_unreadable_format_is_quarantined_before_the_model(conn, roots, regis
             asked.append(kw)
             return super().complete(**kw)
 
-    src = doc(tmp_path, "scan.pdf", b"%PDF-1.4 binary bytes")
+    # .docx, not .pdf. This test used a PDF until D-029 made PDFs readable, at
+    # which point it kept passing while meaning something else entirely — it
+    # was asserting "a format with no reader" using a format that now has one.
+    src = doc(tmp_path, "contract.docx", b"PK\x03\x04 binary bytes")
     result = ingest_file(conn, roots, registry,
                          Classifier(registry, client=Watching(INVOICE)), src)
 
     assert result.status == "QUARANTINED"
     assert asked == [], "the model was asked about a document nobody could read"
-    assert "PDF" in result.reason, result.reason
+    assert ".docx" in result.reason, result.reason
 
 
 def test_the_quarantine_reason_names_the_cause_not_the_symptom(conn, roots, registry,
@@ -285,12 +288,136 @@ def test_an_empty_text_file_does_not_reach_the_model(conn, roots, registry, tmp_
 
 def test_an_unreadable_document_is_still_kept(conn, roots, registry, tmp_path):
     """Refusing to classify is not refusing to keep. The bytes are the record."""
-    src = doc(tmp_path, "scan.pdf", b"%PDF-1.4 binary bytes")
+    src = doc(tmp_path, "scan.pdf", b"%PDF-1.4 not really a pdf")
     result = ingest_file(conn, roots, registry, classifier(registry, INVOICE), src)
 
     assert result.path is not None and result.path.exists()
     actions = [r["action"] for r in conn.execute("SELECT action FROM actions_log")]
     assert "UNREADABLE" in actions, "the refusal left no trace in the log"
+
+
+# ---------------------------------------------------------------------------
+# D-029 — PDFs, the format most real mail actually arrives in
+# ---------------------------------------------------------------------------
+
+def test_a_pdf_with_a_text_layer_is_read_without_ocr(conn, roots, registry,
+                                                     tmp_path, monkeypatch):
+    """Reading a generated PDF's own text is exact. OCR of the same page
+    INTRODUCES errors into a document that had none — a transposed digit in an
+    account number that was perfectly legible in the source."""
+    from core.pipeline import ocr as ocr_mod
+
+    monkeypatch.setattr(ocr_mod, "pdf_text_layer", lambda p: ocr_mod.OCRResult(
+        text="ACME SUPPLY COMPANY\nINVOICE 7001\nBill to: MRECAI\nTOTAL DUE: $310.00",
+        engine="pdfkit-text", pages=1))
+    monkeypatch.setattr(ocr_mod, "pdf_ocr", _never_called)
+
+    src = doc(tmp_path, "invoice.pdf", b"%PDF-1.7")
+    result = ingest_file(conn, roots, registry, classifier(registry, INVOICE), src)
+
+    assert result.status == "FILED", result.reason
+    assert result.ocr_engine == "pdfkit-text"
+
+
+def test_a_scanned_pdf_falls_through_to_ocr(conn, roots, registry, tmp_path,
+                                            monkeypatch):
+    """A scan carries pixels, not text. An empty text layer is the signal."""
+    from core.pipeline import ocr as ocr_mod
+
+    monkeypatch.setattr(ocr_mod, "pdf_text_layer",
+                        lambda p: ocr_mod.OCRResult(text="", engine="pdfkit-text"))
+    monkeypatch.setattr(ocr_mod, "pdf_ocr", lambda p: ocr_mod.OCRResult(
+        text="ACME SUPPLY COMPANY INVOICE 7002 Bill to MRECAI TOTAL DUE $640.00",
+        engine="pdfkit+apple-vision", pages=1))
+
+    src = doc(tmp_path, "scan.pdf", b"%PDF-1.7")
+    result = ingest_file(conn, roots, registry, classifier(registry, INVOICE), src)
+
+    assert result.status == "FILED", result.reason
+    assert result.ocr_engine == "pdfkit+apple-vision"
+
+
+def test_a_cover_page_of_text_does_not_pass_for_a_whole_scan(monkeypatch, tmp_path):
+    """The awkward middle case: a scan with a generated cover sheet.
+
+    Reading only the text layer would file the document on the strength of its
+    letterhead and never look at the pages that carry the content.
+    """
+    from core.pipeline import ocr as ocr_mod
+
+    monkeypatch.setattr(ocr_mod, "pdf_text_layer", lambda p: ocr_mod.OCRResult(
+        text="Fax cover", engine="pdfkit-text"))          # under MIN_USEFUL_CHARS
+    monkeypatch.setattr(ocr_mod, "pdf_ocr", lambda p: ocr_mod.OCRResult(
+        text="x" * 200, engine="pdfkit+apple-vision"))
+
+    src = doc(tmp_path, "fax.pdf", b"%PDF-1.7")
+    assert ocr_mod.extract_pdf(src).engine == "pdfkit+apple-vision"
+
+
+def test_a_locked_pdf_is_never_rasterised(monkeypatch, tmp_path):
+    """Rendering an encrypted PDF yields blank pages, and blank pages OCR to a
+    successful empty read — a locked document reported as an unreadable one."""
+    from core.pipeline import ocr as ocr_mod
+
+    def locked(_):
+        raise ocr_mod.OCRError("PDF is password-protected — it is filed unread, "
+                              "nothing was guessed about its contents")
+
+    monkeypatch.setattr(ocr_mod, "pdf_text_layer", locked)
+    monkeypatch.setattr(ocr_mod, "pdf_ocr", _never_called)
+
+    src = doc(tmp_path, "locked.pdf", b"%PDF-1.7")
+    with pytest.raises(ocr_mod.OCRError) as exc:
+        ocr_mod.extract_pdf(src)
+    assert "password-protected" in str(exc.value)
+
+
+def _never_called(*a, **kw):
+    raise AssertionError("this reader should not have run")
+
+
+def test_every_readable_suffix_has_a_reader(tmp_path):
+    """The assertion that makes D-024 unrepeatable.
+
+    That bug was READABLE_SUFFIXES and the code acting on it disagreeing: the
+    set said a .txt was readable, the extraction branch had no arm for it, and
+    the gap became an empty body the model was asked to classify. This walks
+    the set and demands read_any() reach a real reader for every member —
+    anything unhandled raises the "disagree" error, and anything handled fails
+    later for an honest reason (no PyObjC here, no real bytes there).
+    """
+    from core.pipeline import ocr as ocr_mod
+
+    # A stub client, so the image arm does not dial LM Studio nine times over.
+    # A test that reaches the network is a test people start skipping.
+    class Stub:
+        def complete(self, **kw):
+            return Completion(text="stub transcription", model="stub",
+                              elapsed_s=0.0, finish_reason="stop")
+
+    unhandled = []
+    for suffix in sorted(ocr_mod.READABLE_SUFFIXES):
+        p = tmp_path / f"probe{suffix}"
+        p.write_bytes(b"")
+        try:
+            ocr_mod.read_any(p, client=Stub())
+        except ocr_mod.OCRError as exc:
+            if "disagree" in str(exc):
+                unhandled.append(suffix)
+        except Exception:
+            pass          # a real reader that failed on empty bytes. Fine.
+
+    assert not unhandled, f"in READABLE_SUFFIXES with no reader: {unhandled}"
+
+
+def test_an_unknown_suffix_says_so_rather_than_falling_through(tmp_path):
+    from core.pipeline import ocr as ocr_mod
+
+    p = tmp_path / "thing.rtf"
+    p.write_bytes(b"x")
+    with pytest.raises(ocr_mod.OCRError) as exc:
+        ocr_mod.read_any(p)
+    assert ".rtf" in str(exc.value)
 
 
 def test_reingesting_the_same_bytes_is_a_noop(conn, roots, registry, tmp_path):

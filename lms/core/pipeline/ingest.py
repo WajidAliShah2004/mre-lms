@@ -67,8 +67,8 @@ def _unreadable_reason(path: Path, engine: str | None) -> str:
     """
     suffix = path.suffix.lower() or "(no extension)"
     if suffix == ".pdf":
-        return ("no text extracted: PDF reading is not implemented yet — "
-                "the file is filed unread in quarantine, nothing was guessed")
+        return ("no text extracted: the PDF has no text layer and OCR of its "
+                "pages produced nothing — most likely a blank scan")
     if suffix not in ocr.READABLE_SUFFIXES:
         return (f"no text extracted: {suffix} is not a format this pipeline "
                 f"can read (handles images and {', '.join(sorted(ocr.TEXT_SUFFIXES))})")
@@ -206,10 +206,7 @@ def ingest_file(conn, roots: filing.StorageRoots, registry: Registry,
     if run_ocr and suffix in ocr.READABLE_SUFFIXES:
         if not db.already_processed(conn, sha, "ocr"):
             try:
-                if suffix in ocr.TEXT_SUFFIXES:
-                    result = ocr.read_text_file(source_path)
-                else:
-                    result = ocr.extract_text(source_path)
+                result = ocr.read_any(source_path)
                 ocr_text, engine = result.text, result.engine
                 db.mark_processed(conn, sha, "ocr")
             except ocr.OCRError as exc:
