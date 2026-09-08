@@ -9,6 +9,7 @@ client.
 """
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -408,6 +409,27 @@ def test_every_readable_suffix_has_a_reader(tmp_path):
             pass          # a real reader that failed on empty bytes. Fine.
 
     assert not unhandled, f"in READABLE_SUFFIXES with no reader: {unhandled}"
+
+
+def test_the_pdf_fixture_generator_produces_both_branches(tmp_path):
+    """ops/make_test_pdf.py is how the PDF path gets exercised by hand.
+
+    A fixture generator that silently emits something malformed sends whoever
+    is testing looking for a bug in the reader. macOS gave us a 0-byte PDF from
+    cupsfilter and cost an hour that way, so this asserts the generator itself.
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ops"))
+    from make_test_pdf import build_pdf
+
+    with_text = build_pdf(["ACME SUPPLY COMPANY", "TOTAL DUE: $3,240.00"])
+    assert with_text.startswith(b"%PDF-")
+    assert with_text.rstrip().endswith(b"%%EOF")
+    assert b"startxref" in with_text
+    assert b"ACME SUPPLY COMPANY" in with_text, "the text layer is not text"
+
+    without = build_pdf(["ignored"], with_text=False)
+    assert without.startswith(b"%PDF-")
+    assert b"ignored" not in without, "--no-text still embedded the text"
 
 
 def test_an_unknown_suffix_says_so_rather_than_falling_through(tmp_path):
