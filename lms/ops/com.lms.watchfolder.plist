@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Watched-folder daemon.
+
+  Install:
+    cp ops/com.lms.watchfolder.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.lms.watchfolder.plist
+
+  Reload after editing:
+    launchctl bootout gui/$(id -u)/com.lms.watchfolder
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.lms.watchfolder.plist
+
+  Stop:
+    launchctl bootout gui/$(id -u)/com.lms.watchfolder
+
+  A LaunchAgent (gui/) rather than a LaunchDaemon (system/), and that is
+  required, not stylistic: iCloud Drive is per-user and only exists inside a
+  logged-in session. A system daemon would see an empty directory forever and
+  report no error at all.
+
+  Under D-009 this runs as Matthew's own user, which is what gives it sight of
+  his iCloud in the first place. There is no privilege boundary here — the
+  containment is that the classifier it calls has no tools.
+
+  PATHS ARE ABSOLUTE AND THE INTERPRETER IS NAMED. launchd does not inherit a
+  login shell's PATH, so `python3` here would resolve to Apple's 3.9 in
+  /usr/bin rather than the venv, and the failure would be an ImportError in a
+  log nobody reads.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.lms.watchfolder</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/mleca/lms-repo/lms/.venv/bin/python</string>
+        <string>-m</string>
+        <string>core.adapters.watchfolder</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/mleca/lms-repo/lms</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <!-- Mirrors ops/lms.env, which bringup_mac.sh generates. If you change
+             the volume layout, change both — they are not linked. -->
+        <key>LMS_ARCHIVE_ROOT</key>
+        <string>/Volumes/MacStudioHD/LMS/archive</string>
+        <key>LMS_ORIGINALS_ROOT</key>
+        <string>/Volumes/MacStudioHD/LMS/_originals</string>
+        <key>LMS_QUARANTINE_ROOT</key>
+        <string>/Users/mleca/LMS/quarantine</string>
+        <key>LMS_DB</key>
+        <string>/Volumes/MacStudioHD/LMS/lms.db</string>
+
+        <!-- The Shortcut drops files here. iCloud Drive, so the phone can
+             reach it. -->
+        <key>LMS_INBOX</key>
+        <string>/Users/mleca/Library/Mobile Documents/com~apple~CloudDocs/LMS/inbox</string>
+
+        <!-- Named zone, never an offset (Rec 21). -->
+        <key>TZ</key>
+        <string>America/New_York</string>
+
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Restart if it dies. It polls forever, so exiting at all is a fault. -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Do not hammer launchd if it is crash-looping on a config error. -->
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <key>StandardOutPath</key>
+    <string>/Users/mleca/LMS/logs/watchfolder.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/mleca/LMS/logs/watchfolder.err</string>
+
+    <!-- Below normal priority. OCR and inference should never make the
+         machine feel slow while Matthew is using it. -->
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>Nice</key>
+    <integer>5</integer>
+</dict>
+</plist>

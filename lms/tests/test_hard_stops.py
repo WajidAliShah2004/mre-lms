@@ -108,26 +108,58 @@ def test_critical_and_phishing_bypass_the_interrupt_cap(rules):
 
 FORBIDDEN_CALLS = [
     "smtplib",           # no SMTP client anywhere in core/
-    "shutil.move",       # we copy; the source is never ours to move
+    "shutil.move",       # we copy; the source is usually not ours to move
     "shutil.rmtree",
     "os.remove",
     "os.unlink",
     "Path.unlink",
+    ".rename(",          # a rename is a move wearing a different name
 ]
+
+# Named exemptions. Each one is a decision, and the reason lives here rather
+# than in a comment at the call site, so that adding another requires editing
+# this test on purpose.
+#
+# The rule this protects is "never delete the user's data", not "never touch a
+# file". A move that provably destroys nothing is allowed; a move that MIGHT
+# is not.
+EXEMPT = {
+    ("watchfolder.py", "shutil.move"): (
+        "Retires a handled file from the iCloud inbox to inbox/_done. By the "
+        "time this runs the bytes exist in TWO other places — the archive and "
+        "_originals — so the inbox copy is redundant, not precious. It stays "
+        "inside the inbox tree and is never removed. The alternative is "
+        "leaving it to be rescanned forever, which grows the scan cost without "
+        "bound and re-OCRs the same document nightly."
+    ),
+}
 
 
 def test_core_contains_no_send_or_delete_primitives():
     """Grep-level guard. Crude, and that is the point.
 
-    If someone adds a delete to core/ this fails in CI before it ever reaches
-    the Mac. Adapters that legitimately need a mail client will live in
-    core/adapters/ with their own reviewed exception — and adding one here
-    should require deleting a line from this test, deliberately.
+    If someone adds a delete to core/ this fails before it reaches the Mac.
+    Exemptions are possible but must be argued in EXEMPT above — which is the
+    whole mechanism: the cost of an exception is writing down why.
     """
     offenders = []
     for path in CORE.rglob("*.py"):
         text = path.read_text(encoding="utf-8")
         for needle in FORBIDDEN_CALLS:
-            if needle in text:
+            if needle in text and (path.name, needle) not in EXEMPT:
                 offenders.append(f"{path.name}: {needle}")
     assert not offenders, f"forbidden primitives found: {offenders}"
+
+
+def test_every_exemption_is_still_used():
+    """A stale exemption is a hole nobody is watching.
+
+    If the code that needed an exception is gone, the exception should go too
+    — otherwise it silently permits a future call that was never argued for.
+    """
+    for (filename, needle), reason in EXEMPT.items():
+        matches = [p for p in CORE.rglob(filename)]
+        assert matches, f"exemption for {filename} but the file is gone"
+        assert needle in matches[0].read_text(encoding="utf-8"), (
+            f"exemption ({filename}, {needle}) is no longer used — remove it")
+        assert len(reason) > 80, "an exemption needs a real justification"
