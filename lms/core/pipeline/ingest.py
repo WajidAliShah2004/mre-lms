@@ -77,6 +77,25 @@ def _unreadable_reason(path: Path, engine: str | None) -> str:
     return f"no text extracted: {suffix} read as empty"
 
 
+def _sidecar_text(text: str | None, engine: str | None) -> str | None:
+    """The extracted-text sidecar, or None when it would only be a duplicate.
+
+    filing writes this beside the document as `<filed name>.txt`. For a
+    photograph that is the whole point: the image is not searchable and the
+    transcription is. For a document that arrived AS text, it produces
+    `...__hash.txt.txt` — byte-identical to the document sitting next to it.
+
+    That is not merely untidy. It doubles the archive for every text document,
+    and it puts a second file in the folder that looks like a separate record,
+    which is exactly the confusion the D-007 naming convention exists to
+    prevent. The sidecar's `has_ocr_text` and `ocr_engine` still say what was
+    read and by what, so nothing is lost by not writing the copy.
+    """
+    if engine == "plain-text":
+        return None
+    return text
+
+
 # ---------------------------------------------------------------------------
 # Phishing pre-check — runs before the model, not after
 # ---------------------------------------------------------------------------
@@ -261,7 +280,7 @@ def ingest_file(conn, roots: filing.StorageRoots, registry: Registry,
         descriptor=classification.descriptor,
         amount_cents=classification.amount_cents,
         currency=classification.currency,
-        source_ref=source_ref, ocr_text=ocr_text,
+        source_ref=source_ref, ocr_text=_sidecar_text(ocr_text, engine),
         extra_metadata={
             "ocr_engine": engine,
             "confidence": classification.confidence,

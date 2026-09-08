@@ -341,6 +341,27 @@ One assertion also had to change meaning rather than value: `test_retired_files_
 
 **Fourth bug from running one real document, and the pattern is now unmistakable.** Every one lived at a boundary the tests spanned by assumption: code-to-runtime (D-022), process-to-filesystem (`--once`), rule-to-model (D-023), and now file-to-pipeline. The units were never the problem. The tests asserted what each stage does when handed correct input, and the bugs were all in what one stage actually hands the next.
 
+### D-025 — The extracted-text sidecar is not written for documents that arrived as text
+**Status:** Decided and fixed · Sept 8 2026 · **found in the first live `[FILED]`**
+
+The pipeline produced its first real filed document on the Mac:
+
+```
+MRECAI/FINANCE/2026-09-03__MRE__FINANCE__acme-supply-company__invoice-6023-total__USD2100-00__f0c2109e.txt
+```
+
+Correct entity, correct category, correct date, correct amount. But `find` returned **three** files, and one of them was `…__f0c2109e.txt.txt`.
+
+`filing.file_artifact` writes the extracted text beside the document as `<filed name>.txt`. For a photograph that is the entire point — the image is not searchable and the transcription is. For a document that arrived *as* text, D-024 now reads it successfully and hands back the same bytes, so filing writes a byte-identical copy of the document next to the document.
+
+Not merely untidy. It doubles the archive for every text document, and it puts a second file in the folder that reads as a separate record — the exact confusion the D-007 naming convention exists to prevent. Anyone browsing the archive in a year sees two files where one document was filed.
+
+`ingest_file` now passes the sidecar text through `_sidecar_text()`, which returns `None` when the engine was `plain-text`. The `.meta.json` still carries `has_ocr_text` and `ocr_engine`, so the archive still states what was read and by what — not writing the copy must not decay into "we never read it", and a test pins that.
+
+**Three new tests**, including the boundary: suppressing the copy for text must not suppress it for images, where the sidecar is the only searchable form of the document. **138 passed, 1 xfailed.**
+
+Worth noting how this was found. It is the fifth defect this build, and the first that no test could have caught, because it was never wrong in the code's own terms — filing did exactly what it was told, and D-024 changed what it was being told without anyone re-reading the result. It surfaced only because a real document went all the way through and the output was *looked at* rather than checked for a status string. The other four came from running one document end to end; this one came from reading what that produced.
+
 ### D-014 — Call transcripts are the first thing cut if the week slips
 **Status:** Decided (contingency) · [GUIDELINES_7DAY_BUILD.md:40](GUIDELINES_7DAY_BUILD.md:40)
 Email + photographed mail + the to-do list are the visible value. Day 4's call-transcript ingestion (C15) goes first, before anything else is touched.

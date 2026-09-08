@@ -180,6 +180,63 @@ def test_a_text_file_is_read_not_ignored(conn, roots, registry, tmp_path):
     assert result.ocr_engine == "plain-text", "a text file went through an OCR engine"
 
 
+def test_a_text_document_is_not_archived_twice(conn, roots, registry, tmp_path):
+    """Found in the first live [FILED] on the Mac: `...__hash.txt.txt`.
+
+    The extracted-text sidecar earns its place beside a photograph, where the
+    image is not searchable and the transcription is. Beside a document that
+    arrived as text it is a byte-identical copy — it doubles the archive for
+    every text document and puts a second file in the folder that reads as a
+    separate record.
+    """
+    src = doc(tmp_path, "inv.txt",
+              b"ACME SUPPLY COMPANY\nINVOICE 6023\nBill to: MRECAI\nTOTAL DUE: $2,100.00\n")
+    result = ingest_file(conn, roots, registry, classifier(registry, INVOICE), src)
+
+    assert result.status == "FILED", result.reason
+    assert not result.path.with_name(result.path.name + ".txt").exists(), \
+        "the document was archived a second time as its own OCR sidecar"
+
+    # One document, one sidecar, and nothing else.
+    siblings = sorted(p.name for p in result.path.parent.iterdir())
+    assert siblings == sorted([result.path.name, result.path.name + ".meta.json"]), siblings
+
+
+def test_the_sidecar_still_says_the_text_was_read(conn, roots, registry, tmp_path):
+    """Not writing the copy must not become 'we never read it'.
+
+    has_ocr_text and ocr_engine are how a future reader knows the body was
+    genuine text rather than an unread file that slipped past D-024.
+    """
+    src = doc(tmp_path, "inv.txt",
+              b"ACME SUPPLY COMPANY\nINVOICE 6023\nBill to: MRECAI\nTOTAL DUE: $2,100.00\n")
+    result = ingest_file(conn, roots, registry, classifier(registry, INVOICE), src)
+
+    meta = json.loads(result.path.with_name(result.path.name + ".meta.json")
+                      .read_text(encoding="utf-8"))
+    assert meta["ocr_engine"] == "plain-text"
+
+
+def test_a_photograph_still_gets_its_transcription(conn, roots, registry, tmp_path,
+                                                   monkeypatch):
+    """The boundary. Suppressing the copy for text must not suppress it for
+    images, where the sidecar is the only searchable form of the document."""
+    from core.pipeline import ocr as ocr_mod
+
+    monkeypatch.setattr(ocr_mod, "extract_text",
+                        lambda p, **kw: ocr_mod.OCRResult(
+                            text="ACME SUPPLY COMPANY INVOICE 6023 TOTAL DUE $2,100.00",
+                            engine="apple-vision"))
+
+    src = doc(tmp_path, "photo.jpg", b"\xff\xd8\xff not really a jpeg")
+    result = ingest_file(conn, roots, registry, classifier(registry, INVOICE), src)
+
+    assert result.status == "FILED", result.reason
+    transcript = result.path.with_name(result.path.name + ".txt")
+    assert transcript.exists(), "a photograph was filed with no searchable text"
+    assert "ACME" in transcript.read_text(encoding="utf-8")
+
+
 def test_an_unreadable_format_is_quarantined_before_the_model(conn, roots, registry,
                                                               tmp_path):
     """A PDF cannot be read yet. It must not be classified anyway.
