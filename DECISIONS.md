@@ -142,7 +142,7 @@ The client supplied *System Setup and Access Requirements* (PDF, authored in Cha
 | # | Action | Status |
 |---|---|---|
 | 1 | Rotate all 7 account passwords | Pending |
-| 2 | Replace the OpenClaw macOS user password — it was set to `123456` | Pending |
+| 2 | Replace the OpenClaw macOS user password — it was set to a six-digit sequential | Pending |
 | 3 | Confirm the Aug 6 exposure (C7) was rotated | Pending |
 | 4 | Delete the PDF from disk once values are in Keychain / a password manager | Pending |
 | 5 | Verify the PDF never entered git history | Ignore rule added Sept 7; history clean at `a41ebc9` |
@@ -160,13 +160,13 @@ Recon found **four** accounts where the docs assumed two. Three were abandoned s
 | uid | account | created | what it actually was |
 |---|---|---|---|
 | 501 | `mleca` | — | Matthew's. The only real account |
-| 502 | `OpenClaw` | Aug 4 14:06 | Admin, FileVault-enabled, password `123456`. Its entire shell history was one line: `curl -fsSL https://openclaw.ai/install.sh \| bash`. Used for six minutes to run the installer |
+| 502 | `OpenClaw` | Aug 4 14:06 | Admin, FileVault-enabled, a six-digit sequential password. Its entire shell history was one line: `curl -fsSL https://openclaw.ai/install.sh \| bash`. Used for six minutes to run the installer |
 | 503 | `rescueadmin` | Aug 5 11:37 | Temporary admin for a home-folder relocation. User record already deleted; home left behind. Only real file was a Perplexity export, `home-folder-relocation-adjudication-and-guide-v2.pplx.docx` |
 | 504 | `lms` | Aug 6 01:45 | The non-admin service account from Phase 1 item 5. Stub home, 924 KB, one 3-byte file, never logged into |
 
 **This is the archaeology behind D-009.** The privilege-separation design was attempted three times in three days and abandoned each time, which is why the gateway ended up running as `mleca`. D-009 records that as a deliberate choice; this records that it was also the de-facto outcome of three failed attempts.
 
-**The finding that mattered:** `OpenClaw` was an **administrator** *and* **FileVault-enabled** with the password `123456`. That combination means anyone with the password reaches full disk and full admin — and it had been sitting there since Aug 4. It was not the account running anything: the gateway runs as `mleca` (uid 501) with config in `/Users/mleca/.openclaw`.
+**The finding that mattered:** `OpenClaw` was an **administrator** *and* **FileVault-enabled** with the a six-digit sequential password. That combination means anyone with the password reaches full disk and full admin — and it had been sitting there since Aug 4. It was not the account running anything: the gateway runs as `mleca` (uid 501) with config in `/Users/mleca/.openclaw`.
 
 **Applied:** both home directories archived to `/Volumes/MacStudioHD/_pre-lms-archive/` with a 3,757-line manifest before deletion (`Library` excluded — the iCloud placeholder tree hangs `tar`). Account deleted via `sysadminctl -deleteUser`; the other two homes removed.
 

@@ -87,7 +87,7 @@ there will fail silently at boot.
 
 ## 2. Rotate the exposed credentials (D-017)
 
-### 2a. The macOS account password — `123456`
+### 2a. The macOS account password
 
 This is the one that matters most. Under D-009 that account is the container
 for the whole system.

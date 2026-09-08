@@ -67,7 +67,7 @@ three of the differences bite here specifically:
 
 1. `bringup_mac.sh` — this document
 2. **Rotate the exposed credentials (D-017)** before anything reaches a
-   mailbox. Including the `123456` account password, which under D-009 is
+   mailbox. Including the trivial account password, which under D-009 is
    now the container for the entire system
 3. Phase 6 — OpenClaw config, agents, tier mapping
 4. Phase 7 — Telegram bot, `/halt`, and capture the numeric user id from his

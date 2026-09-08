@@ -29,7 +29,7 @@ One list, so nothing stalls silently. Each phase below references this table rat
 | C6 | **Off-site backup target** | B2/S3 account + credentials — there is no VPS to back up to (D-000) | Phase 8 item 5 | **Closed** — Backblaze account created. Credentials to Keychain, then rotate (D-017) |
 | C7 | **FileVault recovery key custody** | Sealed envelope held by him; confirm the keys exposed on 2026-08-06 were rotated | Phase 1 | **Open** — listed on his own to-do, not yet done. Rotation of the Aug 6 exposure still unconfirmed |
 | C8 | **Named unlock owner** | Who physically unlocks the Mac after a power cut, and how they find out | Phase 1 item 3 / RUNBOOK | **Open** |
-| C21 | **Abandoned accounts** | Four accounts existed, not two. Identify and remove the dead ones | Phase 1 / Phase 8 — hardening around unknown admins is not hardening | **Closed (D-018)** — `OpenClaw` (502, admin + FileVault + password `123456`), `rescueadmin` (503), `lms` (504) all removed after archiving. Only `mleca` remains; only `mleca` is admin; only `mleca` can unlock the disk |
+| C21 | **Abandoned accounts** | Four accounts existed, not two. Identify and remove the dead ones | Phase 1 / Phase 8 — hardening around unknown admins is not hardening | **Closed (D-018)** — `OpenClaw` (502, admin + FileVault + trivial password), `rescueadmin` (503), `lms` (504) all removed after archiving. Only `mleca` remains; only `mleca` is admin; only `mleca` can unlock the disk |
 
 ### Blocks the feature build (BUILD_PLAYBOOK.md)
 
