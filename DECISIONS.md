@@ -568,6 +568,32 @@ That is not hypothetical on this machine: a stray `path/to/venv` has been active
 
 **The general lesson:** when a comparison is meant to establish identity, check what actually carries the identity. `resolve()` answers "which file", and the question was "which environment".
 
+### D-034 — The brief: ranked, capped, and never silent
+**Status:** Built · Sept 8 2026 · Day-5 §1 and §3
+
+Matthew's sentence has four clauses — *"determine if it's business, which business, save it, **and then let me know what I need to do**"* — and until now the system did three of them. `core/reports/` was an empty `__init__.py`.
+
+**The order is the message.** A brief is read on a phone, before coffee, in about twenty seconds. A list he has to read in full to find the urgent thing has failed at the only job it has. So tasks are ranked, not listed chronologically:
+
+- **Overdue outranks everything and keeps climbing**, capped at 30 days. A deadline passing unseen is the failure this system exists to prevent, and an item that has already slipped is evidence the earlier briefs did not work.
+- **Money is a tiebreaker, never a driver** — capped at 10 points, roughly $10k. A $40 renewal that lapses a licence outranks a $50,000 invoice due in March. Any scoring where the amount leads gets that backwards, which is exactly the mistake a busy person makes unaided and the reason to rank at all.
+- **Undated is not zero-risk, it is unknown-risk.** It scores nothing from the calendar and leans on urgency, which is the honest answer rather than a guessed deadline.
+- **Ties break by id**, so the order is stable between runs. A list that reshuffles overnight teaches people not to trust the order.
+
+**The cap is seven (spec §Day-5.1), but it never hides a CRITICAL or overdue item.** If nine things lapse this week, showing seven is not concision — it is choosing which two he finds out about the hard way. Withheld items are counted in the text, not dropped.
+
+**And it always says something.** An empty brief states that nothing needs him, because an empty message and a broken one are indistinguishable on a phone. That is D-030's lesson arriving somewhere new: silence is the one outcome that cannot be acted on.
+
+**"Since the last brief" is read from the log, not assumed from the clock.** The first draft used a fixed 14-hour window, which is correct exactly as long as every scheduled run happens. The Mac sleeps, loses power (C8 is *still* unanswered), gets shut for a weekend — and the moment one run is missed, a fixed window silently skips every document that arrived in the gap. Filed, findable, and never mentioned: the failure this module exists to prevent, reintroduced at the last step. It now reads the last `BRIEF_SENT_*` row from the append-only log; the window survives only as the first-run fallback.
+
+`mark_brief_sent()` is deliberately **not** called by `build_brief()`. Recording a delivery at build time would mark documents as reported by a brief that was rendered to a terminal and read by nobody.
+
+**Delivery is not here.** The brief goes to Telegram (§Day-5.3) and Telegram is blocked on C2 — not installed, no authorised sender. So this module builds and renders; `ops/brief.py` prints it. The split is worth keeping regardless: the brief can be read, diffed and tested without a network, and the 06:30/17:30 jobs stay thin wrappers rather than the place the logic lives. The ~3-interrupt/day cap is also delivery-side.
+
+**One test tried to backdate a log row and the database refused it** — `actions_log is append-only`, the trigger doing precisely its job against the first thing that tried to rewrite history. The fixture appends a row with an older timestamp instead, which is the honest way to say "this happened earlier".
+
+**188 passed, 1 xfailed.**
+
 ### D-014 — Call transcripts are the first thing cut if the week slips
 **Status:** Decided (contingency) · [GUIDELINES_7DAY_BUILD.md:40](GUIDELINES_7DAY_BUILD.md:40)
 Email + photographed mail + the to-do list are the visible value. Day 4's call-transcript ingestion (C15) goes first, before anything else is touched.
