@@ -213,6 +213,13 @@ def _category_block(tree: str, categories: dict[str, list[str]],
     for name in sorted(categories):
         desc = descriptions.get(name)
         lines.append(f"  {name} — {desc}" if desc else f"  {name}")
+        # The subcategories, which until D-028 the model was never shown.
+        # taxonomy.yaml defined them, validate_category enforced them, and
+        # filing used them as folder depth — but nothing ever offered them, so
+        # every document came back with subcategory null and filed flat.
+        subs = categories[name]
+        if subs:
+            lines.append("      " + ", ".join(subs))
     return lines
 
 

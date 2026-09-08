@@ -414,6 +414,35 @@ Validation moved to load time, because an override is by definition the case whe
 
 **151 passed, 1 xfailed** (up from 138).
 
+### D-028 — The model was never told subcategories exist
+**Status:** Decided and fixed · Sept 8 2026 · **found in the `why.py` output of a successful run**
+
+Three documents filed cleanly. The classifications table read:
+
+```
+P_MRE   LEGAL/court      conf=0.95  by=rule
+B_MRE   VENDORS/None     conf=0.95  by=rule
+B_MRE   FINANCE/None     conf=0.95  by=rule
+```
+
+`None`, twice. And the filed paths confirmed it — the summons went to `PERSONAL/Matthew/LEGAL/court/`, the invoices went to `MRECAI/VENDORS/` and `MRECAI/FINANCE/` with no folder beneath.
+
+`taxonomy.yaml` defines subcategories for every category. `validate_category` enforces them. `filing` uses them as folder depth — demonstrably, since `court/` exists. And `grep -i subcategor prompts/classifier.md` returned **nothing**. The field is in the JSON schema, so the model dutifully emitted it; it had simply never been told what the field was for or what values were legal, so it returned `null` every single time.
+
+The one subcategory ever set on that machine was `court`, and only because a D-027 override forced it.
+
+Left alone, `MRECAI/VENDORS/` accumulates contracts, invoices and subscriptions in one flat folder forever, and the entire subcategory half of the taxonomy is decorative. It also means D-026's renaming of `invoices` → `invoices-issued` / `invoices-received` fixed a collision in a field nothing populated — correct, and until now inert.
+
+**Fix.** `_category_block` renders each category's subcategories on an indented line beneath its description, and the prompt gains a rule for the field: pick from the list under your chosen category verbatim, or `null`. Null is explicitly endorsed — a wrong subcategory buries a document one level deeper than a wrong category does, and filing flat is findable.
+
+System prompt is now ~1,600 tokens against the ~2,500 budget the file allows for.
+
+**`test_every_subcategory_reaches_the_model`** asserts every value defined in `taxonomy.yaml` appears in the rendered prompt. That is the same config-to-code coverage assertion as D-027's, and its absence is why this survived: the taxonomy, the validator and the filer all agreed subcategories existed, and the one component that had to *ask* for one was never checked against them.
+
+**Seventh defect, and the third in a row on the config-to-code boundary** — a taxonomy that under-specified what the code must decide (D-026), a config block no code read (D-027), and now a config field the code enforced but never offered. All three passed every unit test, because every unit was correct about the part of the contract it could see.
+
+**155 passed, 1 xfailed.**
+
 ### D-014 — Call transcripts are the first thing cut if the week slips
 **Status:** Decided (contingency) · [GUIDELINES_7DAY_BUILD.md:40](GUIDELINES_7DAY_BUILD.md:40)
 Email + photographed mail + the to-do list are the visible value. Day 4's call-transcript ingestion (C15) goes first, before anything else is touched.

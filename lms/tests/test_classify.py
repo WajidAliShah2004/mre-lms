@@ -232,6 +232,55 @@ def test_finance_and_vendors_are_told_apart_by_direction(registry):
 
 
 # ---------------------------------------------------------------------------
+# D-028 — the model was never told subcategories exist
+#
+# taxonomy.yaml defines them, validate_category enforces them, filing uses them
+# as folder depth — and the prompt never mentioned the field or listed the
+# options. So the model returned null every time and every document filed flat
+# at the category level. The only subcategory ever set on the Mac was `court`,
+# and only because an override forced it.
+# ---------------------------------------------------------------------------
+
+def test_the_prompt_offers_the_subcategories(registry):
+    model = FakeModel(GOOD)
+    Classifier(registry, client=model).classify(Artifact(body="hello"))
+    assert "invoices-received" in model.last_system
+    assert "subcategory" in model.last_system.lower(), \
+        "the field is in the schema but the prompt never names it"
+
+
+def test_every_subcategory_reaches_the_model(registry):
+    """A subcategory the model cannot see is a folder nothing files into."""
+    model = FakeModel(GOOD)
+    Classifier(registry, client=model).classify(Artifact(body="hello"))
+
+    missing = []
+    for tree in (registry.personal_categories, registry.business_categories):
+        for category, subs in tree.items():
+            for sub in subs:
+                if sub not in model.last_system:
+                    missing.append(f"{category}/{sub}")
+    assert not missing, f"defined in taxonomy.yaml, never offered: {missing}"
+
+
+def test_a_null_subcategory_is_still_a_valid_answer(registry):
+    """Filing flat is findable. A guessed subcategory buries the document one
+    level deeper than a guessed category does."""
+    model = FakeModel({**GOOD, "subcategory": None})
+    c = Classifier(registry, client=model).classify(
+        Artifact(recipient="matthew@mrecai.com", body="x"))
+    assert c.subcategory is None
+    assert not c.needs_review
+
+
+def test_an_invented_subcategory_is_refused(registry):
+    model = FakeModel({**GOOD, "category": "VENDORS", "subcategory": "made-up"})
+    c = Classifier(registry, client=model).classify(Artifact(body="x"))
+    assert c.entity_id == "UNASSIGNED"
+    assert c.needs_review
+
+
+# ---------------------------------------------------------------------------
 # D-027 — the overrides block was read by nothing
 #
 # taxonomy.yaml declared deterministic overrides and said, in the imperative,

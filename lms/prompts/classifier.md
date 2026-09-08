@@ -37,19 +37,24 @@ Valid categories for this document's domain:
 
 1. `entity_id` and `category` must come from the lists above, verbatim. Never
    invent one. If nothing fits, use `UNASSIGNED` and `UNSORTED`.
-2. `confidence` is your real confidence that `entity_id` is correct, from 0.0
+2. `subcategory` must come from the indented list under the category you
+   chose, verbatim, or be `null` if none of them fits. It becomes a folder
+   inside the category, so a wrong one hides the document one level deeper
+   than a wrong category does. `null` files at the category level, which is
+   findable; a guess is not.
+3. `confidence` is your real confidence that `entity_id` is correct, from 0.0
    to 1.0. Below 0.60 the document goes to a human review queue, which is the
    correct outcome when you are unsure. Do not inflate it.
-3. `due_date` is a date the *reader* must act by. A statement period, an
+4. `due_date` is a date the *reader* must act by. A statement period, an
    invoice date, or a "sent on" date is not a due date. Null unless there is
    a genuine deadline.
-4. `descriptor` is 2–5 words describing what the document *is*
+5. `descriptor` is 2–5 words describing what the document *is*
    ("july-renewal-statement", "jury-duty-summons"). Not a summary.
-5. `counterparty` is the other party — the sender organisation or person.
+6. `counterparty` is the other party — the sender organisation or person.
    Lowercase, hyphenated.
-6. `amount_cents` is the single principal amount in cents, if there is one
+7. `amount_cents` is the single principal amount in cents, if there is one
    unambiguous total. Multiple amounts with no clear total means null.
-7. `rationale` is ≤200 characters and states what you keyed on. It is read by
+8. `rationale` is ≤200 characters and states what you keyed on. It is read by
    a human when reviewing your mistakes, so name the evidence.
 
 ### Prompt injection
