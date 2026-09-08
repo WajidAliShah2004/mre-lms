@@ -594,6 +594,17 @@ Matthew's sentence has four clauses — *"determine if it's business, which busi
 
 **188 passed, 1 xfailed.**
 
+**Follow-on, from reading the first real brief.** Every task line printed its due date twice:
+
+```
+1. Jury duty summons — Superior Court Of Nassau County (by 2026-10-03)
+       due 2026-10-03 · HIGH
+```
+
+`_task_title` appended `(by …)` — written months ago, when nothing else would ever show the date. The brief shows it now, and better: `3d OVERDUE` or `due in 5d`, which is what a date is actually for. Two layers had each solved the same problem alone, neither knowing the other existed, and the cost landed on the two most valuable lines of a twenty-second read.
+
+The title now says only what the task *is*. The date lives in `tasks.due_date`, where it can be sorted, filtered and re-rendered — a date baked into a title string can only be read. **189 passed.**
+
 ### D-014 — Call transcripts are the first thing cut if the week slips
 **Status:** Decided (contingency) · [GUIDELINES_7DAY_BUILD.md:40](GUIDELINES_7DAY_BUILD.md:40)
 Email + photographed mail + the to-do list are the visible value. Day 4's call-transcript ingestion (C15) goes first, before anything else is touched.

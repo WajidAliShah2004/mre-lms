@@ -544,4 +544,21 @@ def test_task_titles_read_like_a_human_wrote_them(registry):
         counterparty="county-court", descriptor="jury duty summons",
         rationale="summons")
     title = _task_title(c)
-    assert title == "Jury duty summons — County Court (by 2026-09-12)"
+    assert title == "Jury duty summons — County Court"
+
+
+def test_a_task_title_does_not_carry_its_own_due_date(registry):
+    """The brief renders the date, and renders it better — "3d OVERDUE" rather
+    than an ISO string. Both printing it wasted the two most valuable lines of
+    a twenty-second read on the same fact twice.
+
+    It also belongs in tasks.due_date, where it can be sorted and re-rendered.
+    A date baked into a title can only be read.
+    """
+    from core.pipeline.classify import Classification
+    c = Classification(
+        domain="BUSINESS", entity_id="B_MRE", category="VENDORS", urgency="HIGH",
+        confidence=0.9, requires_reply=False, due_date="2026-10-06",
+        counterparty="acme-supply", descriptor="september invoice",
+        rationale="invoice")
+    assert "2026-10-06" not in _task_title(c)

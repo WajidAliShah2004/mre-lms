@@ -318,17 +318,29 @@ def ingest_file(conn, roots: filing.StorageRoots, registry: Registry,
 
 
 def _task_title(c: Classification) -> str:
-    """Written the way it will read on a phone at 06:30.
+    """What the task IS. Not when it is due.
 
-    "Jury duty — call by Sept 12", not "LEGAL/court artifact 4471 requires
-    action". The morning brief is the product; a task nobody can parse at a
-    glance is a task that gets ignored.
+    "Jury duty summons — Superior Court of Nassau County", and nothing else.
+
+    This used to append "(by 2026-10-03)", written when nothing else would
+    ever show the date. The brief does now, and better — it says "3d OVERDUE"
+    or "due in 5d", which is what a date is for. Leaving it in both places
+    produced:
+
+        1. Jury duty summons — Superior Court Of Nassau County (by 2026-10-03)
+               due 2026-10-03 · HIGH
+
+    The same fact twice, in the two most valuable lines of a twenty-second
+    read, one of them in the less useful form. Two layers had each solved the
+    same problem alone, neither knowing the other existed.
+
+    The due date lives in `tasks.due_date`, which is where it can be sorted,
+    filtered and re-rendered. A date baked into a title string can only be
+    read.
     """
     who = c.counterparty.replace("-", " ").title() if c.counterparty else ""
     what = c.descriptor.replace("-", " ") if c.descriptor else c.category.lower()
     title = f"{what}".strip().capitalize()
     if who:
         title = f"{title} — {who}"
-    if c.due_date:
-        title = f"{title} (by {c.due_date})"
     return title[:200]
