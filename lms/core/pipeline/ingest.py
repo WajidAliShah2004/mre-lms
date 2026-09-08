@@ -59,6 +59,24 @@ def _rules() -> dict[str, Any]:
     return yaml.safe_load((CONFIG / "rules.yaml").read_text(encoding="utf-8"))
 
 
+def _unreadable_reason(path: Path, engine: str | None) -> str:
+    """Say why nothing was read, in the words a human needs to act on it.
+
+    "low confidence" sends someone to look at the prompt. "PDF text extraction
+    is not implemented" sends them to the right place immediately.
+    """
+    suffix = path.suffix.lower() or "(no extension)"
+    if suffix == ".pdf":
+        return ("no text extracted: PDF reading is not implemented yet — "
+                "the file is filed unread in quarantine, nothing was guessed")
+    if suffix not in ocr.READABLE_SUFFIXES:
+        return (f"no text extracted: {suffix} is not a format this pipeline "
+                f"can read (handles images and {', '.join(sorted(ocr.TEXT_SUFFIXES))})")
+    if engine == "failed":
+        return f"no text extracted: every reader failed on {suffix}"
+    return f"no text extracted: {suffix} read as empty"
+
+
 # ---------------------------------------------------------------------------
 # Phishing pre-check — runs before the model, not after
 # ---------------------------------------------------------------------------
@@ -161,22 +179,50 @@ def ingest_file(conn, roots: filing.StorageRoots, registry: Registry,
 
     art = artifact or Artifact(source=source, source_ref=source_ref)
 
-    # --- OCR ---------------------------------------------------------------
+    # --- read the file -----------------------------------------------------
     ocr_text = None
     engine = None
-    if run_ocr and source_path.suffix.lower() in ocr.IMAGE_SUFFIXES:
+    suffix = source_path.suffix.lower()
+
+    if run_ocr and suffix in ocr.READABLE_SUFFIXES:
         if not db.already_processed(conn, sha, "ocr"):
             try:
-                result = ocr.extract_text(source_path)
+                if suffix in ocr.TEXT_SUFFIXES:
+                    result = ocr.read_text_file(source_path)
+                else:
+                    result = ocr.extract_text(source_path)
                 ocr_text, engine = result.text, result.engine
                 db.mark_processed(conn, sha, "ocr")
             except ocr.OCRError as exc:
-                # Not fatal. An unreadable photograph still needs to reach the
-                # review queue, where a human can look at it in two seconds.
+                # Not fatal here. An unreadable photograph still needs to reach
+                # the review queue, where a human can look at it in two seconds.
+                # The emptiness check below is what stops it reaching the model.
                 db.log_action(conn, "OCR_FAILED", detail=str(exc)[:400])
                 ocr_text, engine = "", "failed"
         if ocr_text and not art.body:
             art.body = ocr_text
+
+    # --- did we actually read anything? (D-024) ----------------------------
+    #
+    # Never ask the model about a document we failed to read. Before this
+    # check, a .txt file matched no extraction path at all, so `art.body`
+    # stayed empty, the classifier was handed nothing, and the model answered
+    # with low confidence — correctly, since there was nothing there. That
+    # surfaced as "confidence 0.15 below 0.60", which reads like a model
+    # problem and is in fact a reading problem two stages earlier.
+    #
+    # The distinction matters because the two have opposite fixes. An empty
+    # body is also the case where a confidently WRONG answer costs most: the
+    # model has nothing to be constrained by, so whatever it invents is
+    # unfalsifiable.
+    if not (art.body or "").strip():
+        reason = _unreadable_reason(source_path, engine)
+        target = filing.quarantine_artifact(
+            conn, roots, source_path=source_path, sha256=sha,
+            source=source, reason=reason, source_ref=source_ref)
+        db.log_action(conn, "UNREADABLE", detail=reason[:400])
+        return IngestResult(sha256=sha, status="QUARANTINED", path=target,
+                            ocr_engine=engine, reason=reason)
 
     # --- phishing, before the model ---------------------------------------
     reason = phishing_check(art, registry, auth_results)

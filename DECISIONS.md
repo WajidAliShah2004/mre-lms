@@ -310,6 +310,37 @@ So the rule's certainty was applied **only when the model contradicted it**. On 
 
 **Third bug at a seam, third one found by running a real document.** Not a seam between code and runtime this time, but between two components that were each correct alone — routing knew the entity, the model reported its own uncertainty honestly, and the join discarded the better of the two.
 
+### D-024 — A document nobody could read is quarantined, never classified
+**Status:** Decided and fixed · Sept 8 2026 · **measured, not assumed**
+
+Third live run, third quarantine — and the D-023 fix was correctly applied. Same reason: `confidence 0.15 below 0.60`. But the probe filed the *same invoice text* cleanly at 0.95.
+
+The difference is what the probe does that the watcher does not: it sets `body=` explicitly.
+
+`ingest_file` extracted text only when the suffix was in `ocr.IMAGE_SUFFIXES` — `.jpg .jpeg .png .heic .heif .tiff .tif .gif .bmp`. A `.txt` file matched nothing. **No reader ran, `art.body` stayed empty, and the classifier was handed a document with no content.** The model returned 0.15, which is the right answer to an empty document, and it quarantined against a floor.
+
+So the symptom pointed at the model and the cause was two stages earlier, in a branch that simply had no case for the file it was given.
+
+**The same hole swallows PDFs** — the single most common form of real scanned mail. Nothing in the pipeline read them either. That would have surfaced on Day 3 against live attachments rather than on a test invoice.
+
+**Fix, in two parts.**
+
+*Read text files.* `ocr.TEXT_SUFFIXES` and `read_text_file()` — not OCR, but the same `OCRResult` contract so callers don't branch. The sidecar records `engine: "plain-text"`, so the archive says which path read it.
+
+*And the part that matters more:* **never ask the model about a document we failed to read.** `ingest_file` now checks for an empty body after extraction and quarantines with a reason that names the cause — `"no text extracted: PDF reading is not implemented yet"` — instead of passing nothing to a model and reporting whatever it says about nothing.
+
+That check is the real fix. Reading `.txt` closes one gap; refusing to classify emptiness closes the whole class, PDF included. An empty body is also precisely where a confidently wrong answer costs most: with no content to be constrained by, whatever the model invents is unfalsifiable — no rule contradicts it, no validation catches it, and it files somewhere plausible.
+
+**Eight existing tests failed on the change**, and every one deserved to. They handed the pipeline `.pdf` files containing plain-text bytes — a fiction nothing checked, because nothing ever tried to read them. The watched-folder fixtures are now `.txt`, which makes them honest and exercises the real extraction path; the three `run_ocr=False` cases now supply a `body`, which is what an email adapter actually does. **Second time in one day that correcting behaviour exposed tests that were passing while describing the wrong thing** (D-023 was the first).
+
+One assertion also had to change meaning rather than value: `test_retired_files_are_not_rescanned` counted `*.txt` in the archive, and filing writes the extracted text beside the document — so with `.txt` fixtures the glob counted both and read as a double-file. It now counts `.meta.json`, one per filed artifact, which is what the test was always trying to say.
+
+**Five new tests**, the load-bearing one being `test_an_unreadable_format_is_quarantined_before_the_model`: it wires in a model that *would* answer confidently and asserts it is never called.
+
+**Why no test caught it.** Every ingest test either set `body=` directly or used `run_ocr=False`. Not one handed the pipeline a real file and let it do the reading — so the reading step, the only part that was broken, was the one part never exercised. The watched-folder tests came closest and still used a fake `.pdf` that no reader was ever going to open.
+
+**Fourth bug from running one real document, and the pattern is now unmistakable.** Every one lived at a boundary the tests spanned by assumption: code-to-runtime (D-022), process-to-filesystem (`--once`), rule-to-model (D-023), and now file-to-pipeline. The units were never the problem. The tests asserted what each stage does when handed correct input, and the bugs were all in what one stage actually hands the next.
+
 ### D-014 — Call transcripts are the first thing cut if the week slips
 **Status:** Decided (contingency) · [GUIDELINES_7DAY_BUILD.md:40](GUIDELINES_7DAY_BUILD.md:40)
 Email + photographed mail + the to-do list are the visible value. Day 4's call-transcript ingestion (C15) goes first, before anything else is touched.

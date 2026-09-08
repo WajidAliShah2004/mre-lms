@@ -32,6 +32,20 @@ from ..adapters.lmstudio import LMStudio, ModelError
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".tiff", ".tif", ".gif", ".bmp"}
 
+# Files that are already text. No OCR, just read them.
+#
+# Added after D-024: the watched folder happily accepted a .txt invoice, found
+# no OCR path for it, and passed an EMPTY body to the classifier. The model was
+# asked to classify nothing, answered with low confidence — correctly — and the
+# document quarantined. Nothing in the pipeline noticed it had never read the
+# file.
+TEXT_SUFFIXES = {".txt", ".text", ".md", ".csv", ".log"}
+
+# Suffixes this module can turn into text at all. Anything outside it reaches
+# the classifier with an empty body unless the caller supplied one, which is
+# the failure D-024 describes. ingest.py checks against this set and refuses.
+READABLE_SUFFIXES = IMAGE_SUFFIXES | TEXT_SUFFIXES
+
 # Below this, Vision's output is treated as a failed read rather than a short
 # document. A photograph of a bill that yields 40 characters usually means the
 # page was blurred, cropped, or upside down — not that the bill was short.
@@ -148,6 +162,27 @@ def model_ocr(path: Path, client: LMStudio | None = None) -> OCRResult:
         raise OCRError(f"model OCR failed: {exc}") from exc
 
     return OCRResult(text=completion.text.strip(), engine="glm-ocr")
+
+
+# ---------------------------------------------------------------------------
+# Files that are already text
+# ---------------------------------------------------------------------------
+
+def read_text_file(path: Path) -> OCRResult:
+    """Read a text file. Not OCR, but the same contract, so callers don't branch.
+
+    `errors="replace"` rather than strict: a mojibake character in the middle
+    of an invoice is a nuisance, and refusing the whole document over it would
+    send a perfectly filable bill to the review queue.
+    """
+    path = Path(path)
+    if path.suffix.lower() not in TEXT_SUFFIXES:
+        raise OCRError(f"not a text file this module handles: {path.suffix}")
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        raise OCRError(f"could not read {path}: {exc}") from exc
+    return OCRResult(text=text, engine="plain-text")
 
 
 # ---------------------------------------------------------------------------

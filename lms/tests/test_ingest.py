@@ -107,7 +107,8 @@ def test_due_date_is_not_used_as_the_document_date(conn, roots, registry, tmp_pa
         conn, roots, registry,
         classifier(registry, {**INVOICE, "doc_date": "2026-09-01",
                               "due_date": "2026-12-31"}),
-        src, artifact=Artifact(recipient="matthew@mrecai.com"), run_ocr=False)
+        src, artifact=Artifact(recipient="matthew@mrecai.com",
+                               body="ACME SUPPLY invoice"), run_ocr=False)
 
     assert result.path.name.startswith("2026-09-01__"), "due date leaked into the filename"
     row = conn.execute("SELECT due_date FROM tasks WHERE id = ?",
@@ -136,7 +137,8 @@ def test_sidecar_and_task_carry_what_the_filename_cannot(conn, roots, registry, 
         conn, roots, registry,
         classifier(registry, {**INVOICE, "doc_date": "2026-09-01"}),
         src, source="email", source_ref="msg-1",
-        artifact=Artifact(recipient="matthew@mrecai.com"), run_ocr=False)
+        artifact=Artifact(recipient="matthew@mrecai.com",
+                          body="ACME SUPPLY invoice"), run_ocr=False)
 
     meta = json.loads(result.path.with_name(result.path.name + ".meta.json")
                       .read_text(encoding="utf-8"))
@@ -155,10 +157,86 @@ def test_sidecar_and_task_carry_what_the_filename_cannot(conn, roots, registry, 
     assert "Acme Supply" in row["title"]
 
 
+# ---------------------------------------------------------------------------
+# D-024 — never classify a document nobody read
+#
+# The watched folder accepted a .txt invoice, found no extraction path for it
+# (only image suffixes were handled), and passed an EMPTY body to the model.
+# The model answered 0.15 — correctly, there was nothing there — and it
+# quarantined as "confidence 0.15 below 0.60", which reads like a model problem
+# and is a reading problem two stages earlier.
+#
+# An empty body is also where a confidently wrong answer costs most: with no
+# content to be constrained by, whatever the model invents is unfalsifiable.
+# ---------------------------------------------------------------------------
+
+def test_a_text_file_is_read_not_ignored(conn, roots, registry, tmp_path):
+    """The bug, as the smallest test that would have caught it."""
+    src = doc(tmp_path, "inv.txt",
+              b"ACME SUPPLY COMPANY\nINVOICE 6022\nBill to: MRECAI\nTOTAL DUE: $1,450.00\n")
+    result = ingest_file(conn, roots, registry, classifier(registry, INVOICE), src)
+
+    assert result.status == "FILED", result.reason
+    assert result.ocr_engine == "plain-text", "a text file went through an OCR engine"
+
+
+def test_an_unreadable_format_is_quarantined_before_the_model(conn, roots, registry,
+                                                              tmp_path):
+    """A PDF cannot be read yet. It must not be classified anyway.
+
+    The model is one that would answer confidently if asked. The assertion is
+    that it never gets asked.
+    """
+    asked = []
+
+    class Watching(FakeModel):
+        def complete(self, **kw):
+            asked.append(kw)
+            return super().complete(**kw)
+
+    src = doc(tmp_path, "scan.pdf", b"%PDF-1.4 binary bytes")
+    result = ingest_file(conn, roots, registry,
+                         Classifier(registry, client=Watching(INVOICE)), src)
+
+    assert result.status == "QUARANTINED"
+    assert asked == [], "the model was asked about a document nobody could read"
+    assert "PDF" in result.reason, result.reason
+
+
+def test_the_quarantine_reason_names_the_cause_not_the_symptom(conn, roots, registry,
+                                                               tmp_path):
+    """'no text extracted' sends someone to the reader. 'low confidence' sends
+    them to the prompt, which is the wrong place and costs an afternoon."""
+    src = doc(tmp_path, "mystery.xyz", b"whatever")
+    result = ingest_file(conn, roots, registry,
+                         classifier(registry, INVOICE), src)
+
+    assert "no text extracted" in result.reason
+    assert "confidence" not in result.reason
+
+
+def test_an_empty_text_file_does_not_reach_the_model(conn, roots, registry, tmp_path):
+    src = doc(tmp_path, "blank.txt", b"   \n\n  ")
+    result = ingest_file(conn, roots, registry, classifier(registry, INVOICE), src)
+    assert result.status == "QUARANTINED"
+    assert "read as empty" in result.reason
+
+
+def test_an_unreadable_document_is_still_kept(conn, roots, registry, tmp_path):
+    """Refusing to classify is not refusing to keep. The bytes are the record."""
+    src = doc(tmp_path, "scan.pdf", b"%PDF-1.4 binary bytes")
+    result = ingest_file(conn, roots, registry, classifier(registry, INVOICE), src)
+
+    assert result.path is not None and result.path.exists()
+    actions = [r["action"] for r in conn.execute("SELECT action FROM actions_log")]
+    assert "UNREADABLE" in actions, "the refusal left no trace in the log"
+
+
 def test_reingesting_the_same_bytes_is_a_noop(conn, roots, registry, tmp_path):
     src = doc(tmp_path, "invoice.pdf", b"same bytes")
     args = dict(source="email", source_ref="msg-1",
-                artifact=Artifact(recipient="matthew@mrecai.com"), run_ocr=False)
+                artifact=Artifact(recipient="matthew@mrecai.com",
+                                  body="same bytes invoice"), run_ocr=False)
 
     first = ingest_file(conn, roots, registry, classifier(registry, INVOICE), src, **args)
     second = ingest_file(conn, roots, registry, classifier(registry, INVOICE), src, **args)

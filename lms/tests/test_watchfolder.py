@@ -22,6 +22,15 @@ from core.pipeline.registry import load_registry
 
 CONFIG = Path(__file__).resolve().parents[1] / "config"
 
+# Fixtures are .txt, not .pdf.
+#
+# They used to be .pdf files containing plain-text bytes — a fiction that
+# nothing checked, because ingest never tried to read them. D-024 added the
+# rule that a document nobody could read is quarantined rather than
+# classified, and these tests started failing: correctly, since the pipeline
+# still cannot read a PDF. .txt makes the fixture honest and exercises the
+# real extraction path end to end.
+
 
 @pytest.fixture
 def registry():
@@ -92,13 +101,13 @@ def age(path: Path, seconds: int) -> None:
 
 def test_a_file_still_being_written_is_not_touched(conn, roots, registry, inbox):
     """A photo mid-upload has a fresh mtime and must be left alone."""
-    f = inbox / "personal" / "bill.pdf"
+    f = inbox / "personal" / "bill.txt"
     f.write_bytes(b"partial upload")
     assert scan(conn, roots, registry, inbox, watchfolder.WatchState()) == []
 
 
 def test_a_quiet_file_is_ingested(conn, roots, registry, inbox):
-    f = inbox / "personal" / "bill.pdf"
+    f = inbox / "personal" / "bill.txt"
     f.write_bytes(b"a complete electric bill from con edison")
     age(f, watchfolder.QUIET_SECONDS + 1)
 
@@ -116,7 +125,7 @@ def test_settledness_survives_a_fresh_process(conn, roots, registry, inbox):
 
     A NEW WatchState per scan simulates exactly that. It must still work.
     """
-    f = inbox / "personal" / "bill.pdf"
+    f = inbox / "personal" / "bill.txt"
     f.write_bytes(b"an electric bill")
     age(f, watchfolder.QUIET_SECONDS + 1)
 
@@ -125,14 +134,14 @@ def test_settledness_survives_a_fresh_process(conn, roots, registry, inbox):
 
 
 def test_zero_byte_files_are_ignored(conn, roots, registry, inbox):
-    f = inbox / "personal" / "empty.pdf"
+    f = inbox / "personal" / "empty.txt"
     f.touch()
     age(f, watchfolder.QUIET_SECONDS + 1)
     assert scan(conn, roots, registry, inbox, watchfolder.WatchState()) == []
 
 
 def test_is_settled_reads_mtime_not_a_counter(inbox):
-    f = inbox / "personal" / "x.pdf"
+    f = inbox / "personal" / "x.txt"
     f.write_bytes(b"data")
     assert not watchfolder.is_settled(f)
     age(f, watchfolder.QUIET_SECONDS + 1)
@@ -140,7 +149,7 @@ def test_is_settled_reads_mtime_not_a_counter(inbox):
 
 
 def test_missing_file_is_not_settled(inbox):
-    assert not watchfolder.is_settled(inbox / "personal" / "gone.pdf")
+    assert not watchfolder.is_settled(inbox / "personal" / "gone.txt")
 
 
 # ---------------------------------------------------------------------------
@@ -148,42 +157,46 @@ def test_missing_file_is_not_settled(inbox):
 # ---------------------------------------------------------------------------
 
 def test_subfolder_supplies_the_personal_business_tag(inbox):
-    assert watchfolder.tag_for(inbox / "business" / "x.pdf", inbox) == "BUSINESS"
-    assert watchfolder.tag_for(inbox / "personal" / "x.pdf", inbox) == "PERSONAL"
-    assert watchfolder.tag_for(inbox / "x.pdf", inbox) is None
+    assert watchfolder.tag_for(inbox / "business" / "x.txt", inbox) == "BUSINESS"
+    assert watchfolder.tag_for(inbox / "personal" / "x.txt", inbox) == "PERSONAL"
+    assert watchfolder.tag_for(inbox / "x.txt", inbox) is None
 
 
 def test_handled_files_are_moved_aside_never_deleted(conn, roots, registry, inbox):
-    f = inbox / "personal" / "bill.pdf"
+    f = inbox / "personal" / "bill.txt"
     f.write_bytes(b"an electric bill from con edison")
     age(f, watchfolder.QUIET_SECONDS + 1)
     scan(conn, roots, registry, inbox, watchfolder.WatchState())
 
     assert not f.exists(), "file was left in the inbox and will be rescanned"
-    moved = list((inbox / "_done").glob("*.pdf"))
+    moved = list((inbox / "_done").glob("*.txt"))
     assert len(moved) == 1, "the file was deleted rather than retired"
 
 
 def test_retired_files_are_not_rescanned(conn, roots, registry, inbox):
-    f = inbox / "personal" / "bill.pdf"
+    f = inbox / "personal" / "bill.txt"
     f.write_bytes(b"an electric bill")
     age(f, watchfolder.QUIET_SECONDS + 1)
     state = watchfolder.WatchState()
     scan(conn, roots, registry, inbox, state)
 
     assert scan(conn, roots, registry, inbox, state) == []
-    assert len(list(roots.archive.rglob("*.pdf"))) == 1
+    # Count sidecars, not *.txt. Filing writes the extracted text beside the
+    # document, so with .txt fixtures a *.txt glob counts both and reads as a
+    # double-file. One .meta.json is written per filed artifact, so it says
+    # what this test actually means: exactly one document was filed.
+    assert len(list(roots.archive.rglob("*.meta.json"))) == 1
 
 
 def test_a_name_collision_in_done_does_not_overwrite(conn, roots, registry, inbox):
     """Two photos both called IMG_0001.jpg is the normal case, not an edge one."""
     for content in (b"first bill", b"second different bill"):
-        f = inbox / "personal" / "IMG_0001.pdf"
+        f = inbox / "personal" / "IMG_0001.txt"
         f.write_bytes(content)
         age(f, watchfolder.QUIET_SECONDS + 1)
         scan(conn, roots, registry, inbox, watchfolder.WatchState())
 
-    assert len(list((inbox / "_done").glob("*.pdf"))) == 2
+    assert len(list((inbox / "_done").glob("*.txt"))) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -191,20 +204,20 @@ def test_a_name_collision_in_done_does_not_overwrite(conn, roots, registry, inbo
 # ---------------------------------------------------------------------------
 
 def test_quarantined_files_go_to_failed_not_done(conn, roots, registry, inbox):
-    f = inbox / "personal" / "unclear.pdf"
+    f = inbox / "personal" / "unclear.txt"
     f.write_bytes(b"illegible scrawl")
     age(f, watchfolder.QUIET_SECONDS + 1)
     scan(conn, roots, registry, inbox, watchfolder.WatchState(),
          {**BILL, "confidence": 0.2})
 
-    assert list((inbox / "_failed").glob("*.pdf"))
-    assert not list((inbox / "_done").glob("*.pdf"))
+    assert list((inbox / "_failed").glob("*.txt"))
+    assert not list((inbox / "_done").glob("*.txt"))
 
 
 def test_one_bad_file_does_not_stop_the_others(conn, roots, registry, inbox, monkeypatch):
     """A daemon that dies on one malformed file stops processing everything."""
-    good = inbox / "personal" / "good.pdf"
-    bad = inbox / "personal" / "bad.pdf"
+    good = inbox / "personal" / "good.txt"
+    bad = inbox / "personal" / "bad.txt"
     good.write_bytes(b"a perfectly good electric bill")
     bad.write_bytes(b"boom")
     age(good, watchfolder.QUIET_SECONDS + 1)
@@ -213,7 +226,7 @@ def test_one_bad_file_does_not_stop_the_others(conn, roots, registry, inbox, mon
     real = watchfolder.ingest.ingest_file
 
     def explode(*a, **kw):
-        if Path(kw.get("source_ref") or a[4]).name == "bad.pdf":
+        if Path(kw.get("source_ref") or a[4]).name == "bad.txt":
             raise RuntimeError("simulated failure")
         return real(*a, **kw)
 
@@ -231,17 +244,17 @@ def test_one_bad_file_does_not_stop_the_others(conn, roots, registry, inbox, mon
 # ---------------------------------------------------------------------------
 
 def test_classic_icloud_stub_is_recognised(inbox):
-    stub = inbox / "personal" / ".bill.pdf.icloud"
+    stub = inbox / "personal" / ".bill.txt.icloud"
     stub.write_bytes(b"placeholder")
     assert watchfolder.is_dataless(stub)
 
 
 def test_a_normal_local_file_is_not_dataless(inbox):
-    f = inbox / "personal" / "bill.pdf"
+    f = inbox / "personal" / "bill.txt"
     f.write_bytes(b"real bytes on disk")
     assert not watchfolder.is_dataless(f)
 
 
 def test_dot_underscore_resource_forks_are_skipped(inbox):
-    (inbox / "personal" / "._bill.pdf").write_bytes(b"resource fork")
+    (inbox / "personal" / "._bill.txt").write_bytes(b"resource fork")
     assert watchfolder.candidates(inbox) == []
