@@ -81,9 +81,20 @@ echo "    quarantine: $QUARANTINE"
 # ---------------------------------------------------------------------------
 echo
 echo "==> Python"
-command -v python3 >/dev/null || { echo "python3 missing: brew install python@3.12" >&2; exit 1; }
-python3 --version
-python3 -m pip install --quiet --user pyyaml pytest
+# Pin to Homebrew 3.12 explicitly. Bare `python3` on macOS resolves to Apple's
+# 3.9 in /usr/bin, and the launchd jobs added on Day 6 will not inherit this
+# shell's PATH — so a script that works when typed can fail silently at 06:30
+# against a different interpreter. Name the interpreter, do not inherit it.
+PY="/opt/homebrew/bin/python3.12"
+if [[ ! -x "$PY" ]]; then
+  echo "    $PY not found; install with: brew install python@3.12" >&2
+  echo "    falling back to $(command -v python3) — acceptable for tests," >&2
+  echo "    NOT acceptable once launchd jobs exist." >&2
+  PY="$(command -v python3)" || { echo "no python3 at all" >&2; exit 1; }
+fi
+echo "    interpreter: $PY"
+"$PY" --version
+"$PY" -m pip install --quiet --user pyyaml pytest
 
 # ---------------------------------------------------------------------------
 # 4. Environment. Written to a file the LaunchAgent sources.
@@ -110,14 +121,14 @@ echo
 echo "==> Running the test suite on this Mac"
 # shellcheck disable=SC1090
 source "$REPO_DIR/ops/lms.env"
-python3 -m pytest || { echo "TESTS FAILED — stop here, do not proceed to Day 3." >&2; exit 1; }
+"$PY" -m pytest || { echo "TESTS FAILED — stop here, do not proceed to Day 3." >&2; exit 1; }
 
 # ---------------------------------------------------------------------------
 # 6. Report what is still blocked
 # ---------------------------------------------------------------------------
 echo
 echo "==> Outstanding client items"
-python3 - <<'PY'
+"$PY" - <<'PY'
 import sys
 sys.path.insert(0, ".")
 from core.pipeline.registry import load_registry
@@ -136,12 +147,21 @@ cat <<'EOF'
 ==> Done. Day 1-2 is live on this machine.
 
 Still blocked, in priority order:
-  C16  legal names, EINs, name variants        -> classifier accuracy
+  C16   legal names, EINs, name variants       -> the classifier is built from
+                                                  this file; Day 2 accuracy
+                                                  depends on it entirely
   D-017 rotate the seven exposed credentials   -> before ANY mailbox connects
-  D-017 replace the OpenClaw account password  -> it is currently 123456
-  C21  identify the rescueadmin account        -> before Phase 8 hardening
-  C11  Workspace admin + 4 Shared Drives       -> Day 3
-  C5   written approval to encrypt in place    -> if the warning above fired
+  C11   Workspace admin + 4 Shared Drives      -> Day 3
+  C2    Telegram numeric user id + 2FA         -> /halt has no authorised
+                                                  sender until this lands
+  C7    FileVault key custody                  -> Phase 1
+  C8    who unlocks after a power cut          -> Phase 1 / RUNBOOK
+
+Closed since the Sept 8 recon:
+  C5    RAID encryption   -> MacStudioHD already encrypted (D-019)
+  C21   dead accounts     -> OpenClaw/rescueadmin/lms removed (D-018)
+  C1    git remote        -> INTERIM: contractor-owned, transfer before
+                             handover (D-020)
 
 Next: Phase 6 (OpenClaw config) and Phase 7 (Telegram), then Day 3 email.
 EOF
