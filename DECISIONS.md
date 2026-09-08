@@ -252,6 +252,33 @@ This is *not* the verification D-016 asked for. Resolving on a warm restart, wit
 
 **Repo correction.** `openclaw/agents/agents.fragment.json` previously described a config shape that does not exist — worse than no file, because a future maintainer would have believed it. It is now marked as documentation of *intent*, with the real mechanism recorded alongside. The config actually applied is `ops/phase6a.patch.json5`, committed verbatim so the machine and the repo cannot drift.
 
+### D-022 — Under constrained decoding this model returns the answer in `reasoning_content`, not `content`
+**Status:** Decided and fixed · Sept 8 2026 · **measured, not assumed**
+
+Running one real document through the pipeline on the Mac exposed a defect that 105 passing unit tests could not see, and that would have made the classifier fail on **every single document**.
+
+Measured against `qwen3.6-35b-a3b-mlx` via LM Studio:
+
+| Request | `message.content` | `message.reasoning_content` |
+|---|---|---|
+| no `response_format` | the answer | the thinking |
+| **with `json_schema`** | **empty string** | **the constrained schema JSON** |
+
+The runtime routes the constrained decode into the reasoning channel and leaves `content` blank. The client read only `content` — the documented, obvious field — so every classification returned `""`, failed to parse, and quarantined. The pipeline behaved correctly: `_quarantine()` caught it, nothing was filed, `UNASSIGNED` every time. It simply never worked.
+
+**Why no test caught it.** Every test mocks the model, and a mock returns whatever shape the person writing it believes is correct. The wrong belief was in both the code and the tests, so they agreed with each other. This class of defect is only visible against the real runtime.
+
+**Fix:** prefer `content`, fall back to `reasoning_content` when it is empty, and record which channel supplied the text on every `Completion`. Preferring content is right in both directions — if a future LM Studio release fixes this, the fallback silently stops firing.
+
+Also hardened while in there, because reasoning models do all of these in practice:
+- `<think>...</think>` blocks are stripped
+- the first balanced `{...}` is extracted when prose surrounds it, brace-counted with string and escape awareness rather than by regex
+- **truncation still fails loudly.** A model that hits `max_tokens` returns *nearly* valid JSON, and half-parsing it would file a document against whichever fields survived — worse than not filing, because it looks fine.
+
+**Two things this run confirmed were already right.** Constrained decoding genuinely works: the model's `rationale` was cut off mid-word at exactly the schema's 200-character limit. And validation caught an invented entity — the model returned `entity_id: "B_XXX"`, which satisfies the schema's regex but is not in `entities.yaml`, and the registry check quarantined it rather than filing against a business that does not exist.
+
+**The general lesson, and the reason to keep doing this.** The units were fine. What was broken was the seam between the code and the runtime, and seams are invisible to unit tests by construction. Two bugs found in one afternoon on the Mac — this one, and the `--once` stability counter — both at seams, neither reachable from the workstation.
+
 ### D-014 — Call transcripts are the first thing cut if the week slips
 **Status:** Decided (contingency) · [GUIDELINES_7DAY_BUILD.md:40](GUIDELINES_7DAY_BUILD.md:40)
 Email + photographed mail + the to-do list are the visible value. Day 4's call-transcript ingestion (C15) goes first, before anything else is touched.
