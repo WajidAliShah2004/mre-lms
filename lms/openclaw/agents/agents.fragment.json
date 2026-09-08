@@ -85,12 +85,19 @@
       }
     },
     "tiers": {
-      "TIER-L1":  { "provider": "lmstudio", "role": "classification", "resident": true,  "_size": "~35B MLX 4-bit" },
-      "TIER-L2":  { "provider": "lmstudio", "role": "drafting",       "resident": true,  "_size": "~122B MLX 4-bit" },
-      "TIER-OCR": { "provider": "lmstudio", "role": "ocr-fallback",   "resident": false, "_comment": "Apple Vision first; this is the low-confidence fallback." },
-      "TIER-A":   { "provider": "lmstudio", "role": "asr",            "resident": false, "_comment": "Day 4. First thing cut if the week slips (D-014)." },
-      "TIER-E":   { "provider": "lmstudio", "role": "embedding",      "resident": false }
-    }
+      "_comment": "Model ids confirmed loaded on the Mac 2026-09-08 via /v1/models.",
+      "TIER-L1":  { "provider": "lmstudio", "role": "classification", "resident": true,  "model": "qwen3.6-35b-a3b-mlx", "_size": "~35B MLX 4-bit" },
+      "TIER-L2":  { "provider": "lmstudio", "role": "drafting",       "resident": true,  "model": "qwen3.5-122b-a10b",   "_size": "~122B MoE" },
+      "TIER-OCR": { "provider": "lmstudio", "role": "ocr-fallback",   "resident": false, "model": "glm-ocr", "_comment": "Apple Vision first; this is the low-confidence fallback." },
+      "TIER-A":   { "provider": "lmstudio", "role": "asr",            "resident": false, "model": "qwen3-asr-1.7b", "_alternate": "whisper-large-v3-turbo", "_comment": "Day 4. First thing cut if the week slips (D-014)." },
+      "TIER-E":   { "provider": "lmstudio", "role": "embedding",      "resident": false, "model": "text-embedding-qwen3-embedding-4b" }
+    },
+    "_also_loaded_not_mapped": [
+      "google/gemma-4-e4b and text-embedding-nomic-embed-text-v1.5 are present",
+      "in LM Studio but are not mapped to a tier. Not a problem — they consume",
+      "no memory unless loaded — but nothing should reference them, because a",
+      "tier is the contract and an unmapped model has no documented role."
+    ]
   },
 
   "scheduling": {

@@ -125,6 +125,8 @@ def check_no_cloud_provider() -> None:
     banned = {"anthropic", "openai", "google", "mistral", "cohere", "azure",
               "bedrock", "vertex", "openrouter", "together", "groq", "xai"}
     for name, body in providers.items():
+        if name.startswith("_") or not isinstance(body, dict):
+            continue
         if name.lower() in banned:
             fail(f"cloud provider '{name}' is configured — see D-003 before proceeding")
         url = str(body.get("baseUrl", ""))
@@ -134,8 +136,12 @@ def check_no_cloud_provider() -> None:
             ok(f"provider '{name}': loopback only ({url})")
 
     for tier, body in frag.get("models", {}).get("tiers", {}).items():
+        if tier.startswith("_") or not isinstance(body, dict):
+            continue          # underscore keys are commentary, not tiers
         if body.get("provider") != "lmstudio":
             fail(f"tier {tier} uses provider {body.get('provider')!r}, expected lmstudio")
+        elif not body.get("model"):
+            warn(f"tier {tier} names no model — is it actually loaded?")
 
 
 # ---------------------------------------------------------------------------

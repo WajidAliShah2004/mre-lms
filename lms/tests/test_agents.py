@@ -124,8 +124,24 @@ def test_every_provider_is_loopback(fragment):
 
 
 def test_every_tier_uses_lmstudio(fragment):
+    """Underscore keys are commentary, not tiers — skip them."""
     for tier, body in fragment["models"]["tiers"].items():
+        if tier.startswith("_"):
+            continue
         assert body["provider"] == "lmstudio", f"{tier} escapes the local provider"
+
+
+def test_every_tier_names_a_confirmed_model(fragment):
+    """Tier names are the contract; model names are substitutable.
+
+    But an unnamed model means nobody checked the tier is actually loaded,
+    which is how you discover at acceptance that TIER-OCR was never downloaded.
+    These were confirmed against /v1/models on 2026-09-08.
+    """
+    for tier, body in fragment["models"]["tiers"].items():
+        if tier.startswith("_"):
+            continue
+        assert body.get("model"), f"{tier} names no model"
 
 
 def test_schedule_timezone_is_a_named_zone(fragment):
