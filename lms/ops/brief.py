@@ -20,22 +20,20 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-_VENV = Path(__file__).resolve().parents[1] / ".venv"
-_VENV_PY = _VENV / "bin" / "python"
-if (_VENV_PY.exists()
-        and Path(sys.prefix).resolve() != _VENV.resolve()
-        and not os.environ.get("LMS_BRIEF_REEXEC")):
-    os.environ["LMS_BRIEF_REEXEC"] = "1"
-    os.execv(str(_VENV_PY), [str(_VENV_PY), str(Path(__file__).resolve()), *sys.argv[1:]])
-
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from _env import load_lms_env                            # noqa: E402
+from _reexec import ensure_venv                          # noqa: E402
 from core.db import database as db                       # noqa: E402
 from core.pipeline.registry import load_registry         # noqa: E402
 from core.reports import brief as reports                # noqa: E402
 
 
 def main() -> int:
+    ensure_venv("LMS_BRIEF_REEXEC", script=__file__)
+    load_lms_env()
+
     p = argparse.ArgumentParser()
     p.add_argument("--evening", action="store_true")
     p.add_argument("--todo", action="store_true", help="the full ranked list")

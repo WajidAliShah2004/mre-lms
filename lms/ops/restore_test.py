@@ -35,6 +35,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _env import load_lms_env
 from _reexec import ensure_venv                            # noqa: E402
 from backup import restic_password, row_counts            # noqa: E402
 
@@ -201,6 +202,7 @@ def verify_restore(restored: Path, live_counts: dict[str, int] | None,
 
 def main() -> int:
     ensure_venv("LMS_RESTORE_REEXEC", script=__file__)
+    load_lms_env()
 
     p = argparse.ArgumentParser()
     p.add_argument("--repo", default=None)

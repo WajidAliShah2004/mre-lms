@@ -65,6 +65,7 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _env import load_lms_env
 from _reexec import ensure_venv                            # noqa: E402
 
 REPO_DIR = Path(__file__).resolve().parents[1]
@@ -295,6 +296,7 @@ def ensure_repo(repo: Path, password: str, dry_run: bool = False) -> None:
 
 def main() -> int:
     ensure_venv("LMS_BACKUP_REEXEC", script=__file__)
+    load_lms_env()
 
     p = argparse.ArgumentParser()
     p.add_argument("--documents", action="store_true",
