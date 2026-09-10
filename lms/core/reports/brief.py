@@ -64,6 +64,18 @@ class ScoredTask:
     reason: str            # why it ranked here, in words, for the brief
 
     @property
+    def task_id(self) -> int:
+        """What closes this task.
+
+        NOT its position in the list. The list is ordered by score and the
+        score moves — a task that is second this morning is first tomorrow
+        because something ahead of it was completed or because its own due date
+        got closer. "Done number 2" means a different task depending on when it
+        is said.
+        """
+        return int(self.row["id"])
+
+    @property
     def title(self) -> str:
         return self.row["title"]
 

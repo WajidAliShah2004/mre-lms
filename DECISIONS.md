@@ -884,6 +884,32 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 
 **302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
 
+### D-048 — A to-do list that cannot be crossed off is not a to-do list
+**Status:** Built · Sept 10 2026
+
+The `tasks` table has had `status IN ('OPEN','DONE','DISMISSED')` and a `completed_at` column since day one. **Nothing has ever written either.** `insert_task` and `open_tasks` were the only functions that touched it.
+
+So the first real task the system produced — the jury duty summons, the client's own worked example from Aug 5 — would have sat at the top of every morning brief for the rest of the year, growing more overdue each day, after he had already served. Within about a week that stops being a to-do list and becomes a thing you scroll past, and the genuinely urgent item scrolls past with it.
+
+Third instance of the same shape: **the schema described a behaviour that did not exist**, exactly as D-027's overrides block did and D-036's hard stops did.
+
+**DONE and DISMISSED are not the same fact.** Both close the task and both remove it from the brief. They differ in what they say about the system:
+
+| | |
+|---|---|
+| `DONE` | he did the thing — the task was right to exist |
+| `DISMISSED` | the task should never have been created |
+
+Only the second is a defect report, and separating them is the only way to ask whether the classifier invents work. If every close is DONE the question cannot be asked at all. A run of dismissals against one counterparty or category is a taxonomy problem; a steady trickle across everything is an urgency-threshold problem. `ops/done.py --dismissed` is the query.
+
+**Closing is by id, never by position.** The brief numbers tasks 1..7 by score, and the score moves — a task that is second this morning is first tomorrow because something ahead of it was completed or its own due date got closer. "Done number 2" means a different task depending on when it is said.
+
+Nothing is deleted: the row stays with its `completed_at`, because *"this was raised and handled"* is the record, and a task that vanishes cannot be shown to have been raised at all if someone later asks why nothing happened. Closing twice reports "already done" rather than raising — two people acting on the same brief is normal — and does not rewrite the first outcome. `--reopen` exists because closing is one keystroke on a phone, and if the cost of a mistake is not also one keystroke, people hesitate over every close and the list stops being used for the opposite reason.
+
+**The gap this leaves is real and not hidden:** until C2, `ops/done.py` is a terminal on the Mac, so in practice it is the contractor's, not Matthew's. The brief he reads on his phone is a file, and a file cannot be replied to. The capability had to exist before any channel could use it; when Telegram lands, `/done <id>` calls straight into `core.pipeline.tasks` and nothing else changes.
+
+**422 passed, 1 xfailed.**
+
 ### D-047 — For mail, the hash identifies a rendering, not a document
 **Status:** Built · Sept 10 2026
 
