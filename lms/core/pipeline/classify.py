@@ -394,7 +394,7 @@ class Classifier:
         # about the category and nothing at all about whose subpoena it is. A
         # summons we could not route still goes to review, which is correct.
         override_notes: list[str] = []
-        for ov in (overrides or []):
+        for ov, why in (overrides or []):
             if ov.category:
                 category, decided_by = ov.category, "rule"
                 subcategory = ov.subcategory
@@ -402,7 +402,7 @@ class Classifier:
                 urgency = ov.urgency
             if ov.tag:
                 tags.append(ov.tag)
-            override_notes.append(ov.describe())
+            override_notes.append(why)
 
         try:
             self.registry.get(entity_id)

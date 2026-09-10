@@ -71,26 +71,39 @@ class Override:
     it, so every rule in it — jury duty included — was decided by the model.
     """
     match_any_text: tuple[str, ...] = ()
-    match_header: str | None = None
+    # Any ONE of these headers being present is a match. A list rather than a
+    # single name because `List-Unsubscribe` alone identified 2 of 22 real
+    # messages: the senders that set it are the ones already behaving well.
+    match_headers: tuple[str, ...] = ()
     category: str | None = None
     subcategory: str | None = None
     urgency: str | None = None
     tag: str | None = None
 
-    def matches(self, text: str, headers: dict[str, str]) -> bool:
-        if self.match_header:
-            wanted = self.match_header.lower()
-            if any(k.lower() == wanted for k in headers):
-                return True
+    def matches(self, text: str, headers: dict[str, str]) -> tuple[bool, str]:
+        """Whether this fires, and WHICH signal fired it.
+
+        The signal is returned rather than recomputed for `describe()`: with
+        several possible headers, "header List-Unsubscribe" and "header
+        List-Id" are different facts about the message, and a rationale that
+        names the wrong one sends a reviewer looking for something that is not
+        there.
+        """
+        present = {k.lower() for k in headers}
+        for name in self.match_headers:
+            if name.lower() in present:
+                return True, f"header {name}"
         if self.match_any_text:
             haystack = (text or "").lower()
-            return any(p in haystack for p in self.match_any_text)
-        return False
+            hits = [p for p in self.match_any_text if p in haystack]
+            if hits:
+                return True, f"text {', '.join(hits)}"
+        return False, ""
 
     def describe(self) -> str:
-        """What matched, for the rationale a human reads in the review queue."""
-        if self.match_header:
-            return f"header {self.match_header}"
+        """What this override looks for. `matches` says what actually fired."""
+        if self.match_headers:
+            return f"header {' | '.join(self.match_headers)}"
         return f"text {', '.join(self.match_any_text)}"
 
 
@@ -115,9 +128,16 @@ class Registry:
         return self.descriptions.get(tree, {})
 
     def match_overrides(self, text: str,
-                        headers: dict[str, str] | None = None) -> list[Override]:
+                        headers: dict[str, str] | None = None
+                        ) -> list[tuple[Override, str]]:
+        """Every override that fires, paired with the signal that fired it."""
         headers = headers or {}
-        return [o for o in self.overrides if o.matches(text, headers)]
+        out = []
+        for o in self.overrides:
+            fired, why = o.matches(text, headers)
+            if fired:
+                out.append((o, why))
+        return out
 
     # -- lookups ------------------------------------------------------------
 
@@ -281,9 +301,9 @@ def _load_overrides(raw: list[Any], *, personal: dict[str, list[str]],
     for i, entry in enumerate(raw):
         match = entry.get("match") or {}
         any_text = tuple(str(t).lower() for t in _as_list(match.get("any_text")))
-        header = match.get("header")
+        headers = tuple(str(h) for h in _as_list(match.get("header")))
 
-        if not any_text and not header:
+        if not any_text and not headers:
             raise RegistryError(
                 f"taxonomy overrides[{i}] matches nothing — it would never fire")
 
@@ -312,7 +332,7 @@ def _load_overrides(raw: list[Any], *, personal: dict[str, list[str]],
                         f"the {tree_name} tree")
 
         out.append(Override(
-            match_any_text=any_text, match_header=header,
+            match_any_text=any_text, match_headers=headers,
             category=category, subcategory=subcategory,
             urgency=urgency, tag=entry.get("tag"),
         ))

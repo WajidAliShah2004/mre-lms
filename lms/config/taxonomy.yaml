@@ -171,7 +171,26 @@ urgency:
 # suggestion" — while jury duty, the client's own worked example from the
 # Aug 5 meeting, was decided by whatever the model happened to say.
 overrides:
-  - match: { header: "List-Unsubscribe", present: true }
+  # Bulk mail. Any one of these headers is enough — they appear only on mail
+  # sent to a list, never on a message a person wrote to Matthew.
+  #
+  # Measured against a real week of his mailbox: List-Unsubscribe ALONE matched
+  # 2 messages out of 22, and both were from senders (SignWell, Braintrust)
+  # already doing the right thing. The other twenty had no such header, and
+  # about ten of them were marketing.
+  #
+  # These extra headers will help a little. They will NOT catch the dominant
+  # case, which is cold sales email — b2bfunnelgroup, cedarbridgeadvisors,
+  # tdmsource, Manhattan Fortress Capital. Those omit List-Unsubscribe ON
+  # PURPOSE, because the whole trick is to look like a message from a person.
+  # No header check can catch mail that is designed to have no headers
+  # distinguishing it. That is C18 and it needs a category, not a rule.
+  - match:
+      header:
+        - "List-Unsubscribe"
+        - "List-Unsubscribe-Post"    # RFC 8058 one-click
+        - "List-Id"                  # true mailing lists
+        - "Feedback-ID"              # bulk ESP loop-back id
     category: null            # does not set category
     urgency: NONE
     tag: BULK

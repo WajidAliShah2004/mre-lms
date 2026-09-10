@@ -884,6 +884,23 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 
 **302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
 
+### D-044 — `List-Unsubscribe` identifies the senders who are already behaving well
+**Status:** Built · Sept 10 2026
+
+Measured, not assumed. Across a real week of Matthew's mailbox — 22 messages — **`List-Unsubscribe` was present on 2**, and both were SignWell and Braintrust, senders already doing the right thing. The override fired correctly on both. It was never broken.
+
+The other twenty had no such header, and about half of them were marketing. So the header now accepts a list — `List-Unsubscribe`, `List-Unsubscribe-Post`, `List-Id`, `Feedback-ID`, all of which appear only on mail sent to a list.
+
+**That will help a little and will not solve it.** The dominant category in this mailbox is not newsletters, it is **cold sales email** — b2bfunnelgroup, cedarbridgeadvisors, tdmsource, Manhattan Fortress Capital. Those omit `List-Unsubscribe` *on purpose*, because the entire trick is to look like a message a person wrote. No header check can catch mail engineered to have no headers that distinguish it.
+
+**C18, for Matthew:** there is no category for *"someone is selling me something I did not ask for."* So an unsolicited financing offer files under VENDORS — a vendor is someone we buy from — and a cold consulting pitch files under CLIENTS. The model is not guessing wildly; it is picking the least-bad option from a menu with no right answer. Same shape as C17, found the same way, and it is his taxonomy to decide.
+
+`match_overrides` now returns `(override, signal)` pairs so the rationale names the header that actually fired rather than the whole candidate list — "header List-Unsubscribe" and "header List-Id" are different facts about a message, and naming the wrong one sends a reviewer looking for something that is not there.
+
+**That change broke nothing in 342 tests, because nothing called `match_overrides`.** D-027 was this same block existing while nothing read it. `tests/test_overrides.py` now tests it directly — matching, the reported signal, the shipped configuration, and load-time validation.
+
+**355 passed, 1 xfailed.**
+
 ### D-043 — Only offer the model answers that can validate
 **Status:** Built · Sept 10 2026
 
