@@ -641,6 +641,23 @@ Nothing is written outside the temp directory and the live archive is opened rea
 
 **201 passed, 1 xfailed.**
 
+**Two corrections from the first real run (Sept 10).**
+
+*The error message was a guess.* The Keychain read failed and the script said "no Keychain item `lms/restic-repo`" — to someone who had just created that item successfully. It collapsed every non-zero exit from `security` into one diagnosis and threw away `stderr` and the exit code, so the message sent the reader to check the one thing that was fine. It now reports the command, the exit code and the actual stderr, and only claims "not found" on exit 44, naming 51 (access denied — macOS prompts the first time a new process reads an item) and 36 (locked keychain) as the other likely answers. **An error that names a cause it has not established is worse than one that admits it does not know**, and this build has spent two days on exactly that failure in other people's code.
+
+*The default put the backup on the same disk as the data.*
+
+```
+archive  /Volumes/MacStudioHD/LMS/archive
+repo     /Volumes/MacStudioHD/LMS/LMS_backup
+```
+
+Both on `MacStudioHD`. That survives a bad delete, a corrupted database, or a classification run gone wrong — all worth having — and it does nothing whatsoever about the disk failing, which is the case the word "backup" is usually reaching for. Both copies go at once. The plist default had the same fault.
+
+Detected with `st_dev`, not by comparing path strings: `/Volumes/MacStudioHD/LMS` and `/Volumes/MacStudioHD_backup` look unrelated and can be one device. The check also has to work before the repo directory exists, since restic creates it on first run — otherwise the warning would never fire on the one run where it matters most.
+
+Not fatal, deliberately. A same-volume repository is better than none, and refusing to run would leave the machine with no backup at all while **D-011 is open** — nobody has yet said which volume is the mirror. So it warns, loudly, every run, and names D-011 as the thing that unblocks it. **206 passed.**
+
 ### D-014 — Call transcripts are the first thing cut if the week slips
 **Status:** Decided (contingency) · [GUIDELINES_7DAY_BUILD.md:40](GUIDELINES_7DAY_BUILD.md:40)
 Email + photographed mail + the to-do list are the visible value. Day 4's call-transcript ingestion (C15) goes first, before anything else is touched.

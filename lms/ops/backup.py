@@ -130,18 +130,54 @@ def row_counts(db_path: Path) -> dict[str, int]:
 # restic
 # ---------------------------------------------------------------------------
 
+# `security` exit codes we can say something useful about. Anything else gets
+# reported verbatim rather than guessed at.
+_SEC_ITEM_NOT_FOUND = 44
+
+
 def restic_password() -> str:
-    """From the Keychain. Never from a file, an env var in lms.env, or a plist."""
-    r = subprocess.run(
-        ["security", "find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"],
-        capture_output=True, text=True)
-    if r.returncode != 0 or not r.stdout.strip():
+    """From the Keychain. Never from a file, an env var in lms.env, or a plist.
+
+    Reports what `security` actually said. The first version of this collapsed
+    every non-zero exit into "no Keychain item", and then said so to someone
+    who had just created the item successfully — a message that sent them to
+    check the one thing that was fine. An error that names a cause it has not
+    established is worse than one that admits it does not know.
+    """
+    cmd = ["security", "find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+
+    if r.returncode == 0 and r.stdout.strip():
+        return r.stdout.rstrip("\n")
+
+    stderr = r.stderr.strip()
+    create = (f'    security add-generic-password -a "$USER" '
+              f"-s {KEYCHAIN_SERVICE} -w\n"
+              f"  (no value after -w — it prompts, so the secret stays out of "
+              f"your shell history and the process table)")
+
+    if r.returncode == _SEC_ITEM_NOT_FOUND:
         raise BackupError(
-            f"no Keychain item {KEYCHAIN_SERVICE!r}. Create it with:\n"
-            f'    security add-generic-password -a "$USER" -s {KEYCHAIN_SERVICE} -w\n'
-            f"  (no value after -w — it prompts, keeping the secret out of your "
-            f"shell history and the process table)")
-    return r.stdout.rstrip("\n")
+            f"the Keychain has no item with service {KEYCHAIN_SERVICE!r}.\n"
+            f"Create it with:\n{create}\n\n"
+            f"  If you believe you already did, check which keychain it landed "
+            f"in:\n    security dump-keychain | grep -A1 {KEYCHAIN_SERVICE}")
+
+    if r.returncode == 0:
+        raise BackupError(
+            f"`security` reported success for {KEYCHAIN_SERVICE!r} but returned "
+            f"an empty password. The item exists with no value in it — delete "
+            f"and recreate it:\n"
+            f"    security delete-generic-password -s {KEYCHAIN_SERVICE}\n{create}")
+
+    raise BackupError(
+        f"could not read {KEYCHAIN_SERVICE!r} from the Keychain.\n"
+        f"  command : {' '.join(cmd)}\n"
+        f"  exit    : {r.returncode}\n"
+        f"  stderr  : {stderr or '(nothing)'}\n\n"
+        f"  Exit 51 means access was denied — macOS shows a dialog the first "
+        f"time a new process reads an item, and it must be allowed. Exit 36 "
+        f"means the keychain is locked: `security unlock-keychain`.")
 
 
 def run_restic(args: list[str], repo: Path, password: str,
@@ -154,6 +190,59 @@ def run_restic(args: list[str], repo: Path, password: str,
         return subprocess.CompletedProcess(cmd, 0, "", "")
     env = {**os.environ, "RESTIC_PASSWORD": password}
     return subprocess.run(cmd, env=env, capture_output=True, text=True)
+
+
+def same_volume(a: Path, b: Path) -> bool:
+    """Are these two paths on the same physical device?
+
+    st_dev, not a string comparison of the paths. /Volumes/MacStudioHD/LMS and
+    /Volumes/MacStudioHD_backup look different and can be the same disk; a
+    bind mount or a symlink can make one path look like two volumes.
+    """
+    def dev(p: Path) -> int | None:
+        for candidate in (p, *p.parents):
+            try:
+                return candidate.stat().st_dev
+            except OSError:
+                continue
+        return None
+
+    da, db = dev(a), dev(b)
+    return da is not None and da == db
+
+
+def warn_if_same_volume(archive: Path, repo: Path) -> bool:
+    """A backup beside the thing it is backing up is not a backup.
+
+    It genuinely helps with the common cases — a bad delete, a corrupted
+    database, a classification run that went wrong — and those are worth
+    having. It does nothing whatsoever about the case the word "backup" is
+    usually reaching for: the disk failing. Both copies go at once.
+
+    Not fatal. A same-volume repository is better than none, and refusing to
+    run would leave a machine with no backup at all while D-011 is open. But
+    it must never be mistaken for disaster protection, so it says so every
+    time rather than once in a README.
+    """
+    if not same_volume(archive, repo):
+        return False
+    print()
+    print("  " + "!" * 68)
+    print("  WARNING: the backup repository is on the SAME VOLUME as the archive.")
+    print()
+    print(f"    archive  {archive}")
+    print(f"    repo     {repo}")
+    print()
+    print("  This protects against a bad delete, a corrupted database, or a")
+    print("  classification run that went wrong — all worth having.")
+    print()
+    print("  It does NOTHING about the disk failing, which is the case the word")
+    print("  'backup' is usually reaching for. Both copies die together.")
+    print()
+    print("  Point LMS_BACKUP_REPO at the mirror volume. Which volume that is")
+    print("  depends on D-011, which is still open.")
+    print("  " + "!" * 68)
+    return True
 
 
 def ensure_repo(repo: Path, password: str, dry_run: bool = False) -> None:
@@ -185,14 +274,18 @@ def main() -> int:
     if not archive:
         print("LMS_ARCHIVE_ROOT is not set — run: source ops/lms.env", file=sys.stderr)
         return 2
-    archive = Path(archive)
-    db_path = Path(os.environ.get("LMS_DB", archive.parent / "lms.db"))
+    # resolve(), so the paths printed are the paths used. `archive.parent`
+    # renders as ".../archive/.." otherwise, which hides that the repo default
+    # sits on the same volume as the data.
+    archive = Path(archive).resolve()
+    db_path = Path(os.environ.get("LMS_DB", archive.parent / "lms.db")).resolve()
     repo = Path(args.repo or os.environ.get(
-        "LMS_BACKUP_REPO", archive.parent / "LMS_backup"))
+        "LMS_BACKUP_REPO", archive.parent / "LMS_backup")).resolve()
 
     print(f"==> database  {db_path}")
     print(f"==> archive   {archive}")
     print(f"==> repo      {repo}")
+    colocated = warn_if_same_volume(archive, repo)
 
     try:
         password = restic_password()
@@ -251,6 +344,10 @@ def main() -> int:
         print("the catalogue that describes them. A restore would give a perfect")
         print("index of files that no longer exist. That matches the spec, and")
         print("it is only sufficient while the documents survive elsewhere.")
+
+    if colocated:
+        print("\nThis snapshot is on the same volume as the archive. It survives")
+        print("a mistake. It does not survive the disk. See the warning above.")
 
     print("\nOFF-MACHINE COPY — still outstanding, and it is Matthew's decision.")
     print("A local repo does not survive theft, fire, or the volume failing.")

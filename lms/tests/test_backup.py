@@ -14,7 +14,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ops"))
 
-from backup import BackupError, row_counts, snapshot_database   # noqa: E402
+from backup import (BackupError, row_counts, same_volume,       # noqa: E402
+                    snapshot_database, warn_if_same_volume)
 from restore_test import verify_restore                          # noqa: E402
 import restore_test                                              # noqa: E402
 
@@ -90,6 +91,48 @@ def test_a_missing_database_is_an_error_not_an_empty_backup(tmp_path):
     with pytest.raises(BackupError) as exc:
         snapshot_database(tmp_path / "absent.db", tmp_path / "out.db")
     assert "no database" in str(exc.value)
+
+
+# ---------------------------------------------------------------------------
+# A backup beside the thing it backs up
+# ---------------------------------------------------------------------------
+
+def test_a_repo_on_the_archive_volume_is_flagged(tmp_path, capsys):
+    """The default put the repo on the same disk as the data.
+
+    Found on the Mac: archive at /Volumes/MacStudioHD/LMS/archive, repo at
+    /Volumes/MacStudioHD/LMS/LMS_backup. That survives a bad delete and dies
+    with the disk, which is the case the word "backup" is usually reaching for.
+    """
+    archive = tmp_path / "LMS" / "archive"
+    repo = tmp_path / "LMS" / "LMS_backup"
+    archive.mkdir(parents=True)
+    repo.mkdir(parents=True)
+
+    assert warn_if_same_volume(archive, repo) is True
+    out = capsys.readouterr().out
+    assert "SAME VOLUME" in out
+    assert "D-011" in out, "the warning must say which decision unblocks it"
+
+
+def test_same_volume_uses_the_device_not_the_path(tmp_path):
+    """A string comparison would call these different disks.
+
+    /Volumes/MacStudioHD/LMS and /Volumes/MacStudioHD_backup look unrelated
+    and can be one device; st_dev is the only thing that actually knows.
+    """
+    a = tmp_path / "MacStudioHD" / "LMS"
+    b = tmp_path / "MacStudioHD_backup"
+    a.mkdir(parents=True)
+    b.mkdir(parents=True)
+    assert same_volume(a, b) is True
+
+
+def test_a_path_that_does_not_exist_yet_still_resolves_a_volume(tmp_path):
+    """The repo directory is created by restic on first run, so the check has
+    to work before it exists — otherwise the warning never fires on the one
+    run where it matters most."""
+    assert same_volume(tmp_path, tmp_path / "not" / "created" / "yet") is True
 
 
 # ---------------------------------------------------------------------------
