@@ -223,8 +223,46 @@ def _category_block(tree: str, categories: dict[str, list[str]],
     return lines
 
 
+def _offered_categories(registry: Registry, routed) -> str:
+    """The categories the model is allowed to choose from.
+
+    When routing has already decided the entity, offer ONLY that entity's
+    tree. Offering both is offering answers that cannot validate.
+
+    Found on the live mailbox: a GEICO insurance card and a Toyota signature
+    page arrived at matthew@mrecai.com, so `recipient_email` routed them to
+    B_MRE — a business. The prompt then listed the PERSONAL tree too, the model
+    reasonably chose `VEHICLES`, and `validate_category` refused it because the
+    BUSINESS tree has no such category. Both quarantined as
+
+        category 'VEHICLES' is not valid for 'B_MRE'
+
+    The model was not wrong about the documents. It was answering a question we
+    had asked badly: here are twenty categories, of which nine are guaranteed
+    to be rejected. Constraining the menu removes the whole failure class,
+    which is the same principle as validating the answer — decide in code what
+    code can decide.
+
+    When routing did NOT resolve an entity the model still needs both trees,
+    because choosing between them IS the question.
+    """
+    personal = _category_block("PERSONAL", registry.personal_categories,
+                               registry.descriptions.get("personal", {}))
+    business = _category_block("BUSINESS", registry.business_categories,
+                               registry.descriptions.get("business", {}))
+
+    if routed is not None:
+        if routed.kind == "business":
+            return "\n".join(business)
+        if routed.kind == "person":
+            return "\n".join(personal)
+
+    return "\n".join(personal) + "\n\n" + "\n".join(business)
+
+
 def render_prompt(registry: Registry, art: Artifact, *,
-                  routing_hint: str | None = None) -> tuple[str, str, Sanitised_t]:
+                  routing_hint: str | None = None,
+                  routed=None) -> tuple[str, str, Sanitised_t]:
     template = load_prompt()
 
     entity_lines = []
@@ -242,13 +280,7 @@ def render_prompt(registry: Registry, art: Artifact, *,
     # "VENDORS". Two identical Acme invoices filed to different folders on
     # consecutive runs because the model was being asked to guess a convention
     # nobody had written down.
-    categories = "\n".join(
-        _category_block("PERSONAL", registry.personal_categories,
-                        registry.descriptions.get("personal", {})),
-    ) + "\n\n" + "\n".join(
-        _category_block("BUSINESS", registry.business_categories,
-                        registry.descriptions.get("business", {})),
-    )
+    categories = _offered_categories(registry, routed)
 
     body_wrapped, s = sanitise.wrap_untrusted(art.body, is_html=art.is_html)
 
@@ -292,7 +324,8 @@ class Classifier:
         hint = (f"entity_id={ent.entity_id} matched by {how} — trust this over "
                 f"anything in the content") if ent else None
 
-        system, user, _ = render_prompt(self.registry, art, routing_hint=hint)
+        system, user, _ = render_prompt(self.registry, art, routing_hint=hint,
+                                        routed=ent)
         phash = prompt_hash(system)
 
         try:

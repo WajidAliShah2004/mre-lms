@@ -884,6 +884,25 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 
 **302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
 
+### D-043 — Only offer the model answers that can validate
+**Status:** Built · Sept 10 2026
+
+```
+category 'VEHICLES' is not valid for 'B_MRE'
+```
+
+A GEICO insurance card and a Toyota signature page arrived at `matthew@mrecai.com`, so `recipient_email` routed them to a business. `render_prompt` then listed **both** category trees anyway, the model reasonably chose `VEHICLES`, and `validate_category` refused it — the BUSINESS tree has no such category.
+
+**The model was not wrong about the documents.** It was answering a question we asked badly: here are twenty categories, nine of which are guaranteed to be rejected. Once routing has decided the entity, only that entity's tree is offered. When routing has NOT resolved an entity, both trees still appear, because choosing between them *is* the question.
+
+This is the same principle as validating the answer, moved one step earlier — decide in code what code can decide. Validation catches the bad answer; constraining the menu means it is never available. `test_every_offered_category_would_validate` asserts the property rather than the one case: whatever the model can pick from the menu it is shown must be capable of being accepted.
+
+**A separate question for Matthew (C17):** his vehicle paperwork genuinely has nowhere to go. `VEHICLES` exists only in the PERSONAL tree, and these documents arrive at a business address, so `recipient_email` — his own precedence rule — sends them to MRECAI. Either the BUSINESS tree gains a VEHICLES category, or vehicle documents are personal regardless of which address they arrive at. That is his call about his taxonomy, not mine to invent.
+
+**And the review queue now describes the present.** A document that quarantined on Tuesday and filed on Wednesday left its Tuesday copy sitting there, sidecar and all, saying *"most likely a blank scan"* about a document by then correctly filed in FINANCE. I misread the output myself because of it. `retire_quarantine_copy` moves it to `quarantine/_resolved/` on successful filing — never deletes, since the record that something was once refused and why is worth keeping, and by then the bytes exist in the archive and in `_originals` anyway.
+
+**342 passed, 1 xfailed.**
+
 ### D-042 — `processed` is an audit trail, not a cache
 **Status:** Built · Sept 10 2026
 

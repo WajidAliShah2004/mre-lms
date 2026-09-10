@@ -246,6 +246,18 @@ EXEMPT = {
         "system exists to prevent. It refuses rather than overwrites, and "
         "nothing is deleted."
     ),
+    ("filing.py", "shutil.move"): (
+        "retire_quarantine_copy moves a document out of the review queue once "
+        "it has actually FILED, into quarantine/_resolved. By the time this "
+        "runs the bytes exist in TWO other places — the archive copy written "
+        "moments earlier and _originals/<sha256>, which is never rewritten — "
+        "so this copy is redundant, not precious, and it stays inside the "
+        "quarantine tree rather than being removed. The alternative is a "
+        "review queue that describes Tuesday: a GEICO insurance card sitting "
+        "there labelled 'most likely a blank scan' while the same document is "
+        "correctly filed in FINANCE, with nothing to tell a reviewer which is "
+        "true. A queue that lies about resolved work is a queue nobody trusts."
+    ),
     ("watchfolder.py", "shutil.move"): (
         "Retires a handled file from the iCloud inbox to inbox/_done. By the "
         "time this runs the bytes exist in TWO other places — the archive and "

@@ -211,6 +211,8 @@ def file_artifact(conn, roots: StorageRoots, registry: Registry, *,
     if ocr_text:
         target.with_name(target.name + ".txt").write_text(ocr_text, encoding="utf-8")
 
+    retire_quarantine_copy(roots, sha256)
+
     db.mark_processed(conn, sha256, "file")
     db.log_action(conn, "FILED", artifact_id=artifact_id, detail=str(target))
 
@@ -218,6 +220,39 @@ def file_artifact(conn, roots: StorageRoots, registry: Registry, *,
         artifact_id=artifact_id, filed_path=target,
         sidecar_path=sidecar, filename=filename,
     )
+
+
+def retire_quarantine_copy(roots: StorageRoots, sha256: str) -> list[Path]:
+    """Move a document out of the review queue once it has actually filed.
+
+    The queue must describe the present. A document that quarantined on
+    Tuesday and filed on Wednesday left its Tuesday copy sitting there, sidecar
+    and all, saying `no text extracted — most likely a blank scan` about a
+    GEICO insurance card that is now correctly filed in FINANCE. Anyone
+    reviewing the queue is reading resolved work and cannot tell.
+
+    Moved to `quarantine/_resolved/`, never deleted. By this point the bytes
+    exist in TWO other places — the archive and `_originals/<sha256>` — so this
+    copy is redundant, not precious; and keeping it means the history of "this
+    was once refused, for this reason" survives.
+    """
+    moved: list[Path] = []
+    if not roots.quarantine.exists():
+        return moved
+
+    resolved = roots.quarantine / "_resolved"
+    for path in sorted(roots.quarantine.glob(f"{sha256[:8]}__*")):
+        if not path.is_file():
+            continue
+        resolved.mkdir(parents=True, exist_ok=True)
+        dest = resolved / path.name
+        n = 1
+        while dest.exists():
+            dest = resolved / f"{path.stem}-{n}{path.suffix}"
+            n += 1
+        shutil.move(str(path), str(dest))
+        moved.append(dest)
+    return moved
 
 
 def quarantine_artifact(conn, roots: StorageRoots, *, source_path: Path, sha256: str,
