@@ -668,6 +668,24 @@ Left alone, restic would have initialised the repository with an empty passphras
 
 So `restic_password()` now enforces a 12-character floor, and the creation hint generates a 40-character passphrase to the clipboard rather than asking someone to type one — paste it at both prompts, and the secret never touches shell history or the process table. The hint ends with the thing nobody says out loud until it is too late: **restic has no recovery path.** Lose the passphrase and every snapshot is permanently unreadable — still there, still encrypted, useless. It belongs in Matthew's password manager before the first backup runs, which makes it a C7-adjacent custody question rather than a detail of this script.
 
+**Fourth correction — the terminal was mangling the paste.** Three attempts to create the Keychain item by hand produced, in order: an item with an empty password stored in silence, a "passwords don't match" mismatch, and another empty one. Then this appeared on the command line:
+
+```
+5~5~5~5~5~5~5~5~5~5~5~5~5~...
+```
+
+That is the tail of `ESC[200~` — **bracketed-paste markers arriving as literal text.** Paste was broken in that session, so what reached `security`'s no-echo prompt was neither the clipboard contents nor anything the operator could see. Every "just paste it at the prompt" instruction was doomed before it was given, and the no-echo prompt guaranteed nobody would notice.
+
+Two silent failures compounding: a terminal that mangles paste, and a `security` command that accepts an empty password without complaint.
+
+`ops/set_backup_password.py` removes the terminal from the loop entirely. The passphrase is generated with `secrets`, stored, read back, and compared — and the script refuses to claim success unless what came back is byte-identical to what it generated. It is never typed, never pasted, and never round-trips through a prompt.
+
+It is written via **`security -i`**, which reads commands from stdin, so the secret goes down a pipe rather than into `argv`. It therefore never appears in `ps`, never reaches shell history, and is never a temp file — the one thing a documented one-liner cannot manage, since `-w <value>` puts the secret in the process table. `-U` updates in place, so there is no window where the machine has no passphrase at all.
+
+The alphabet is letters and digits only. Punctuation survives a pipe perfectly well, but this value gets copied into a password manager and may be read aloud or retyped during a restore that is already going badly; ambiguity is a worse trade than four characters of entropy.
+
+It prints the passphrase once, deliberately. That is not a leak, it is the requirement: restic has no recovery path, so a human must capture it exactly once.
+
 Added **[8] Backup readiness** to `verify_setup.py`: restic present, the password readable and long enough, and whether the repo shares a volume with the archive. Every one of those is something the 02:30 job would otherwise discover alone, in a log nobody reads, on the night it mattered. Platform-guarded like [7] — off a Mac it reports the platform rather than failing forever.
 
 **206 passed.**
