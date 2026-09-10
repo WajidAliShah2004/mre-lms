@@ -884,6 +884,33 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 
 **302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
 
+### D-047 — For mail, the hash identifies a rendering, not a document
+**Status:** Built · Sept 10 2026
+
+The first delivered brief said:
+
+```
+WAITING ON YOU (1)
+   - 1a0879e46550679e.eml.txt (suspected_phishing)
+```
+
+about a document sitting correctly filed in `MRECAI/CLIENTS`.
+
+```
+id 3  sha 1726ed8a  SUSPECTED_PHISHING  source_ref 1a0879e46550679e  filed_path None
+id 7  sha c1191639  FILED               source_ref 1a0879e46550679e  ← the same message
+```
+
+**Identity is the sha256 of the bytes, and for mail those bytes are a rendering rather than a fact.** Dropping the signature images from the `Attachments:` line changed the rendered text, so the message became a second artifact — filed correctly — while the first stayed at `SUSPECTED_PHISHING` with no `filed_path` and nothing that would ever resolve it. Every improvement to the renderer leaves one of these behind.
+
+`supersede_earlier_versions` marks them DUPLICATE when a newer rendering of the **same `source_ref`** files. That key is exact: for mail it is the Gmail message id, for an attachment `<message id>/<attachment id>`, so two rows sharing one are necessarily two renderings of one thing. Rows with no `source_ref` — a photograph named by the phone — are left alone, because there the filename is not an identity and `IMG_0001.HEIC` comes round again.
+
+**One phantom entry in the section Matthew is supposed to act on, and he learns to skim that section** — which is the same as not having it. That is the whole reason this is worth fixing rather than tolerating.
+
+**And the clean-up was on the wrong side of an early return.** `_resolved/` was empty on the Mac while four *filed* documents still sat in the review queue: they had quarantined, then filed, and every run since took the duplicate short-circuit, which returned before `retire_quarantine_copy` was ever reached. Anything that filed before that clean-up existed would have stayed in the queue forever. Both clean-ups now run on the duplicate path too.
+
+**408 passed, 1 xfailed.**
+
 ### D-046 — The brief is delivered to iCloud, because Telegram is blocked and stdout is not delivery
 **Status:** Built · Sept 10 2026
 

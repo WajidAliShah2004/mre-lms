@@ -132,6 +132,18 @@ def file_artifact(conn, roots: StorageRoots, registry: Registry, *,
         db.record_duplicate(conn, sha256, source, source_ref, source_path.name)
         db.log_action(conn, "FILE_SKIPPED_DUPLICATE", artifact_id=existing["id"],
                       detail=f"re-fed from {source}:{source_ref or source_path.name}")
+
+        # Also on this path, not only on a fresh filing.
+        #
+        # These two clean-ups used to live below the duplicate check, so they
+        # never ran for anything already filed. On the Mac that left four filed
+        # documents sitting in the review queue with an EMPTY _resolved/ beside
+        # them: they had quarantined, then filed, and every run since returned
+        # DUPLICATE here and went home. Anything that filed before this
+        # clean-up existed would have stayed in the queue forever.
+        retire_quarantine_copy(roots, sha256)
+        supersede_earlier_versions(conn, roots, source_ref, keep=int(existing["id"]))
+
         filed = Path(existing["filed_path"])
         return FilingResult(
             artifact_id=int(existing["id"]),
@@ -212,6 +224,7 @@ def file_artifact(conn, roots: StorageRoots, registry: Registry, *,
         target.with_name(target.name + ".txt").write_text(ocr_text, encoding="utf-8")
 
     retire_quarantine_copy(roots, sha256)
+    supersede_earlier_versions(conn, roots, source_ref, keep=artifact_id)
 
     db.mark_processed(conn, sha256, "file")
     db.log_action(conn, "FILED", artifact_id=artifact_id, detail=str(target))
@@ -220,6 +233,54 @@ def file_artifact(conn, roots: StorageRoots, registry: Registry, *,
         artifact_id=artifact_id, filed_path=target,
         sidecar_path=sidecar, filename=filename,
     )
+
+
+def supersede_earlier_versions(conn, roots: StorageRoots,
+                               source_ref: str | None, *, keep: int) -> list[int]:
+    """Retire artifacts of the SAME source that were never filed.
+
+    Identity is the sha256 of the bytes, and for mail those bytes are a
+    rendering rather than a fact — so improving the renderer changes the hash
+    and the same message becomes a second artifact.
+
+    That happened: dropping signature images from the `Attachments:` line
+    changed the rendered text, and the State Farm reply filed correctly as a
+    new row while the old one stayed at SUSPECTED_PHISHING with no filed_path
+    and nothing that would ever resolve it. It appeared under WAITING ON YOU in
+    the brief, permanently, describing a document sitting correctly filed in
+    MRECAI/CLIENTS.
+
+    One phantom entry in the section Matthew is supposed to act on and he
+    learns to skim the section, which is the same as not having it.
+
+    `source_ref` is exact here: for mail it is the Gmail message id, and for an
+    attachment `<message id>/<attachment id>`. Two rows sharing one is
+    necessarily two renderings of one thing, never two documents. Rows with no
+    source_ref (a photograph named by the phone) are left alone — there the
+    filename is not an identity.
+
+    Marked DUPLICATE rather than deleted, because it IS one: the same source,
+    seen again, already handled. Nothing is removed and the audit log keeps the
+    reason it was originally refused.
+    """
+    if not source_ref:
+        return []
+
+    rows = conn.execute(
+        "SELECT id, sha256 FROM artifacts "
+        "WHERE source_ref = ? AND id != ? AND filed_path IS NULL "
+        "AND status != 'DUPLICATE'",
+        (source_ref, keep)).fetchall()
+
+    superseded = []
+    for row in rows:
+        db.set_artifact_status(conn, int(row["id"]), "DUPLICATE")
+        retire_quarantine_copy(roots, row["sha256"])
+        db.log_action(
+            conn, "SUPERSEDED", artifact_id=int(row["id"]),
+            detail=f"an improved rendering of {source_ref} filed as #{keep}")
+        superseded.append(int(row["id"]))
+    return superseded
 
 
 def retire_quarantine_copy(roots: StorageRoots, sha256: str) -> list[Path]:

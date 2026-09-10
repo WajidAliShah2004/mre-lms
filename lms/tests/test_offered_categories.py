@@ -145,6 +145,129 @@ def test_filing_retires_the_quarantine_copy(tmp_path, reg):
     conn.close()
 
 
+def test_a_rerendered_message_does_not_nag_forever(tmp_path, reg):
+    """The phantom in WAITING ON YOU.
+
+    Identity is the sha256 of the bytes, and for mail those bytes are a
+    RENDERING. Improving the renderer — dropping signature images from the
+    Attachments: line — changed the hash, so the State Farm reply filed as a
+    new row while the old one stayed at SUSPECTED_PHISHING with no filed_path
+    and nothing that would ever resolve it. The brief showed it under WAITING
+    ON YOU, permanently, describing a document sitting correctly filed.
+    """
+    conn = db.connect(tmp_path / "lms.db")
+    roots = filing.StorageRoots(archive=tmp_path / "a", originals=tmp_path / "o",
+                                quarantine=tmp_path / "q")
+    roots.ensure()
+    ref = "1a0879e46550679e"
+
+    old = tmp_path / "v1.txt"
+    old.write_text("From: a\nAttachments: image001.gif\n\nbody", encoding="utf-8")
+    old_sha = db.sha256_file(old)
+    filing.quarantine_artifact(conn, roots, source_path=old, sha256=old_sha,
+                               source="email", reason="SUSPECTED_PHISHING: x",
+                               source_ref=ref)
+
+    new = tmp_path / "v2.txt"
+    new.write_text("From: a\n\nbody", encoding="utf-8")
+    eid = sorted(e for e, ent in reg.entities.items() if ent.kind != "system")[0]
+    filing.file_artifact(conn, roots, reg, source_path=new,
+                         sha256=db.sha256_file(new), source="email",
+                         source_ref=ref, entity_id=eid,
+                         category=sorted(reg.categories_for(eid))[0],
+                         doc_date="2026-09-09")
+
+    stale = conn.execute("SELECT status FROM artifacts WHERE sha256 = ?",
+                         (old_sha,)).fetchone()
+    assert stale["status"] == "DUPLICATE", (
+        "the superseded rendering still claims to need attention")
+    assert not list(roots.quarantine.glob(f"{old_sha[:8]}__*")), (
+        "its file is still in the review queue")
+    conn.close()
+
+
+def test_a_different_message_is_never_superseded(tmp_path, reg):
+    """source_ref is exact — the Gmail message id. Two rows sharing one are
+    two renderings of one thing. Two rows with DIFFERENT ones are two
+    documents, and quarantining one must not clear the other."""
+    conn = db.connect(tmp_path / "lms.db")
+    roots = filing.StorageRoots(archive=tmp_path / "a", originals=tmp_path / "o",
+                                quarantine=tmp_path / "q")
+    roots.ensure()
+
+    other = tmp_path / "other.txt"
+    other.write_text("a genuinely suspicious message", encoding="utf-8")
+    other_sha = db.sha256_file(other)
+    filing.quarantine_artifact(conn, roots, source_path=other, sha256=other_sha,
+                               source="email", reason="SUSPECTED_PHISHING: y",
+                               source_ref="some-other-message-id")
+
+    doc = tmp_path / "doc.txt"
+    doc.write_text("an unrelated document", encoding="utf-8")
+    eid = sorted(e for e, ent in reg.entities.items() if ent.kind != "system")[0]
+    filing.file_artifact(conn, roots, reg, source_path=doc,
+                         sha256=db.sha256_file(doc), source="email",
+                         source_ref="1a0879e46550679e", entity_id=eid,
+                         category=sorted(reg.categories_for(eid))[0],
+                         doc_date="2026-09-09")
+
+    row = conn.execute("SELECT status FROM artifacts WHERE sha256 = ?",
+                       (other_sha,)).fetchone()
+    assert row["status"] == "QUARANTINED", (
+        "an unrelated message in the review queue was cleared")
+    assert list(roots.quarantine.glob(f"{other_sha[:8]}__*")), (
+        "its file was retired out of the queue too")
+    conn.close()
+
+
+def test_a_photograph_without_a_source_ref_supersedes_nothing(tmp_path, reg):
+    """A phone names files `IMG_0001.HEIC` and reuses the name. There the
+    filename is not an identity, so nothing may be inferred from it."""
+    conn = db.connect(tmp_path / "lms.db")
+    roots = filing.StorageRoots(archive=tmp_path / "a", originals=tmp_path / "o",
+                                quarantine=tmp_path / "q")
+    roots.ensure()
+    assert filing.supersede_earlier_versions(conn, roots, None, keep=1) == []
+    assert filing.supersede_earlier_versions(conn, roots, "", keep=1) == []
+    conn.close()
+
+
+def test_a_document_already_filed_still_gets_its_queue_copy_retired(tmp_path, reg):
+    """The duplicate short-circuit used to return before the clean-up.
+
+    On the Mac that left four filed documents in the review queue with an
+    empty _resolved/ beside them: they had quarantined, then filed, and every
+    run since returned DUPLICATE and went home.
+    """
+    conn = db.connect(tmp_path / "lms.db")
+    roots = filing.StorageRoots(archive=tmp_path / "a", originals=tmp_path / "o",
+                                quarantine=tmp_path / "q")
+    roots.ensure()
+
+    doc = tmp_path / "policy.txt"
+    doc.write_text("an insurance document", encoding="utf-8")
+    sha = db.sha256_file(doc)
+    eid = sorted(e for e, ent in reg.entities.items() if ent.kind != "system")[0]
+    cat = sorted(reg.categories_for(eid))[0]
+
+    filing.file_artifact(conn, roots, reg, source_path=doc, sha256=sha,
+                         source="email", entity_id=eid, category=cat,
+                         doc_date="2026-09-09")
+
+    # A stale copy from before the clean-up existed.
+    (roots.quarantine / f"{sha[:8]}__policy.txt").write_text("stale",
+                                                             encoding="utf-8")
+
+    # Second sighting: takes the duplicate path.
+    filing.file_artifact(conn, roots, reg, source_path=doc, sha256=sha,
+                         source="email", entity_id=eid, category=cat,
+                         doc_date="2026-09-09")
+
+    assert not list(roots.quarantine.glob(f"{sha[:8]}__*")), (
+        "a filed document is still sitting in the review queue")
+    conn.close()
+
+
 def test_retiring_never_deletes(tmp_path, reg):
     roots = filing.StorageRoots(archive=tmp_path / "a", originals=tmp_path / "o",
                                 quarantine=tmp_path / "q")
