@@ -182,6 +182,45 @@ _CREATE_HINT = f"""    # 1. put a long random passphrase on the clipboard
   still be encrypted, and be of no use to anyone."""
 
 
+def record_success(db_path: Path, repo: Path, documents: bool,
+                   counts: dict[str, int]) -> None:
+    """Write BACKUP_COMPLETED into the audit log.
+
+    Until now this job left NO trace in the database. It ran, or it did not,
+    and the only evidence either way was a log file on disk that nobody opens —
+    so a backup silently stopping was indistinguishable from a backup quietly
+    working, for as long as it took someone to need a restore.
+
+    The morning brief now reports a job that has gone quiet
+    (`brief.stalled_jobs`), and it reads the audit log to do it. Which makes
+    this line the thing that arms the alarm: without it the watch on `backup`
+    would have been permanently unarmed and the brief would have reported
+    healthy silence forever. That is D-027 exactly — a rule with nothing behind
+    it — and it is why the alarm was built from an action something already
+    writes wherever possible.
+
+    Written AFTER restic reports success, so it records what happened rather
+    than what was attempted. A failure leaves no row, and the silence is then
+    the true signal.
+    """
+    try:
+        sys.path.insert(0, str(REPO_DIR))
+        from core.db import database as db
+
+        conn = db.connect(db_path)
+        try:
+            db.log_action(
+                conn, "BACKUP_COMPLETED",
+                detail=f"repo={repo} documents={documents} "
+                       f"rows={sum(counts.values())}"[:400])
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as exc:                 # never fail a good backup over this
+        print(f"    (could not record the backup in the audit log: {exc})",
+              file=sys.stderr)
+
+
 def repo_path(override: str | None = None) -> Path:
     """The restic repository. Computed HERE and nowhere else.
 
@@ -443,6 +482,7 @@ def main() -> int:
             return 1
         if not args.dry_run:
             print(r.stdout.strip().splitlines()[-1] if r.stdout.strip() else "done")
+            record_success(db_path, repo, include_documents, counts)
     finally:
         shutil.rmtree(staging, ignore_errors=True)
 

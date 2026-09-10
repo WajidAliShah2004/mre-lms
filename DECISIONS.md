@@ -884,6 +884,21 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 
 **302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
 
+### D-051 — The brief says when the system itself has stopped
+**Status:** Built · Sept 10 2026
+
+Four launchd jobs now run unattended on a machine in Matthew's office. **If one dies, nothing notices.** A bad plist, a revoked token, a full disk, a Mac sitting at a locked login screen after a power cut (C8, still unanswered) — the only symptom is that something stops arriving, and he cannot tell "nothing happened today" from "the system died on Tuesday".
+
+Absence is the hardest signal for a person to notice, and this entire build has been a catalogue of things failing silently while reporting success. So the brief — the one thing he reads — now says when part of the system is unwell, **above** the work rather than below it: *"nothing needs you"* means something very different when the mail poll died four days ago, and he has to know that before he reads the rest.
+
+Thresholds are generous, roughly two missed runs. One skipped night is a Mac that was asleep, and crying wolf trains people to ignore the section — at which point the real one goes past too. A job that has **never** run is not reported at all: on a fresh machine that is every job, and an alarm that fires on day one is an alarm ignored by day two. The first success arms it.
+
+**And the feature walked straight into D-027's trap while being written.** `BACKUP_COMPLETED` was in the watch list before anything wrote it — the nightly backup left **no trace in the database at all**, so the watch would have been permanently unarmed and the brief would have reported healthy silence forever. Which is worse than no alarm, because it looks like one. `backup.py` now records its success, and `test_every_watched_action_is_written_somewhere` greps for every watched action so the next one cannot be added without something that emits it.
+
+Two more defects found by the tests before the Mac saw them: the column is `ts`, not `at` (my query was simply wrong), and the append-only trigger correctly refused the test helper's `UPDATE` — that hard stop working exactly as designed, on the person who wrote it.
+
+**452 passed, 1 xfailed.**
+
 ### D-050 — The backup contains the documents
 **Status:** Built · Sept 10 2026 · changes a spec default
 

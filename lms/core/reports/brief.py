@@ -92,10 +92,14 @@ class Brief:
     withheld: int = 0                      # ranked below the cut
     new_by_entity: dict[str, int] = field(default_factory=dict)
     needs_decision: list[sqlite3.Row] = field(default_factory=list)
+    # Scheduled jobs that have not run when they should have. Empty is the
+    # normal state and prints nothing.
+    stalled: list[str] = field(default_factory=list)
 
     @property
     def is_empty(self) -> bool:
-        return not (self.tasks or self.new_by_entity or self.needs_decision)
+        return not (self.tasks or self.new_by_entity or self.needs_decision
+                    or self.stalled)
 
 
 # ---------------------------------------------------------------------------
@@ -277,6 +281,53 @@ def mark_brief_sent(conn: sqlite3.Connection, kind: str) -> None:
     db.log_action(conn, f"BRIEF_SENT_{kind.upper()}")
 
 
+# Scheduled jobs, and how long each may go without running before the silence
+# means something. Each is generous — roughly two missed runs — because one
+# skipped night is a Mac that was asleep, and crying wolf trains people to
+# ignore the section.
+#
+#   action written by         job              says nothing has run for
+WATCHED_JOBS: dict[str, tuple[str, int]] = {
+    "MAIL_POLL_STOP":   ("mail",   36),      # runs 07:00 and 19:00
+    "BRIEF_DELIVERED":  ("brief",  48),      # runs 06:30
+    "BACKUP_COMPLETED": ("backup", 48),      # runs 02:30
+}
+
+
+def stalled_jobs(conn: sqlite3.Connection, now: datetime) -> list[str]:
+    """Scheduled work that has silently stopped.
+
+    Nothing else notices. Four launchd jobs run unattended on a machine in
+    Matthew's office, and if one dies — a bad plist, a revoked token, a full
+    disk, a Mac sitting at a locked login screen after a power cut (C8, still
+    unanswered) — the only symptom is that something stops arriving. Absence is
+    the hardest signal for a person to notice, which is why the system has to
+    notice it instead.
+
+    The brief is the one thing he reads, so it is where this belongs. A job
+    that has never run at all is NOT reported: on a fresh machine that is every
+    job, and an alarm that fires on day one is an alarm that gets ignored by
+    day two. The first successful run arms it.
+    """
+    out = []
+    for action, (name, hours) in sorted(WATCHED_JOBS.items()):
+        row = conn.execute(
+            "SELECT ts FROM actions_log WHERE action = ? "
+            "ORDER BY id DESC LIMIT 1", (action,)).fetchone()
+        if row is None:
+            continue                       # never run; not yet armed
+        try:
+            last = datetime.fromisoformat(row["ts"])
+        except (TypeError, ValueError):
+            continue
+        gap = now - last
+        if gap > timedelta(hours=hours):
+            days = gap.days
+            ago = f"{days}d ago" if days else f"{int(gap.total_seconds() // 3600)}h ago"
+            out.append(f"{name}: last ran {ago} ({last.isoformat(timespec='minutes')})")
+    return out
+
+
 def build_brief(conn: sqlite3.Connection, *, kind: str = "morning",
                 now: datetime | None = None,
                 window_hours: int | None = None) -> Brief:
@@ -310,6 +361,7 @@ def build_brief(conn: sqlite3.Connection, *, kind: str = "morning",
         withheld=withheld,
         new_by_entity=_new_since(conn, since),
         needs_decision=_needs_decision(conn),
+        stalled=stalled_jobs(conn, now),
     )
 
 
@@ -334,6 +386,17 @@ def render_text(brief: Brief, registry: Registry | None = None) -> str:
     when = brief.generated_at[:16].replace("T", " ")
     out = [f"{'Morning brief' if brief.kind == 'morning' else 'Evening close-out'}"
            f" · {when}", ""]
+
+    # FIRST, above the work. If part of the system has stopped, everything
+    # below is a report on an incomplete picture and he needs to know that
+    # before he reads it — "nothing needs you" means something very different
+    # when the mail poll died on Tuesday.
+    if brief.stalled:
+        out.append("THE SYSTEM NEEDS ATTENTION")
+        for line in brief.stalled:
+            out.append(f"   {line}")
+        out.append("   Everything below may be incomplete.")
+        out.append("")
 
     # The empty case is stated, never implied. An empty message and a broken
     # one are indistinguishable on a phone (D-030).
