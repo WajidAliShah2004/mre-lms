@@ -129,7 +129,18 @@ if ! "$PY" -m pip install --quiet pyobjc-framework-Vision pyobjc-framework-Quart
   echo "             unavailable. Run ops/verify_setup.py for the detail." >&2
 fi
 
-echo "    deps: $("$PY" -m pip list 2>/dev/null | grep -Ei 'pyyaml|pytest|pyobjc-framework-(vision|quartz)' | tr '\n' ' ')"
+# Gmail, over OAuth. Google stopped accepting legacy passwords for IMAP on
+# 14 March 2025, so there is no password-based route to a mailbox any more —
+# these libraries are the mail path, not an optimisation of it.
+#
+# Also not fatal: every other adapter runs without them, and
+# ops/authorise_gmail.py says exactly what to install.
+if ! "$PY" -m pip install --quiet google-api-python-client google-auth-oauthlib; then
+  echo "    WARNING: Google client libraries did not install — the Gmail" >&2
+  echo "             adapter will not run. Everything else is unaffected." >&2
+fi
+
+echo "    deps: $("$PY" -m pip list 2>/dev/null | grep -Ei 'pyyaml|pytest|pyobjc-framework-(vision|quartz)|google-api-python-client' | tr '\n' ' ')"
 
 # restic — the backup engine (spec §Day-6.4). Encrypts client-side, so the
 # repository is ciphertext at rest and an off-machine copy never hands a

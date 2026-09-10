@@ -34,3 +34,11 @@ __pycache__/
 # Generated per-machine by ops/bringup_mac.sh. Paths only, but machine-specific
 # — the Mac's volume layout is not the workstation's.
 lms/ops/lms.env
+
+# OAuth client files downloaded from the Google Cloud console.
+# Not as dangerous as a password — a Desktop-app client secret is not
+# confidential by Google's own definition, since an installed app cannot keep
+# one — but it has no business in the repository, and the refresh token it
+# produces certainly does not.
+client_secret_*.json
+*.apps.googleusercontent.com.json

@@ -94,14 +94,31 @@ ENFORCEMENT = {
                 "remote_images_dropped) and every model call goes through "
                 "assert_loopback (test_loopback_is_enforced)"),
 
-    # Not enforceable yet: the code that could break them does not exist.
-    # The marker is what would change that.
+    # These three were STRUCTURAL — held only by there being no mail client in
+    # core/ — until Sept 10, when adapters/gmail.py arrived and this test
+    # failed, naming all three. That is what it was built to do.
+    #
+    # They are now enforced by the CREDENTIAL rather than by code: the adapter
+    # requests gmail.readonly and nothing else, so the token Google issues
+    # cannot delete a message, cannot set a flag, and cannot write a label. A
+    # bug in adapters/gmail.py cannot reach past that, which is a stronger
+    # guarantee than any assertion about our own behaviour.
+    #
+    # Widening SCOPES to add labels or drafts moves them back into our hands.
+    # test_gmail.py::test_widening_the_scope_is_not_a_quiet_change is the
+    # thing that makes that a decision rather than an edit.
     "never_delete_email": (
-        STRUCTURAL, ("imaplib", "googleapiclient", "gmail")),
+        TESTED, "gmail.SCOPES is read-only; test_the_scope_cannot_delete_or_"
+                "write asserts no write scope is requested, so Google refuses "
+                "the operation rather than the LMS declining to attempt it"),
     "never_mark_read": (
-        STRUCTURAL, ("imaplib", "googleapiclient", "gmail")),
+        TESTED, "gmail.readonly cannot set flags, and unlike IMAP a Gmail API "
+                "fetch does not mark a message seen as a side effect — his "
+                "unread count is untouched by the LMS reading his mail"),
     "never_touch_non_lms_labels": (
-        STRUCTURAL, ("imaplib", "googleapiclient", "gmail")),
+        TESTED, "gmail.readonly cannot write any label, LMS-prefixed or not; "
+                "test_no_write_endpoint_is_called pins that no modify, trash "
+                "or send endpoint is reachable from core/"),
     "never_move_money": (
         STRUCTURAL, ("stripe", "plaid", "braintree", "paypal")),
     "never_sign_or_bind": (

@@ -1,0 +1,346 @@
+"""Read Matthew's mailbox. Read, and nothing else.
+
+WHY THE GMAIL API AND NOT IMAP
+------------------------------
+Google stopped accepting legacy passwords for IMAP on 14 March 2025, so the
+Aug 5 plan — share the password, turn 2FA off — cannot work at all now. The
+remaining routes are an app password (which requires 2-Step Verification) or
+OAuth. This is OAuth, via an **internal** Workspace app: no verification, no
+CASA assessment, no service-account key with domain-wide reach, and no 2SV.
+
+The API is also simply better suited than IMAP for this job:
+
+  * labels are native, where IMAP maps them onto folders awkwardly
+  * fetching a message does NOT set \\Seen — over IMAP it does unless every
+    call remembers to say otherwise, and forgetting once is visible in his
+    unread count
+  * attachments come back addressable, so each becomes an artifact in its own
+    right (schema: artifacts.parent_id)
+
+THE SCOPE IS THE SECURITY BOUNDARY
+----------------------------------
+This module requests exactly one scope: gmail.readonly.
+
+Three of the eight hard stops in rules.yaml stop being promises and become
+refusals from Google:
+
+    never_delete_email          the token cannot delete
+    never_mark_read             reads do not mark, and the token cannot write
+    never_touch_non_lms_labels  the token cannot write labels at all
+
+That is stronger than code can be. D-036 recorded those three as held only by
+the absence of a mail client in core/; adding one would have made them claims
+again. Instead the guarantee moves to the credential, where a bug in this file
+cannot reach it.
+
+When labels and draft replies arrive they need a wider scope, and at that
+point the code-level stops matter again. Widening SCOPES is therefore a
+deliberate act with a test in the way — see tests/test_gmail.py.
+
+NOTHING HERE TOUCHES THE NETWORK IN A TEST
+------------------------------------------
+The Google client libraries are imported lazily and the transport is
+injectable, so the whole module is exercised against a fake. The pattern is
+ocr.py's: the machine that builds this is not the machine that runs it, and a
+module that can only be tested with live credentials is a module that stops
+being tested.
+"""
+
+from __future__ import annotations
+
+import base64
+import re
+import subprocess
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
+from typing import Any, Iterable, Protocol
+
+# The whole security posture, in one tuple. Read-only. Nothing else.
+#
+# `gmail.modify` would permit trashing a message; `gmail.compose` permits
+# sending. Neither is needed to read, classify and file, which is the entire
+# Day-3 job. Adding to this list widens what a stolen token can do, so the
+# test suite treats it as a change worth arguing for rather than a detail.
+SCOPES: tuple[str, ...] = (
+    "https://www.googleapis.com/auth/gmail.readonly",
+)
+
+# Scopes that would let the LMS change or destroy mail. Named so the test can
+# assert their absence by intent rather than by matching strings.
+WRITE_SCOPES = (
+    "https://www.googleapis.com/auth/gmail.modify",
+    "https://www.googleapis.com/auth/gmail.compose",
+    "https://www.googleapis.com/auth/gmail.send",
+    "https://www.googleapis.com/auth/gmail.settings.basic",
+    "https://www.googleapis.com/auth/gmail.settings.sharing",
+    "https://mail.google.com/",
+)
+
+KEYCHAIN_PREFIX = "lms/gmail-oauth/"
+
+
+class GmailError(RuntimeError):
+    pass
+
+
+# ---------------------------------------------------------------------------
+# What a message looks like once we are done with it
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class Attachment:
+    attachment_id: str
+    filename: str
+    mime_type: str
+    size: int
+
+
+@dataclass(frozen=True)
+class Message:
+    """A mail message, flattened into what the pipeline actually uses.
+
+    Deliberately not the raw Gmail payload. The classifier receives untrusted
+    text and the less shape that text arrives in, the fewer places for
+    something to hide — a nested multipart structure is a good place to hide.
+    """
+    message_id: str
+    thread_id: str
+    subject: str
+    sender: str
+    recipient: str
+    date: str                          # ISO8601, or "" when unparseable
+    body: str
+    headers: dict[str, str] = field(default_factory=dict)
+    attachments: list[Attachment] = field(default_factory=list)
+    label_ids: tuple[str, ...] = ()
+
+    @property
+    def sender_domain(self) -> str:
+        return self.sender.rpartition("@")[2].strip(">").lower()
+
+
+# ---------------------------------------------------------------------------
+# Transport — injectable, so tests never reach the network
+# ---------------------------------------------------------------------------
+
+class Transport(Protocol):
+    def list_ids(self, query: str, limit: int) -> list[str]: ...
+    def get(self, message_id: str) -> dict: ...
+
+
+class GoogleTransport:
+    """The real one. Imports the Google libraries lazily.
+
+    Lazily because this file must import on a machine with no Google client
+    libraries installed — the development machine is not the Mac, and the test
+    suite has to run in both places.
+    """
+
+    def __init__(self, credentials: Any, user_id: str = "me") -> None:
+        self._creds = credentials
+        self._user = user_id
+        self._service = None
+
+    def _svc(self):
+        if self._service is None:
+            try:
+                from googleapiclient.discovery import build
+            except ImportError as exc:      # pragma: no cover - mac only
+                raise GmailError(
+                    "google-api-python-client is not installed. "
+                    "`.venv/bin/pip install google-api-python-client "
+                    "google-auth-oauthlib`") from exc
+            self._service = build("gmail", "v1", credentials=self._creds,
+                                  cache_discovery=False)
+        return self._service
+
+    def list_ids(self, query: str, limit: int) -> list[str]:
+        out: list[str] = []
+        req = self._svc().users().messages().list(
+            userId=self._user, q=query, maxResults=min(limit, 500))
+        while req is not None and len(out) < limit:
+            resp = req.execute()
+            out.extend(m["id"] for m in resp.get("messages", []))
+            req = self._svc().users().messages().list_next(req, resp)
+        return out[:limit]
+
+    def get(self, message_id: str) -> dict:
+        return self._svc().users().messages().get(
+            userId=self._user, id=message_id, format="full").execute()
+
+
+# ---------------------------------------------------------------------------
+# Parsing
+# ---------------------------------------------------------------------------
+
+def _headers(payload: dict) -> dict[str, str]:
+    return {h.get("name", ""): h.get("value", "")
+            for h in payload.get("headers", []) or []}
+
+
+def _decode(data: str | None) -> str:
+    if not data:
+        return ""
+    try:
+        return base64.urlsafe_b64decode(data.encode("ascii")).decode(
+            "utf-8", errors="replace")
+    except Exception:
+        return ""
+
+
+def _walk(payload: dict) -> Iterable[dict]:
+    yield payload
+    for part in payload.get("parts", []) or []:
+        yield from _walk(part)
+
+
+def extract_body(payload: dict) -> tuple[str, bool]:
+    """Best text for the classifier, and whether it came from HTML.
+
+    text/plain wins whenever there is one. A multipart/alternative message
+    carries the same content twice, and the plain part has already had the
+    markup — and the tracking pixels, and the mismatched link text — removed
+    by the sender's own mail client. Falling back to HTML is for messages that
+    only ship HTML, which sanitise.py then strips.
+    """
+    plain, html = [], []
+    for part in _walk(payload):
+        mime = part.get("mimeType", "")
+        body = part.get("body", {}) or {}
+        if body.get("attachmentId"):
+            continue
+        if mime == "text/plain":
+            plain.append(_decode(body.get("data")))
+        elif mime == "text/html":
+            html.append(_decode(body.get("data")))
+
+    text = "\n".join(p for p in plain if p).strip()
+    if text:
+        return text, False
+    return "\n".join(h for h in html if h).strip(), True
+
+
+def extract_attachments(payload: dict) -> list[Attachment]:
+    out = []
+    for part in _walk(payload):
+        body = part.get("body", {}) or {}
+        att_id = body.get("attachmentId")
+        if not att_id:
+            continue
+        out.append(Attachment(
+            attachment_id=att_id,
+            filename=part.get("filename") or "(unnamed)",
+            mime_type=part.get("mimeType", "application/octet-stream"),
+            size=int(body.get("size") or 0),
+        ))
+    return out
+
+
+def _iso(raw: str) -> str:
+    """RFC 2822 date to ISO 8601, or "" if the sender's date is nonsense.
+
+    An empty string rather than today's date: a fabricated timestamp on a
+    document would flow into the filename (D-007) and put it under a day it
+    has nothing to do with. Downstream already knows how to fall back.
+    """
+    if not raw:
+        return ""
+    try:
+        dt = parsedate_to_datetime(raw)
+    except (TypeError, ValueError):
+        return ""
+    if dt is None:
+        return ""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat()
+
+
+def parse_message(raw: dict) -> Message:
+    payload = raw.get("payload", {}) or {}
+    h = _headers(payload)
+    body, _ = extract_body(payload)
+    return Message(
+        message_id=raw.get("id", ""),
+        thread_id=raw.get("threadId", ""),
+        subject=h.get("Subject", ""),
+        sender=h.get("From", ""),
+        recipient=h.get("To", ""),
+        date=_iso(h.get("Date", "")),
+        body=body,
+        headers=h,
+        attachments=extract_attachments(payload),
+        label_ids=tuple(raw.get("labelIds", []) or []),
+    )
+
+
+# ---------------------------------------------------------------------------
+# The client
+# ---------------------------------------------------------------------------
+
+class GmailClient:
+    def __init__(self, transport: Transport) -> None:
+        self._t = transport
+
+    def recent(self, *, newer_than_days: int = 1, limit: int = 100,
+               query: str = "") -> list[Message]:
+        """Messages from the last N days, newest first.
+
+        `newer_than_days` rather than a stored cursor for now: a missed poll
+        must not lose mail, and Gmail's own dedupe is the message id, which
+        `db.find_artifact_by_hash` already backs onto via content hashing.
+        """
+        q = f"newer_than:{int(newer_than_days)}d"
+        if query:
+            q = f"{q} {query}"
+        return [parse_message(self._t.get(mid))
+                for mid in self._t.list_ids(q, limit)]
+
+    def fetch(self, message_id: str) -> Message:
+        return parse_message(self._t.get(message_id))
+
+
+# ---------------------------------------------------------------------------
+# Credentials
+# ---------------------------------------------------------------------------
+
+def keychain_service(address: str) -> str:
+    return KEYCHAIN_PREFIX + address
+
+
+def stored_token(address: str) -> str:
+    """The refresh token, from the Keychain. Never a file, never lms.env."""
+    service = keychain_service(address)
+    r = subprocess.run(
+        ["security", "find-generic-password", "-s", service, "-w"],
+        capture_output=True, text=True)
+    if r.returncode != 0 or not r.stdout.strip():
+        raise GmailError(
+            f"no OAuth token for {address}. Authorise it once with:\n"
+            f"    ./ops/authorise_gmail.py {address}")
+    return r.stdout.rstrip("\n")
+
+
+def credentials_for(address: str, client_id: str, client_secret: str):
+    """Build google credentials from the stored refresh token.
+
+    Scopes are passed explicitly and come from SCOPES — never from whatever
+    the token happens to carry. If the stored grant is wider than SCOPES for
+    any reason, this asks for less rather than inheriting more.
+    """
+    try:
+        from google.oauth2.credentials import Credentials
+    except ImportError as exc:              # pragma: no cover - mac only
+        raise GmailError(
+            "google-auth is not installed. `.venv/bin/pip install "
+            "google-api-python-client google-auth-oauthlib`") from exc
+
+    return Credentials(
+        token=None,
+        refresh_token=stored_token(address),
+        client_id=client_id,
+        client_secret=client_secret,
+        token_uri="https://oauth2.googleapis.com/token",
+        scopes=list(SCOPES),
+    )

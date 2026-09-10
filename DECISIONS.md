@@ -838,6 +838,49 @@ Worth stating plainly: `os.replace` and `Path.rename` are not in `FORBIDDEN_CALL
 
 **240 passed, 1 xfailed.**
 
+### D-039 — Mail arrives over OAuth, and the scope is the security boundary
+**Status:** Built · Sept 10 2026 · supersedes the Aug 5 access plan
+
+**The Aug 5 agreement cannot be implemented.** It was: share the mailbox passwords, disable 2FA. Since **14 March 2025** Google Workspace has refused legacy passwords for IMAP, SMTP, POP, CalDAV and CardDAV. That plan is not unwise any more, it is non-functional — the mailbox will not authenticate. D-008 was framed as a choice and no longer is.
+
+What remained was an app password (which **requires** 2-Step Verification — the plan's first step would have made its own second step impossible) or OAuth. The client's constraint was firm: no 2SV.
+
+**So: an internal Workspace OAuth app.** Google confirms internal apps using restricted Gmail scopes need no verification and no CASA assessment. No 2SV, no app password, no service-account key. It is also what the spec asked for originally — Rec 22, *"internal Workspace OAuth app for business."*
+
+Domain-wide delegation was the other no-2SV route and was rejected: since August 2024 it can require **multi-party approval from a second super admin** (this Workspace may not have one), it cannot touch `mattyeps@gmail.com` at all, and the credential becomes a key that can impersonate **any of the eleven accounts in the domain**. On a project where credentials have already reached a PDF and a chat window, that is the wrong secret to create.
+
+**The scope is the whole security posture.**
+
+```python
+SCOPES = ("https://www.googleapis.com/auth/gmail.readonly",)
+```
+
+Three of the eight hard stops stop being promises:
+
+| stop | enforced by |
+|---|---|
+| `never_delete_email` | the token cannot delete |
+| `never_mark_read` | a Gmail API fetch does not set `\Seen` — unlike IMAP, where forgetting once shows up in his unread count |
+| `never_touch_non_lms_labels` | the token cannot write any label |
+
+**That is stronger than code.** A bug in `adapters/gmail.py` cannot reach past a scope it was never granted. D-036 recorded those three as held only by the absence of a mail client; rather than hand them back when one arrived, they moved to the credential — the one place our own mistakes cannot reach.
+
+**D-036's tripwire fired on its first real occasion**, which is the whole reason it exists:
+
+```
+these hard stops were held only by the absence of the code that could
+break them, and that code now exists:
+  never_delete_email, never_mark_read, never_touch_non_lms_labels
+```
+
+`test_widening_the_scope_is_not_a_quiet_change` now stands in front of the next step: labels and draft replies need `gmail.modify` and `gmail.compose`, and adding either hands those three stops back to code. The test says so, in the failure message, to whoever is about to do it.
+
+**Everything is testable without credentials.** The transport is injectable and the Google libraries import lazily — the same pattern as `ocr.py`, for the same reason: the machine this is written on is not the machine it runs on, and a module that can only be tested against a live mailbox stops being tested. Sixteen parsing and client tests run against fixtures shaped like real API responses.
+
+Two parsing decisions worth recording. **`text/plain` beats `text/html`** whenever both exist: a multipart/alternative carries the same content twice, and the plain part has already had the markup, the tracking pixels and the mismatched link text removed by the sender's own client. And **an unparseable `Date:` becomes empty, not today** — a fabricated timestamp flows into the filename under D-007 and files the document under a day it has nothing to do with.
+
+**256 passed, 1 xfailed.**
+
 ### D-014 — Call transcripts are the first thing cut if the week slips
 **Status:** Decided (contingency) · [GUIDELINES_7DAY_BUILD.md:40](GUIDELINES_7DAY_BUILD.md:40)
 Email + photographed mail + the to-do list are the visible value. Day 4's call-transcript ingestion (C15) goes first, before anything else is touched.
