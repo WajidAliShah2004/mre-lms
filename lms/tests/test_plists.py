@@ -184,3 +184,21 @@ def test_lms_env_is_never_committed():
     gitignore = (REPO / ".gitignore").read_text(encoding="utf-8")
     assert re.search(r"^\s*(lms/)?ops/lms\.env\s*$", gitignore, re.M), (
         "ops/lms.env is not gitignored")
+
+
+def test_the_nightly_backup_includes_the_documents():
+    """D-050. The scheduled job must not quietly become catalogue-only.
+
+    Until Sept 10 it was, and the restore test said so every night in a WARN:
+    a flawless index of files that would not exist if the array failed, which
+    is the failure the backup exists to survive. If someone adds
+    --catalogue-only to this plist, that is a decision worth arguing for here
+    rather than a flag nobody notices.
+    """
+    plist = OPS / "com.lms.backup.plist"
+    if not plist.exists():
+        pytest.skip("no backup plist")
+    argv = load(plist)["ProgramArguments"]
+    assert "--catalogue-only" not in argv, (
+        "the nightly backup would restore an index of documents it does not "
+        "contain")

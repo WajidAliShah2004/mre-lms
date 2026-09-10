@@ -192,14 +192,21 @@ committed rows in, 0 out, passing `integrity_check` throughout.
 ## Take one by hand
 
 ```bash
-./ops/backup.py                 # catalogue: database, sidecars, config
-./ops/backup.py --documents     # and the filed documents themselves
+./ops/backup.py                   # database, config, sidecars AND documents
+./ops/backup.py --catalogue-only  # everything except the documents
 ```
 
-**The nightly job runs WITHOUT `--documents`**, matching the spec. So the
-newest snapshot is normally the catalogue alone — a perfect index of files it
-cannot produce. `restore_test.py` says which kind it checked. Take a
-`--documents` snapshot before anything that could lose the archive.
+**Documents are included by default** since Sept 10 (D-050). They were
+optional before, matching the spec's "DB, configs, sidecars" — but that
+default rested on the spec's own caveat, *"only sufficient while the documents
+survive elsewhere"*, and here "elsewhere" is one RAID volume. Single-parity
+RAID survives a disk failing; it does not survive the enclosure, the
+controller, the filesystem, a deletion, or theft. The nightly job was
+producing a flawless index of files that would not exist.
+
+`restore_test.py` prints which kind it checked. A `CATALOGUE ONLY` warning
+from the scheduled job now means someone has added `--catalogue-only` to the
+plist, and that is worth noticing rather than shrugging at.
 
 ## Actually restoring, when it is not a drill
 

@@ -19,10 +19,29 @@ WHAT IS BACKED UP, AND WHY THAT LIST
                       correctly, which is worse than it sounds.
   * ops/lms.env     — paths only, no secrets (D-016).
 
-Documents themselves are OPTIONAL (--documents) and off by default, matching
-the spec's "DB, configs, sidecars". Read the warning printed at the end before
-deciding that is enough: a restore without documents gives a perfect
-catalogue of files you no longer have.
+  * the documents  — the filed archive itself. INCLUDED BY DEFAULT since
+                      Sept 10; `--catalogue-only` opts out.
+
+WHY THE DEFAULT CHANGED
+-----------------------
+The spec says "DB, configs, sidecars", and documents were optional to match
+it. That default rested on an assumption the spec states plainly — "it is only
+sufficient while the documents survive elsewhere" — and on this machine
+"elsewhere" is one RAID volume that D-035 already established is not a backup.
+Single-parity RAID survives a disk; it does not survive the enclosure, the
+controller, the filesystem, a deletion, or theft.
+
+So the nightly job was producing a flawless index of files that would not
+exist. The restore test even said so, in a WARN nobody was going to act on
+twice.
+
+The cost argument is gone too: the archive is a few hundred megabytes, restic
+deduplicates and compresses, and the repository is on the internal SSD with
+room to spare. There is nothing left on the other side of the trade.
+
+`--catalogue-only` remains, because a fast catalogue snapshot before a risky
+migration is a real use. It is a deliberate choice now rather than what
+happens if nobody passes a flag.
 
 THE PART THAT MAKES IT A BACKUP RATHER THAN A FILE COPY
 -------------------------------------------------------
@@ -46,8 +65,8 @@ file, never in lms.env, never in a launchd plist (D-016, spec §12.4).
 with NO value after -w, so it prompts and the secret stays out of the shell
 history and the process table.
 
-    ./ops/backup.py                     # snapshot to the mirror volume
-    ./ops/backup.py --documents         # include the filed documents too
+    ./ops/backup.py                     # database, config, sidecars, documents
+    ./ops/backup.py --catalogue-only    # everything EXCEPT the documents
     ./ops/backup.py --dry-run           # say what would happen
 """
 
@@ -320,12 +339,24 @@ def main() -> int:
     load_lms_env()
 
     p = argparse.ArgumentParser()
+    p.add_argument("--catalogue-only", action="store_true",
+                   help="database, config and sidecars, but NOT the filed "
+                        "documents. A restore then gives a perfect index of "
+                        "files it cannot produce — only useful as a fast "
+                        "snapshot before a risky migration.")
     p.add_argument("--documents", action="store_true",
-                   help="include the filed documents, not just the catalogue")
+                   help=argparse.SUPPRESS)   # documents are the default now
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--repo", default=None,
                    help="restic repository (default: <mirror>/LMS_backup)")
     args = p.parse_args()
+
+    # Documents unless someone explicitly asks for the catalogue alone. The
+    # old `--documents` flag is accepted and hidden: it is now the default, so
+    # a script or a runbook line still carrying it keeps working and means
+    # exactly what it says, rather than failing on an unrecognised argument at
+    # 02:30.
+    include_documents = not args.catalogue_only
 
     archive = os.environ.get("LMS_ARCHIVE_ROOT")
     if not archive:
@@ -372,7 +403,7 @@ def main() -> int:
         # and copying them again put two of everything in the snapshot — which
         # made the restore check read "4 sidecar(s) restored (archive has 2)"
         # and pass on arithmetic rather than on evidence.
-        if args.documents:
+        if include_documents:
             print(f"==> including the filed documents ({len(sidecars)} sidecars "
                   f"among them)")
             targets = [str(staging), str(archive)]
@@ -393,7 +424,7 @@ def main() -> int:
         # A backup that states its own contents can be verified exactly.
         (staging / "manifest.json").write_text(json.dumps({
             "created_at": datetime.now().isoformat(timespec="seconds"),
-            "documents_included": bool(args.documents),
+            "documents_included": include_documents,
             "sidecars": len(sidecars),
             "row_counts": counts,
         }, indent=2, sort_keys=True), encoding="utf-8")
@@ -415,7 +446,7 @@ def main() -> int:
     finally:
         shutil.rmtree(staging, ignore_errors=True)
 
-    if not args.documents:
+    if not include_documents:
         print("\nNOTE: the documents themselves are NOT in this snapshot, only")
         print("the catalogue that describes them. A restore would give a perfect")
         print("index of files that no longer exist. That matches the spec, and")

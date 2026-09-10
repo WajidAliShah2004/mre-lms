@@ -884,6 +884,28 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 
 **302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
 
+### D-050 — The backup contains the documents
+**Status:** Built · Sept 10 2026 · changes a spec default
+
+Every night, `restore_test.py` printed this and passed:
+
+```
+WARN  this snapshot is the CATALOGUE ONLY — no filed documents.
+      Restoring it gives a perfect index of files it cannot produce.
+```
+
+**Documents were optional and off by default**, matching the spec's *"DB, configs, sidecars"*. That default rested on a caveat the spec states in the same breath — *"only sufficient while the documents survive elsewhere"* — and on this machine "elsewhere" is one RAID volume that D-035 already established is not a backup. Single-parity RAID survives a disk failing. It does not survive the enclosure, the controller, the filesystem, a deletion, or theft.
+
+So the thing standing between Matthew and losing every document was a warning printed at 02:31 into a log file, which is to say: nothing.
+
+The cost argument had already evaporated. The archive is a few hundred megabytes, restic deduplicates and compresses, and the repository sits on the internal SSD with room to spare. Nothing was left on the other side of the trade.
+
+`--catalogue-only` still exists, because a fast catalogue snapshot before a risky migration is a real use — it is now a deliberate choice rather than what happens when nobody passes a flag. The old `--documents` is accepted and hidden, so a runbook line still carrying it keeps working and still means what it says rather than failing on an unrecognised argument at 02:30.
+
+`test_the_nightly_backup_includes_the_documents` fails if `--catalogue-only` ever appears in the plist. And the restore test's WARN now means the opposite of what it did: a `CATALOGUE ONLY` line from the scheduled job says somebody changed something.
+
+**436 passed, 1 xfailed.**
+
 ### D-049 — Rotating the backup key, gated on the fact in question
 **Status:** Built · Sept 10 2026 · not yet run
 

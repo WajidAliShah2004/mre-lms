@@ -186,20 +186,22 @@ def verify_restore(restored: Path, live_counts: dict[str, int] | None,
 
     # Say what KIND of snapshot this was.
     #
-    # `restore latest` takes whatever ran most recently, and the nightly job
-    # runs without --documents. So the newest snapshot is normally the
-    # catalogue alone — and "Restore verified, the backup is usable" would
-    # otherwise read as "the documents are safe", which for that snapshot is
-    # false. The manifest knows; there is no reason to leave the reader
-    # inferring it.
+    # `restore latest` takes whatever ran most recently. Until Sept 10 the
+    # nightly job ran WITHOUT documents, so the newest snapshot was normally
+    # the catalogue alone — and "Restore verified, the backup is usable" would
+    # read as "the documents are safe", which for that snapshot was false.
+    #
+    # Documents are now the default, so this line should say so every night. A
+    # CATALOGUE ONLY warning from the scheduled job means someone has added
+    # --catalogue-only to the plist, and that is worth noticing.
     if manifest is not None and "documents_included" in manifest:
         if manifest["documents_included"]:
             ok("this snapshot includes the filed documents")
         else:
             warn("this snapshot is the CATALOGUE ONLY — no filed documents. "
                  "Restoring it gives a perfect index of files it cannot "
-                 "produce. Run `backup.py --documents` if the documents need "
-                 "to be recoverable from here.")
+                 "produce. Documents are included by default; something "
+                 "passed --catalogue-only.")
 
     entities = find_restored(restored, "entities.yaml")
     if entities is None:
