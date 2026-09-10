@@ -59,15 +59,110 @@ def test_declining_to_act_is_still_logged(conn):
 # Config-level guarantees
 # ---------------------------------------------------------------------------
 
-def test_all_hard_stops_are_on(rules):
+# ---------------------------------------------------------------------------
+# What actually enforces each hard stop
+#
+# `rules.yaml` declares eight of them. `grep -rn hard_stops core/ ops/` returns
+# ZERO — no code reads that block. The test here used to load the file and
+# assert it said `true` eight times, which is a mirror: a config asserting
+# itself. Passing meant only that someone had typed the word.
+#
+# The stops do hold today, but by ABSENCE — there is no smtplib, no imaplib,
+# no payment client, no e-signature client anywhere in core/. That is the
+# strongest form of guarantee available ("there is no code path") and the most
+# fragile, because it lasts exactly until someone builds the feature. On Day 3
+# an email adapter arrives, and `never_delete_email: true` becomes a sentence
+# in a file with a green test beside it and nothing behind it.
+#
+# So each stop names its enforcement. STRUCTURAL entries carry the import that
+# would make the stop violable; when one of those appears in core/, the test
+# below FAILS and says the stop must now be enforced properly. That converts
+# "we will remember" into "the suite stops you".
+# ---------------------------------------------------------------------------
+
+TESTED, STRUCTURAL = "TESTED", "STRUCTURAL"
+
+ENFORCEMENT = {
+    "never_delete_file": (
+        TESTED, "test_core_contains_no_send_or_delete_primitives greps core/ "
+                "for os.remove, unlink, rmtree and rename"),
+    "never_send_without_approval": (
+        TESTED, "smtplib is in FORBIDDEN_CALLS, so any SMTP client in core/ "
+                "fails the grep guard above"),
+    "never_click_links_in_message_bodies": (
+        TESTED, "sanitise strips remote images (test_html_is_stripped_and_"
+                "remote_images_dropped) and every model call goes through "
+                "assert_loopback (test_loopback_is_enforced)"),
+
+    # Not enforceable yet: the code that could break them does not exist.
+    # The marker is what would change that.
+    "never_delete_email": (
+        STRUCTURAL, ("imaplib", "googleapiclient", "gmail")),
+    "never_mark_read": (
+        STRUCTURAL, ("imaplib", "googleapiclient", "gmail")),
+    "never_touch_non_lms_labels": (
+        STRUCTURAL, ("imaplib", "googleapiclient", "gmail")),
+    "never_move_money": (
+        STRUCTURAL, ("stripe", "plaid", "braintree", "paypal")),
+    "never_sign_or_bind": (
+        STRUCTURAL, ("docusign", "hellosign", "adobesign", "esignature")),
+}
+
+
+def test_every_hard_stop_is_still_declared(rules):
+    """The flags themselves. Necessary, and nowhere near sufficient."""
     stops = rules["hard_stops"]
-    expected = [
-        "never_delete_email", "never_mark_read", "never_delete_file",
-        "never_send_without_approval", "never_move_money", "never_sign_or_bind",
-        "never_touch_non_lms_labels", "never_click_links_in_message_bodies",
-    ]
-    for key in expected:
+    for key in ENFORCEMENT:
         assert stops.get(key) is True, f"hard stop {key} is not enabled"
+
+
+def test_every_declared_stop_names_how_it_is_enforced(rules):
+    """A stop in rules.yaml with no entry above is a stop nothing implements.
+
+    Adding one to the config therefore forces the question here, rather than
+    letting it be answered implicitly by a test that reads the config back.
+    """
+    undeclared = sorted(set(rules["hard_stops"]) - set(ENFORCEMENT))
+    assert not undeclared, (
+        f"these hard stops are declared in rules.yaml and nothing here says "
+        f"what enforces them: {undeclared}")
+
+    stale = sorted(set(ENFORCEMENT) - set(rules["hard_stops"]))
+    assert not stale, f"enforcement claimed for stops that no longer exist: {stale}"
+
+
+def test_a_stop_held_only_by_absence_fails_when_the_feature_arrives():
+    """The test that matters on Day 3.
+
+    `never_delete_email` is currently true because nothing in core/ can touch
+    a mailbox. The moment an email adapter lands, that stops being a guarantee
+    and becomes a claim — and this fails, naming the stop that now needs real
+    enforcement rather than letting a green suite imply one exists.
+    """
+    sources = {p: p.read_text(encoding="utf-8") for p in CORE.rglob("*.py")}
+
+    now_violable = {}
+    for stop, (kind, detail) in ENFORCEMENT.items():
+        if kind != STRUCTURAL:
+            continue
+        found = sorted({p.name for p, text in sources.items()
+                        for marker in detail if marker in text})
+        if found:
+            now_violable[stop] = found
+
+    assert not now_violable, (
+        "these hard stops were held only by the absence of the code that could "
+        "break them, and that code now exists. Enforce them properly and move "
+        f"them to TESTED: {now_violable}")
+
+
+def test_no_enforcement_claim_is_empty():
+    """A justification of three words is not a justification."""
+    for stop, (kind, detail) in ENFORCEMENT.items():
+        if kind == TESTED:
+            assert len(detail) > 40, f"{stop}: enforcement claim is too thin"
+        else:
+            assert detail, f"{stop}: no markers, so nothing would ever fire"
 
 
 def test_unsubscribe_is_header_only(rules):

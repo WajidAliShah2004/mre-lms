@@ -744,6 +744,29 @@ Added **[8] Backup readiness** to `verify_setup.py`: restic present, the passwor
 
 **206 passed.**
 
+### D-036 — The hard stops were asserted against themselves
+**Status:** Decided and fixed · Sept 10 2026 · **the compensating controls for D-009**
+
+Under D-009 the LMS runs as Matthew's own user. There is no privilege boundary; the containment is entirely the compensating controls — zero-tool agents, no code path that sends, no deletes, an append-only log. `rules.yaml` declares eight hard stops and `test_all_hard_stops_are_on` asserted every one was `true`.
+
+```
+grep -rn hard_stops core/ ops/   →   0 references
+```
+
+**No code reads that block.** The test loaded a YAML file and asserted the YAML file said `true` eight times — a config asserting itself. Passing meant somebody had typed the word. Same shape as D-027, and in the one place it matters most.
+
+The same grep: `unsubscribe` 0 references, `classifier_tools` 0, `bypass_cap_for` 0. Only `sanitisation` (2) and `phishing` (1) are actually read.
+
+**The stops do hold — but by absence.** There is no `smtplib`, no `imaplib`, no payment client, no e-signature client anywhere in `core/`. "There is no code path" is the strongest guarantee available and the most fragile, because it lasts exactly as long as the feature stays unbuilt. On **Day 3 an email adapter arrives**, and `never_delete_email: true` becomes a sentence in a file with a green test beside it and nothing behind it.
+
+**Each stop now names what enforces it.** Three are `TESTED` against a real mechanism — the grep guard on delete primitives, `smtplib` in `FORBIDDEN_CALLS`, remote-image stripping plus `assert_loopback`. Five are `STRUCTURAL`, and each carries the imports that would make it violable: `imaplib`, `googleapiclient`, `stripe`, `docusign`, and so on.
+
+`test_a_stop_held_only_by_absence_fails_when_the_feature_arrives` walks `core/` for those markers. **Verified by injecting a module containing `import imaplib` — the suite failed and named the three stops that had just become claims.** That is the point of it: it converts "we will remember to enforce this" into "the suite stops you", on the day the code lands rather than after it ships.
+
+Two more guards: a stop declared in `rules.yaml` with no enforcement entry fails, so adding one forces the question; and an enforcement entry for a stop that no longer exists fails, so the mapping cannot rot.
+
+**Sixth test this build that was passing while describing the wrong thing** — and the first one where the wrong thing being described was a security guarantee.
+
 ### D-014 — Call transcripts are the first thing cut if the week slips
 **Status:** Decided (contingency) · [GUIDELINES_7DAY_BUILD.md:40](GUIDELINES_7DAY_BUILD.md:40)
 Email + photographed mail + the to-do list are the visible value. Day 4's call-transcript ingestion (C15) goes first, before anything else is touched.
