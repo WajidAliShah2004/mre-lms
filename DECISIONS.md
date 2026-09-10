@@ -804,7 +804,12 @@ Two consequences:
 **Status:** OPEN · blocks Phase 1 item 4 · client item **C5**
 Which volumes hold LMS data, models, and the repo — and approval to encrypt in place. Per the meeting (00:26:35), "some of it's encrypted, some of it isn't." FileVault covers the boot volume only. Record which volumes are encrypted and which are deliberately not, and why.
 
+**Sept 10 — direction given, target not yet named.** Backups are to go "in a backup partition". That settles the intent, which was the part in question: the repository should not sit beside the archive. It does not yet settle *which* volume, and the name matters more than usual here — a separate **partition** on the same physical disk is not protection. Partitions share the device; when the disk fails they fail together, which is exactly the case a backup is for.
+
+So the answer needed is a volume that is a **different device**, not merely a different mount point. `diskutil list` distinguishes them; `ops/backup.py` also checks `st_dev` at run time and warns on every run until the two differ, so this cannot be closed by assertion — only by the warning going away.
+
 > **Volumes:**
+> **Backup target (must be a different device, not a partition of the same one):**
 > **Approved to encrypt in place:**
 > **Date:**
 
