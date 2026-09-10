@@ -162,16 +162,90 @@ Read-backs end `>/dev/null && echo OK`. Always.
 
 ---
 
-# 5. Restore from backup
+# 5. Backup and restore
+
+Nightly at 02:30 via `com.lms.backup`. Encrypted with restic; the repository
+is ciphertext at rest.
+
+## Check a backup is good — do this monthly, not after a disaster
 
 ```bash
-restic -r <repo> snapshots
-restic -r <repo> restore latest --target /tmp/restore-test
-sqlite3 /tmp/restore-test/.../lms.db ".tables"
+cd ~/lms-repo/lms && source ops/lms.env
+./ops/restore_test.py
 ```
 
-Restore to a **scratch directory** and open the database there. A backup that
-has never been restored is a hypothesis.
+Restores the latest snapshot into a temp directory and checks the database
+opens, passes `integrity_check`, has the row counts the snapshot claims, that
+the sidecars all came back, and that `entities.yaml` parses. Nothing is
+written outside the temp directory and the live archive is opened read-only,
+so this is safe to run at any time — including a moment when things are
+already going wrong.
+
+Anything other than `Restore verified — the backup is usable.` means the
+backup would not have saved you. The one to fear reads:
+
+> `the restored database is EMPTY — it opens and contains nothing.`
+
+That is what a file copy of a live WAL database looks like. Measured: 500
+committed rows in, 0 out, passing `integrity_check` throughout.
+
+## Take one by hand
+
+```bash
+./ops/backup.py                 # catalogue: database, sidecars, config
+./ops/backup.py --documents     # and the filed documents themselves
+```
+
+**The nightly job runs WITHOUT `--documents`**, matching the spec. So the
+newest snapshot is normally the catalogue alone — a perfect index of files it
+cannot produce. `restore_test.py` says which kind it checked. Take a
+`--documents` snapshot before anything that could lose the archive.
+
+## Actually restoring, when it is not a drill
+
+```bash
+./ops/restore_test.py --keep    # leaves the tree, prints where
+```
+
+Then copy what you need out of it. There is no "restore in place" command on
+purpose: overwriting a live archive from a snapshot is a decision a person
+should make file by file, while awake, not something a script does in one
+step.
+
+## The passphrase
+
+In the Keychain as `lms/restic-repo`, and **in the password manager**.
+
+```bash
+./ops/set_backup_password.py --show
+```
+
+> **restic has no recovery path.** If this passphrase is lost, every snapshot
+> is permanently unreadable — still there, still encrypted, useless to
+> everyone including Matthew. Losing it is indistinguishable from never having
+> taken a backup. It is a credential-custody item alongside the FileVault key
+> (C7), not a detail of the backup script.
+
+To replace it — note this makes existing snapshots unreadable, so take a fresh
+backup immediately afterwards:
+
+```bash
+./ops/set_backup_password.py     # generates, stores, verifies, prints once
+```
+
+## What this backup does not protect against yet
+
+The repository is on **the same volume as the archive** (D-011 unanswered —
+nobody has said which volume is the mirror). It survives a bad delete, a
+corrupted database, or a classification run gone wrong. It does not survive
+the disk: both copies die together.
+
+There is **no off-machine copy** (D-012 unanswered). A local repository does
+not survive theft or fire. The blocker is not technical — an off-machine
+target means client tax and NPI data leaving the premises, and that needs
+Matthew's decision in writing.
+
+`./ops/verify_setup.py` check [8] reports both every time it runs.
 
 ---
 
