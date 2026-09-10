@@ -219,6 +219,16 @@ FORBIDDEN_CALLS = [
 # file". A move that provably destroys nothing is allowed; a move that MIGHT
 # is not.
 EXEMPT = {
+    ("corrections.py", "shutil.move"): (
+        "Re-files a document Matthew has said is in the wrong place. The copy "
+        "in the archive tree is DERIVED — file_artifact keeps the incoming "
+        "bytes under _originals/<sha256> and never writes there again — so "
+        "moving it destroys nothing; the original is intact throughout and "
+        "the move is within one filesystem. Refusing would leave a document "
+        "filed under the wrong business permanently, which is the failure the "
+        "system exists to prevent. It refuses rather than overwrites, and "
+        "nothing is deleted."
+    ),
     ("watchfolder.py", "shutil.move"): (
         "Retires a handled file from the iCloud inbox to inbox/_done. By the "
         "time this runs the bytes exist in TWO other places — the archive and "

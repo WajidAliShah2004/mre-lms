@@ -796,6 +796,48 @@ True, and about the wrong repository. On the strength of that line the old repos
 
 **Eleventh defect found by running the thing rather than testing it, and the only one I introduced myself.**
 
+### D-038 — A correction moves the document, or it is only a note
+**Status:** Built · Sept 10 2026 · spec §Day-5.5
+
+The `corrections` table and `db.record_correction()` have existed since Day 1 and nothing called either — the same shape as D-027 and D-036, found by looking rather than by anything failing.
+
+**The design question was what a correction IS.** The spec says corrections go to a table. Doing only that produces a database that knows the truth and an archive that does not, and **Matthew looks in folders, not in SQLite.** So `apply_correction` does three things, all or none:
+
+1. records old → new in `corrections`, never pruned
+2. re-files the document, its sidecar and its transcription
+3. sets `decided_by = 'human'`, so nothing downstream mistakes his judgement for the model's
+
+The classification row is overwritten rather than duplicated, which makes `corrections` **the only surviving record of what the model actually said** — its stated purpose, and the training signal for the next engagement.
+
+Measured, on a filed invoice, telling it the document is Atlase rather than MRECAI:
+
+```
+BEFORE  archive/MRECAI/VENDORS/invoices-received/2026-09-06__MRE__VENDORS__…pdf
+AFTER   archive/ATLASE/VENDORS/invoices-received/2026-09-06__ATL__VENDORS__…pdf
+        corrections:  entity_id: B_MRE -> B_ATL
+        originals:    untouched
+```
+
+Note the filename, not just the folder. The entity code is *in* the name (D-007), so moving without renaming would leave `__MRE__` on a document filed under Atlase — a file that lies about itself in the one place people read.
+
+**This had to argue its way past the hard stops.** `test_core_contains_no_send_or_delete_primitives` forbids `shutil.move` in `core/`, and D-036 had just made that guard real. The exemption is written out in `EXEMPT`: the archive copy is *derived* — `file_artifact` keeps every incoming byte under `_originals/<sha256>` and never writes there again — so moving it destroys nothing, the original is intact throughout, and refusing would leave a document filed under the wrong business permanently.
+
+Worth stating plainly: `os.replace` and `Path.rename` are not in `FORBIDDEN_CALLS`, and using one of them would have slipped past the guard silently. **A guard's value depends entirely on not routing around it**, so the move is written the obvious way and argued for in the open.
+
+**Refusals, and why each one refuses rather than does its best:**
+
+- An invalid entity or category is rejected **before anything is recorded or moved**. A half-applied correction is worse than a refused one, because the whole point is that the database and the archive agree afterwards.
+- A name collision refuses rather than overwrites, exactly as first-time filing does. Losing a document silently is the one failure this system must not have.
+- A document the database says is filed, that is not where it says, refuses — correcting it would mean guessing what happened to it.
+- A quarantined document is not corrected. It was never classified, so there is nothing to override; that is a first classification, and a different operation.
+- Agreeing with the system is not a correction. Recording one would put noise into the only table that says where the classifier was wrong.
+
+`subcategory=None` means "file it at the category level" and is a legitimate instruction, so a sentinel distinguishes it from "leave it alone" — on the command line that is `--subcategory NONE`, since an absent flag already means the latter.
+
+`ops/correct.py` is the front door for now. When C2 lands and this happens in Telegram, that becomes a second entrance onto the same tested operation rather than a second implementation of it.
+
+**240 passed, 1 xfailed.**
+
 ### D-014 — Call transcripts are the first thing cut if the week slips
 **Status:** Decided (contingency) · [GUIDELINES_7DAY_BUILD.md:40](GUIDELINES_7DAY_BUILD.md:40)
 Email + photographed mail + the to-do list are the visible value. Day 4's call-transcript ingestion (C15) goes first, before anything else is touched.
