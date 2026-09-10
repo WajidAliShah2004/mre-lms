@@ -904,7 +904,15 @@ The cost argument had already evaporated. The archive is a few hundred megabytes
 
 `test_the_nightly_backup_includes_the_documents` fails if `--catalogue-only` ever appears in the plist. And the restore test's WARN now means the opposite of what it did: a `CATALOGUE ONLY` line from the scheduled job says somebody changed something.
 
-**436 passed, 1 xfailed.**
+**And including the documents opened a gap immediately.** Everything `restore_test.py` checked *counted* things: rows, sidecars, entities. A restore that produced 28 correctly-named **zero-byte files** passed every line of it — database intact, row counts matching, sidecar count exactly what the manifest claimed. The names right and the documents gone.
+
+That is not hypothetical here. It is the `cp`-on-a-live-WAL-database failure that started this whole module: **500 rows in, 0 rows out, and it looked completely fine.**
+
+So the restore now **opens the documents and hashes them**, comparing against the sha256 the database recorded when each was filed — a hash computed from the incoming bytes before anything touched them, which makes a match end-to-end evidence across ingest, filing, restic and restore rather than evidence that two counts agree. Sampled at 25, which is honest here because the failure is systemic: a restore does not corrupt one file in a thousand, it corrupts all of them or none.
+
+Four tests assert it actually catches something — zero bytes, truncation, a missing document, and an unreadable catalogue. The last one matters on its own: this script runs when things are already going badly, and an exception in the new check would take down the checks above it that had already passed, turning a report with one gap into no report at all.
+
+**441 passed, 1 xfailed.**
 
 ### D-049 — Rotating the backup key, gated on the fact in question
 **Status:** Built · Sept 10 2026 · not yet run

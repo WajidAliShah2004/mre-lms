@@ -310,3 +310,96 @@ def test_a_backup_ahead_of_the_live_database_is_a_failure_not_drift(tmp_path):
 def test_normal_growth_since_the_snapshot_is_only_a_warning(tmp_path):
     verify_restore(restored_tree(tmp_path, rows=5), {"artifacts": 40}, 2)
     assert restore_test.failures == []
+
+
+# ---------------------------------------------------------------------------
+# The restore opens the documents, rather than counting them
+# ---------------------------------------------------------------------------
+
+def _archive_with_one_document(tmp_path):
+    """A restored tree shaped like the real thing: a database that says a
+    document was filed, and the document."""
+    import hashlib
+    import sqlite3
+
+    restored = tmp_path / "restored"
+    docs = restored / "Volumes" / "MacStudioHD" / "LMS" / "archive" / "MRECAI"
+    docs.mkdir(parents=True)
+
+    body = b"NEW YORK STATE INSURANCE IDENTIFICATION CARD\nGEICO\n"
+    sha = hashlib.sha256(body).hexdigest()
+    name = f"2026-09-09__MRE__CLIENTS__geico__id-card__NOAMT__{sha[:8]}.pdf"
+    (docs / name).write_bytes(body)
+
+    db_file = restored / "lms.db"
+    conn = sqlite3.connect(db_file)
+    conn.execute("CREATE TABLE artifacts (sha256 TEXT, status TEXT, filed_path TEXT)")
+    conn.execute("INSERT INTO artifacts VALUES (?, 'FILED', ?)",
+                 (sha, f"/Volumes/MacStudioHD/LMS/archive/MRECAI/{name}"))
+    conn.commit()
+    conn.close()
+    return restored, db_file, docs / name
+
+
+def test_intact_documents_pass(tmp_path):
+    restore_test.failures.clear()
+    restored, db_file, _ = _archive_with_one_document(tmp_path)
+    restore_test.check_document_bytes(restored, db_file)
+    assert restore_test.failures == []
+
+
+def test_a_zero_byte_restore_is_caught(tmp_path):
+    """THE failure this exists for.
+
+    28 correctly-named empty files pass every other check in the script: the
+    database is intact, the row counts match, the sidecar count is exactly what
+    the manifest claims. The names are right and the documents are gone. Same
+    class as `cp` on a live WAL database — 500 rows in, 0 rows out, looked fine.
+    """
+    restore_test.failures.clear()
+    restored, db_file, doc = _archive_with_one_document(tmp_path)
+    doc.write_bytes(b"")
+
+    restore_test.check_document_bytes(restored, db_file)
+
+    assert restore_test.failures, "an empty document restored as a PASS"
+    assert "different bytes" in restore_test.failures[0]
+
+
+def test_a_truncated_restore_is_caught(tmp_path):
+    restore_test.failures.clear()
+    restored, db_file, doc = _archive_with_one_document(tmp_path)
+    doc.write_bytes(doc.read_bytes()[:10])
+
+    restore_test.check_document_bytes(restored, db_file)
+    assert restore_test.failures
+
+
+def test_a_document_missing_entirely_is_caught(tmp_path):
+    """The database says it was filed and the restore does not have it."""
+    restore_test.failures.clear()
+    restored, db_file, doc = _archive_with_one_document(tmp_path)
+    doc.unlink()
+
+    restore_test.check_document_bytes(restored, db_file)
+    assert restore_test.failures
+    assert "not in the restore" in restore_test.failures[0]
+
+
+def test_an_unreadable_catalogue_warns_rather_than_crashing(tmp_path):
+    """This script runs when things are already going badly. An exception here
+    would take down the checks above it that had already passed, turning a
+    report with one gap into no report at all."""
+    import sqlite3
+
+    restore_test.failures.clear()
+    restored = tmp_path / "restored"
+    restored.mkdir()
+    db_file = restored / "lms.db"
+    conn = sqlite3.connect(db_file)
+    conn.execute("CREATE TABLE artifacts (id INTEGER)")   # no sha256 column
+    conn.commit()
+    conn.close()
+
+    restore_test.check_document_bytes(restored, db_file)
+    assert restore_test.failures == []

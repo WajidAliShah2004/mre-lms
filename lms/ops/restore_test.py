@@ -11,6 +11,11 @@ the things that actually decide whether a bad morning is survivable:
   * it passes PRAGMA integrity_check
   * its row counts match the live database, table by table
   * the sidecars came back, and the count matches the archive
+  * THE DOCUMENTS OPEN, and their bytes hash to what the database says they
+    should. Everything else on this list counts things, and a restore that
+    produced correctly-named zero-byte files would pass all of it — which is
+    the same failure as `cp` on a live WAL database: 500 rows in, 0 rows out,
+    and it looked fine.
   * config/entities.yaml is present and parses — it IS the classifier, and a
     restore without it can hold documents but cannot file another one
 
@@ -25,6 +30,7 @@ because it will be run when things are already going badly.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -40,6 +46,16 @@ from _reexec import ensure_venv                            # noqa: E402
 from backup import restic_password, row_counts            # noqa: E402
 
 GREEN, RED, YELLOW, RESET = "\033[32m", "\033[31m", "\033[33m", "\033[0m"
+
+# How many restored documents to open and hash. This runs nightly and hashing
+# a whole archive is not free.
+#
+# A sample is honest here in a way it usually is not, because the failure it
+# catches is systemic: a restore does not corrupt one file in a thousand, it
+# corrupts all of them or none. Zero-byte output, a truncated stream, a
+# repository restored with the wrong key — all of those are visible in the
+# first document checked.
+SAMPLE_DOCUMENTS = 25
 
 failures: list[str] = []
 
@@ -84,6 +100,93 @@ def read_manifest(restored: Path) -> dict | None:
     except (OSError, ValueError) as exc:
         warn(f"manifest.json is present but unreadable: {exc}")
         return None
+
+
+def check_document_bytes(restored: Path, db_file: Path | None) -> None:
+    """Open the restored documents and hash them.
+
+    Everything above this line counts things. A restore that produced 28
+    correctly-named zero-byte files passes every one of those checks: the
+    database is intact, the row counts match, the sidecar count is exactly what
+    the manifest claims. The names are right and the documents are gone.
+
+    That is not a hypothetical failure on this project. `cp` of a live WAL
+    database gave 500 rows in and 0 rows out, and looked completely fine —
+    which is why the backup goes through the online API. The same class of
+    failure applies to the documents, and until now nothing looked.
+
+    So: for every artifact the database says is FILED, find the file in the
+    restore and check its sha256 against the one recorded when it was filed.
+    That hash is the artifact's identity, computed from the incoming bytes
+    before anything touched them, so a match is end-to-end evidence — ingest,
+    filing, restic, and restore — rather than evidence that two counts agree.
+
+    Sampled at SAMPLE_DOCUMENTS, because this runs nightly and hashing a full
+    archive is not free. A sample that finds nothing wrong is not proof, but
+    the failure this catches is systemic — a restore does not corrupt one file
+    out of a thousand, it corrupts all of them or none.
+    """
+    if db_file is None or not db_file.exists():
+        warn("no restored database, so the documents cannot be checked against "
+             "what they should be")
+        return
+
+    # A restore test must never be the thing that fails. It runs when things
+    # are already going badly, and an exception here would take down the checks
+    # above it that had already passed — turning a report with one gap in it
+    # into no report at all.
+    conn = sqlite3.connect(f"file:{db_file}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            "SELECT sha256, filed_path FROM artifacts "
+            "WHERE status = 'FILED' AND filed_path IS NOT NULL"
+        ).fetchall()
+    except sqlite3.Error as exc:
+        warn(f"could not read the artifacts table to check documents: {exc}")
+        return
+    finally:
+        conn.close()
+
+    if not rows:
+        warn("the restored database lists no filed documents to check")
+        return
+
+    # The archive tree comes back under some prefix of the temp restore dir,
+    # so documents are located by NAME rather than by reconstructing the path.
+    # Names carry an 8-character hash (D-007) and are unique in practice.
+    by_name: dict[str, Path] = {}
+    for p in restored.rglob("*"):
+        if p.is_file():
+            by_name.setdefault(p.name, p)
+
+    sample = rows[:SAMPLE_DOCUMENTS]
+    checked = missing = corrupt = 0
+
+    for row in sample:
+        name = Path(row["filed_path"]).name
+        found = by_name.get(name)
+        if found is None:
+            missing += 1
+            continue
+        digest = hashlib.sha256()
+        with found.open("rb") as fh:
+            for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+                digest.update(chunk)
+        if digest.hexdigest() == row["sha256"]:
+            checked += 1
+        else:
+            corrupt += 1
+            fail(f"{name} restored with different bytes than were filed — "
+                 f"expected {row['sha256'][:12]}, got {digest.hexdigest()[:12]}")
+
+    if missing:
+        fail(f"{missing} of {len(sample)} sampled documents are not in the "
+             f"restore at all, though the database says they were filed")
+    if not corrupt and not missing:
+        ok(f"{checked} document(s) opened and hashed — the bytes that come "
+           f"back are the bytes that were filed"
+           + (f" (sampled from {len(rows)})" if len(rows) > len(sample) else ""))
 
 
 def verify_restore(restored: Path, live_counts: dict[str, int] | None,
@@ -197,6 +300,7 @@ def verify_restore(restored: Path, live_counts: dict[str, int] | None,
     if manifest is not None and "documents_included" in manifest:
         if manifest["documents_included"]:
             ok("this snapshot includes the filed documents")
+            check_document_bytes(restored, db)
         else:
             warn("this snapshot is the CATALOGUE ONLY — no filed documents. "
                  "Restoring it gives a perfect index of files it cannot "
