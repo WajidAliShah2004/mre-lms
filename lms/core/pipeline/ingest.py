@@ -185,6 +185,7 @@ def ingest_file(conn, roots: filing.StorageRoots, registry: Registry,
                 source: str = "photo", source_ref: str | None = None,
                 artifact: Artifact | None = None,
                 auth_results: dict[str, bool] | None = None,
+                parent_id: int | None = None,
                 run_ocr: bool = True) -> IngestResult:
     source_path = Path(source_path)
     if not source_path.is_file():
@@ -241,7 +242,8 @@ def ingest_file(conn, roots: filing.StorageRoots, registry: Registry,
         reason = _unreadable_reason(source_path, engine)
         target = filing.quarantine_artifact(
             conn, roots, source_path=source_path, sha256=sha,
-            source=source, reason=reason, source_ref=source_ref)
+            source=source, reason=reason, source_ref=source_ref,
+            parent_id=parent_id)
         db.log_action(conn, "UNREADABLE", detail=reason[:400])
         return IngestResult(sha256=sha, status="QUARANTINED", path=target,
                             ocr_engine=engine, reason=reason)
@@ -251,7 +253,8 @@ def ingest_file(conn, roots: filing.StorageRoots, registry: Registry,
     if reason:
         target = filing.quarantine_artifact(
             conn, roots, source_path=source_path, sha256=sha,
-            source=source, reason=reason, source_ref=source_ref)
+            source=source, reason=reason, source_ref=source_ref,
+            parent_id=parent_id)
         db.set_artifact_status(conn, int(db.find_artifact_by_hash(conn, sha)["id"]),
                                "SUSPECTED_PHISHING")
         db.log_action(conn, "PHISHING_BLOCKED", detail=reason)
@@ -265,7 +268,7 @@ def ingest_file(conn, roots: filing.StorageRoots, registry: Registry,
         target = filing.quarantine_artifact(
             conn, roots, source_path=source_path, sha256=sha, source=source,
             reason=classification.review_reason or "low confidence",
-            source_ref=source_ref)
+            source_ref=source_ref, parent_id=parent_id)
         return IngestResult(sha256=sha, status="QUARANTINED", path=target,
                             classification=classification, ocr_engine=engine,
                             reason=classification.review_reason)
@@ -283,6 +286,11 @@ def ingest_file(conn, roots: filing.StorageRoots, registry: Registry,
         descriptor=classification.descriptor,
         amount_cents=classification.amount_cents,
         currency=classification.currency,
+        # An attachment points at the email that carried it. Without this the
+        # archive holds an invoice and, separately, the covering note, with
+        # nothing recording that they arrived together — and "where did this
+        # come from" is the first question anyone asks of a filed document.
+        parent_id=parent_id,
         source_ref=source_ref, ocr_text=_sidecar_text(ocr_text, engine),
         extra_metadata={
             "ocr_engine": engine,

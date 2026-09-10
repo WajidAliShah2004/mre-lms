@@ -838,6 +838,29 @@ Worth stating plainly: `os.replace` and `Path.rename` are not in `FORBIDDEN_CALL
 
 **240 passed, 1 xfailed.**
 
+### D-040 — A message becomes a document, and its attachments become documents of their own
+**Status:** Built · Sept 10 2026
+
+`ingest_file` takes a path, and every guarantee in the system is anchored to the bytes at that path — dedupe is the sha256 of the file, `_originals/<sha256>` is the copy that is never rewritten, and the archive holds something openable in five years without this codebase. An email that exists only as rows in SQLite has none of that. **So the message is rendered to a text file first**, and after that it is an ordinary document going through the pipeline that already works.
+
+**Identity is the sha256 of the rendered file, and the `Message-ID` is inside it.** That single detail carries the whole polling model. The rendered bytes do not change between polls, so re-reading yesterday costs one hash and files nothing; and two different emails that both say "thanks" stay two documents instead of collapsing into one and losing the second permanently. Which is why there is **no cursor**: a stored "last message id" loses mail the first time a run dies between reading and committing, whereas a missed night here is fixed by `--days 3`.
+
+**The invoice is almost never in the body; it is the PDF.** Each attachment is ingested as its own artifact with `parent_id` pointing at the email — the schema has had that column since day one and nothing had ever populated it. They classify **independently**: a covering note routes on `recipient_email` like anything else, and a PDF that OCRs to an ATLASE invoice files under ATLASE even when the note arrived at the MRECAI address. Passing the mail body down to the attachment would let *"please see the attached ATLASE invoice"* classify a document that is nothing of the sort, and would also defeat D-024's emptiness check by handing ingest a body it never read from that file.
+
+An attachment whose parent was quarantined is still ingested. The covering email being unclassifiable says nothing about the invoice attached to it.
+
+**Only a hard `fail` counts.** `Authentication-Results` is finally read — rules.yaml has named `spf_fail`/`dkim_fail`/`dmarc_fail` since the spec and `ingest_file` has taken an `auth_results` argument that nothing populated. But `softfail`, `neutral`, `none`, `temperror` and `permerror` do not count, and that is not laxity:
+
+> **this mailbox has automatic forwarding switched on, and forwarding breaks SPF by design.** The forwarding server is not in the original domain's SPF record. Treating every non-pass as fraud would quarantine a large share of legitimate mail, and a review queue that is mostly false positives is a review queue nobody reads — a worse security outcome than the narrower check, not a more cautious one.
+
+DMARC exists precisely to resolve this: it passes when *either* SPF or DKIM aligns, and DKIM survives forwarding. So `dmarc=fail` is the signal that means something. `dmarc=none` is not a failure at all — most of the internet has no policy — and only becomes one when the sender claims a domain **we know**, because for those we would expect a policy and its absence means anyone can forge the address.
+
+Only the **first** `Authentication-Results` header is read. Everything below the receiving server's own line came in over the wire, and a sender can write `Authentication-Results: spf=pass` into their own message.
+
+**Two things arrive from strangers and are treated accordingly.** Attachment filenames are rebuilt from an allowlist rather than filtered for known-bad — `../../.ssh/authorized_keys` is a legal MIME filename, and a blocklist here is a bet that we thought of every encoding. And attachments are fetched only by suffix and under 25MB, which is not a security control (the read-only scope is) but a "do not download 60MB of video in order to OCR it" control.
+
+**287 passed, 1 xfailed** — 31 new tests. Still unrun against a live mailbox; that is the next thing, and on this project's record it is where the defects are.
+
 ### D-039 — Mail arrives over OAuth, and the scope is the security boundary
 **Status:** Built · Sept 10 2026 · supersedes the Aug 5 access plan
 

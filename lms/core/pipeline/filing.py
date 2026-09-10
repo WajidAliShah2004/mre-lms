@@ -222,7 +222,8 @@ def file_artifact(conn, roots: StorageRoots, registry: Registry, *,
 
 def quarantine_artifact(conn, roots: StorageRoots, *, source_path: Path, sha256: str,
                         source: str, reason: str,
-                        source_ref: str | None = None) -> Path:
+                        source_ref: str | None = None,
+                        parent_id: int | None = None) -> Path:
     """Park something the pipeline will not file, and say why.
 
     Used for low-confidence classifications and for anything the phishing
@@ -246,6 +247,7 @@ def quarantine_artifact(conn, roots: StorageRoots, *, source_path: Path, sha256:
     existing = db.find_artifact_by_hash(conn, sha256)
     artifact_id = int(existing["id"]) if existing else db.insert_artifact(
         conn, sha256=sha256, source=source, source_ref=source_ref,
+        parent_id=parent_id,
         original_name=source_path.name, byte_size=source_path.stat().st_size,
         status="QUARANTINED",
     )

@@ -127,6 +127,7 @@ class Message:
 class Transport(Protocol):
     def list_ids(self, query: str, limit: int) -> list[str]: ...
     def get(self, message_id: str) -> dict: ...
+    def get_attachment(self, message_id: str, attachment_id: str) -> bytes: ...
 
 
 class GoogleTransport:
@@ -168,6 +169,19 @@ class GoogleTransport:
     def get(self, message_id: str) -> dict:
         return self._svc().users().messages().get(
             userId=self._user, id=message_id, format="full").execute()
+
+    def get_attachment(self, message_id: str, attachment_id: str) -> bytes:
+        """The attachment bytes.
+
+        `.get()` on the attachments resource — a read, permitted by
+        gmail.readonly. Note this is `attachments().get`, not `messages().get`;
+        Gmail returns attachment payloads separately rather than inline, which
+        is why the message body can be fetched cheaply and the 40MB PDF only
+        when we have decided we want it.
+        """
+        resp = self._svc().users().messages().attachments().get(
+            userId=self._user, messageId=message_id, id=attachment_id).execute()
+        return base64.urlsafe_b64decode(resp.get("data", "").encode("ascii"))
 
 
 # ---------------------------------------------------------------------------
@@ -257,6 +271,60 @@ def _iso(raw: str) -> str:
     return dt.isoformat()
 
 
+# Only a HARD fail counts. `softfail`, `neutral`, `none`, `temperror` and
+# `permerror` do not.
+#
+# This mailbox has automatic forwarding switched on, and forwarding breaks SPF
+# by design — the forwarding server is not in the original domain's SPF record,
+# so a perfectly legitimate forwarded invoice arrives spf=softfail or spf=fail
+# depending on the hop. Treating every non-pass as fraud would quarantine a
+# large share of real mail, and a review queue that is mostly false positives
+# is a review queue nobody reads. That is a worse security outcome than the
+# narrower check, not a more cautious one.
+#
+# DMARC exists precisely to resolve this: it passes when EITHER SPF or DKIM
+# aligns with the From domain, and DKIM survives forwarding. So dmarc=fail is
+# the signal that actually means something, and it is in the list.
+HARD_FAIL = "fail"
+
+_AUTH_METHOD = re.compile(r"\b(spf|dkim|dmarc)\s*=\s*([a-z]+)", re.I)
+
+
+def auth_results(headers: dict[str, str]) -> dict[str, bool]:
+    """SPF/DKIM/DMARC verdicts, as the flags rules.yaml names.
+
+    Google verifies these at delivery and writes the answer into
+    `Authentication-Results`. We read its verdict rather than re-checking:
+    re-running SPF now would query today's DNS about a message that arrived
+    days ago, and a domain that has since changed its record would produce a
+    verdict about the wrong moment.
+
+    The header is only trustworthy because it was written by the receiving
+    server, not the sender — anything above the topmost Authentication-Results
+    line was added by Google, everything below it came in over the wire. A
+    sender can forge their own `Authentication-Results:` header, which is why
+    only the FIRST one is read.
+    """
+    raw = headers.get("Authentication-Results") or headers.get(
+        "authentication-results") or ""
+    # Multiple headers arrive folded into one value by _headers(); the first
+    # line is the receiving server's own, and the rest may be attacker text.
+    raw = raw.split("\n")[0]
+
+    seen = {}
+    for method, verdict in _AUTH_METHOD.findall(raw):
+        seen.setdefault(method.lower(), verdict.lower())
+
+    return {
+        "spf_fail": seen.get("spf") == HARD_FAIL,
+        "dkim_fail": seen.get("dkim") == HARD_FAIL,
+        "dmarc_fail": seen.get("dmarc") == HARD_FAIL,
+        # Not a failure — the ABSENCE of a policy. Only meaningful when the
+        # From domain is one we know, so ingest decides; this just reports it.
+        "dmarc_none": seen.get("dmarc") in {"none", None},
+    }
+
+
 def parse_message(raw: dict) -> Message:
     payload = raw.get("payload", {}) or {}
     h = _headers(payload)
@@ -299,6 +367,14 @@ class GmailClient:
 
     def fetch(self, message_id: str) -> Message:
         return parse_message(self._t.get(message_id))
+
+    def attachment_bytes(self, message: Message, att: Attachment) -> bytes:
+        """Fetched only when something has decided it wants this attachment.
+
+        Separate from `recent()` on purpose: listing a week of mail must not
+        pull every PDF in it across the network and into memory.
+        """
+        return self._t.get_attachment(message.message_id, att.attachment_id)
 
 
 # ---------------------------------------------------------------------------
