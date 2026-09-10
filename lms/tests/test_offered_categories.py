@@ -268,6 +268,64 @@ def test_a_document_already_filed_still_gets_its_queue_copy_retired(tmp_path, re
     conn.close()
 
 
+def test_the_queue_is_tidied_on_the_path_that_actually_runs(tmp_path, reg):
+    """Through ingest_file, which is what the poller calls.
+
+    The first version of this fix went into filing.file_artifact's duplicate
+    branch — and changed nothing, because ingest_file has its OWN duplicate
+    short-circuit and returns before filing is reached. On the Mac, _resolved/
+    held exactly the two documents that had filed fresh; everything that came
+    back through ingest's early return was still in the queue.
+
+    So this test goes through the front door. A test one layer too low is how
+    the first fix passed while the queue stayed full.
+    """
+    import json
+
+    from core.pipeline import ingest
+    from core.pipeline.classify import Classifier
+
+    conn = db.connect(tmp_path / "lms.db")
+    roots = filing.StorageRoots(archive=tmp_path / "a", originals=tmp_path / "o",
+                                quarantine=tmp_path / "q")
+    roots.ensure()
+
+    eid = sorted(e for e, ent in reg.entities.items() if ent.kind != "system")[0]
+    answer = {"domain": "BUSINESS", "entity_id": eid,
+              "category": sorted(reg.categories_for(eid))[0], "subcategory": None,
+              "urgency": "NORMAL", "confidence": 0.9, "requires_reply": False,
+              "due_date": None, "counterparty": "State Farm",
+              "descriptor": "policy notice", "amount_cents": None,
+              "currency": "USD", "rationale": "a policy notice"}
+
+    class Stub:
+        def complete(self, **kw):
+            return type("C", (), {"json": lambda s=None: json.loads(json.dumps(answer)),
+                                  "model": "stub"})()
+
+    clf = Classifier(reg, client=Stub())
+
+    doc = tmp_path / "reply.eml.txt"
+    doc.write_text("From: matthew@mrecai.com\n\nPolicy notice reply, attached.",
+                   encoding="utf-8")
+    ref = "1a0879e46550679e"
+
+    first = ingest.ingest_file(conn, roots, reg, clf, doc,
+                               source="email", source_ref=ref)
+    assert first.status == "FILED", first.reason
+
+    # A stale copy left by an earlier run, before any of this existed.
+    stale = roots.quarantine / f"{db.sha256_file(doc)[:8]}__reply.eml.txt"
+    stale.write_text("stale", encoding="utf-8")
+
+    second = ingest.ingest_file(conn, roots, reg, clf, doc,
+                                source="email", source_ref=ref)
+    assert second.status == "DUPLICATE"
+    assert not stale.exists(), (
+        "ingest's duplicate short-circuit returned without tidying the queue")
+    conn.close()
+
+
 def test_retiring_never_deletes(tmp_path, reg):
     roots = filing.StorageRoots(archive=tmp_path / "a", originals=tmp_path / "o",
                                 quarantine=tmp_path / "q")

@@ -222,6 +222,13 @@ def ingest_file(conn, roots: filing.StorageRoots, registry: Registry,
         db.record_duplicate(conn, sha, source, source_ref, source_path.name)
         db.log_action(conn, "INGEST_SKIPPED_DUPLICATE", artifact_id=existing["id"],
                       detail=f"{source}:{source_ref or source_path.name}")
+        # This return is the one that fires in practice — filing.file_artifact
+        # is never reached for a document already on disk, so its own duplicate
+        # branch is not where the review queue gets tidied. See
+        # filing.reconcile: a fix that went into the other short-circuit
+        # changed nothing at all.
+        filing.reconcile(conn, roots, sha, source_ref,
+                         artifact_id=int(existing["id"]))
         return IngestResult(sha256=sha, status="DUPLICATE",
                             path=Path(existing["filed_path"]),
                             reason="already filed")

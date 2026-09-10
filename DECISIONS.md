@@ -909,7 +909,13 @@ id 7  sha c1191639  FILED               source_ref 1a0879e46550679e  ← the sam
 
 **And the clean-up was on the wrong side of an early return.** `_resolved/` was empty on the Mac while four *filed* documents still sat in the review queue: they had quarantined, then filed, and every run since took the duplicate short-circuit, which returned before `retire_quarantine_copy` was ever reached. Anything that filed before that clean-up existed would have stayed in the queue forever. Both clean-ups now run on the duplicate path too.
 
-**408 passed, 1 xfailed.**
+**And the first version of that fix changed nothing**, which is the part worth recording.
+
+There are **two duplicate short-circuits** for one concept. `filing.file_artifact` has one; `ingest.ingest_file` has its own, earlier, and returns `DUPLICATE` before the filing module is reached at all. The fix went into the first. The poller only ever takes the second.
+
+The evidence was in the directory listing and I read past it: `_resolved/` held **exactly** the two documents that had filed fresh through `file_artifact`, while everything that came back through ingest's early return was still sitting in the queue. Both clean-ups are now one function, `filing.reconcile`, called from every path that ends with a document filed — and the regression test goes through `ingest_file`, the front door, because a test one layer too low is how the first version passed while the queue stayed full.
+
+**409 passed, 1 xfailed.**
 
 ### D-046 — The brief is delivered to iCloud, because Telegram is blocked and stdout is not delivery
 **Status:** Built · Sept 10 2026

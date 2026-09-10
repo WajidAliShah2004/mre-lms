@@ -133,16 +133,7 @@ def file_artifact(conn, roots: StorageRoots, registry: Registry, *,
         db.log_action(conn, "FILE_SKIPPED_DUPLICATE", artifact_id=existing["id"],
                       detail=f"re-fed from {source}:{source_ref or source_path.name}")
 
-        # Also on this path, not only on a fresh filing.
-        #
-        # These two clean-ups used to live below the duplicate check, so they
-        # never ran for anything already filed. On the Mac that left four filed
-        # documents sitting in the review queue with an EMPTY _resolved/ beside
-        # them: they had quarantined, then filed, and every run since returned
-        # DUPLICATE here and went home. Anything that filed before this
-        # clean-up existed would have stayed in the queue forever.
-        retire_quarantine_copy(roots, sha256)
-        supersede_earlier_versions(conn, roots, source_ref, keep=int(existing["id"]))
+        reconcile(conn, roots, sha256, source_ref, artifact_id=int(existing["id"]))
 
         filed = Path(existing["filed_path"])
         return FilingResult(
@@ -223,8 +214,7 @@ def file_artifact(conn, roots: StorageRoots, registry: Registry, *,
     if ocr_text:
         target.with_name(target.name + ".txt").write_text(ocr_text, encoding="utf-8")
 
-    retire_quarantine_copy(roots, sha256)
-    supersede_earlier_versions(conn, roots, source_ref, keep=artifact_id)
+    reconcile(conn, roots, sha256, source_ref, artifact_id=artifact_id)
 
     db.mark_processed(conn, sha256, "file")
     db.log_action(conn, "FILED", artifact_id=artifact_id, detail=str(target))
@@ -233,6 +223,28 @@ def file_artifact(conn, roots: StorageRoots, registry: Registry, *,
         artifact_id=artifact_id, filed_path=target,
         sidecar_path=sidecar, filename=filename,
     )
+
+
+def reconcile(conn, roots: StorageRoots, sha256: str,
+              source_ref: str | None, *, artifact_id: int) -> None:
+    """Make the review queue agree with reality, for one filed document.
+
+    Two clean-ups that must happen together and on EVERY path that ends with a
+    document filed — including the paths that end early because it was filed
+    already.
+
+    ONE FUNCTION, CALLED FROM EVERY SUCH PATH. There are two duplicate
+    short-circuits in this pipeline: one here in `file_artifact` and one in
+    `ingest.ingest_file`, which returns DUPLICATE before this module is reached
+    at all. Putting the clean-up inline in the first fixed nothing, because the
+    caller never got that far — `_resolved/` on the Mac held exactly the two
+    documents that had filed FRESH, and everything that came back through
+    ingest's early return was still sitting in the queue.
+
+    Two returns for the same concept is how a fix lands in the wrong one.
+    """
+    retire_quarantine_copy(roots, sha256)
+    supersede_earlier_versions(conn, roots, source_ref, keep=artifact_id)
 
 
 def supersede_earlier_versions(conn, roots: StorageRoots,
