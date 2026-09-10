@@ -68,9 +68,12 @@ def show_open(conn) -> int:
             who = registry.get(row["entity_id"]).short_or_name()
         except Exception:
             who = row["entity_id"] or ""
+        # `t.reason` already ends with the urgency or the amount — printing
+        # row["urgency"] as well produced "HIGH · due TODAY · HIGH". That is
+        # D-034's defect in a new place: two layers each solving the same
+        # problem alone, in the two most valuable lines of a short read.
         print(f"{t.task_id:>4}  {mark} {due:>12}  {t.title}")
-        print(f"{'':>4}     {'':>12}  {who + ' · ' if who else ''}"
-              f"{row['urgency']} · {t.reason}")
+        print(f"{'':>4}     {'':>12}  {who + ' · ' if who else ''}{t.reason}")
     print(f"\n{len(scored)} open. Close one with: ./ops/done.py <id>")
     return 0
 

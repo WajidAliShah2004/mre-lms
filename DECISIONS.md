@@ -884,6 +884,35 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 
 **302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
 
+### D-049 — Rotating the backup key, gated on the fact in question
+**Status:** Built · Sept 10 2026 · not yet run
+
+The current restic passphrase has appeared in two terminal histories on the Mac and in a contractor chat transcript. Nothing went wrong; the point is that neither of us can now say how many copies exist — the same reasoning as D-017 for the mailbox credentials.
+
+**restic has no "change the password" operation.** A repository holds a set of keys, any one of which unlocks it, and rotation is: add a key, prove it works, remove the old. The data is never re-encrypted.
+
+The order is the whole thing:
+
+```
+1. generate a new passphrase
+2. restic key add                    (repo now opens with EITHER)
+3. store it in the Keychain, keeping the old in memory
+4. LIST SNAPSHOTS USING ONLY THE NEW PASSPHRASE, and match the count
+5. only then: restic key remove <old>
+```
+
+**Step 4 gates step 5, and D-037 is why that is a rule and not a habit.** On this project a destructive step already ran once on the strength of a verification that had passed against a *different repository*, and the only backup was deleted on my instruction. Removing the old key before proving the new one works makes every snapshot permanently unreadable — the backup still there, and nothing on earth able to open it. Both keys working is a harmless state; neither working is unrecoverable, so every failure path leaves the old key in place.
+
+`test_the_removal_is_gated_on_a_verified_read` asserts the ordering by reading the source, and I checked it fails by moving the removal earlier and watching three tests fire. An ordering test that has never been seen to fail is not evidence of an ordering.
+
+**Neither passphrase touches the process table.** `restic key add` wants the current password and the new one from two different sources, and they cannot both be `/dev/stdin`. The three usual answers are all worse than an anonymous pipe: `RESTIC_PASSWORD` is visible in `ps` to every process for the life of the call; a temp file puts a plaintext passphrase on the disk of the machine whose theft this backup exists to survive; `--password-command` puts it in an argv. Pipes have no name outside the two processes.
+
+The new passphrase is printed **once**, after everything else has succeeded, because it has to reach the password manager — a secret that exists only in a Keychain dies with the Mac, which is the failure the backup exists to survive.
+
+`repo_path()` moved out of `backup.py`'s `main()` while doing this: a second script deriving that path from the environment is exactly how D-035 happened.
+
+**435 passed, 1 xfailed.**
+
 ### D-048 — A to-do list that cannot be crossed off is not a to-do list
 **Status:** Built · Sept 10 2026
 

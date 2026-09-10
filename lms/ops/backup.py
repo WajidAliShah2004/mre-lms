@@ -163,6 +163,25 @@ _CREATE_HINT = f"""    # 1. put a long random passphrase on the clipboard
   still be encrypted, and be of no use to anyone."""
 
 
+def repo_path(override: str | None = None) -> Path:
+    """The restic repository. Computed HERE and nowhere else.
+
+    Extracted from main() when a second script needed it. Two places deriving
+    one path from the same environment is precisely how D-035 happened — the
+    nightly job and the restore test each computed their own, disagreed, and
+    both reported success against different repositories for days.
+
+    resolve(), so the path printed is the path used: `archive.parent` renders
+    as ".../archive/.." otherwise, which hides that the default sits on the
+    same volume as the data.
+    """
+    archive = os.environ.get("LMS_ARCHIVE_ROOT")
+    if not archive:
+        raise BackupError("LMS_ARCHIVE_ROOT is not set — ops/lms.env not found")
+    return Path(override or os.environ.get(
+        "LMS_BACKUP_REPO", Path(archive).resolve().parent / "LMS_backup")).resolve()
+
+
 def restic_password() -> str:
     """From the Keychain. Never from a file, an env var in lms.env, or a plist.
 
@@ -317,8 +336,7 @@ def main() -> int:
     # sits on the same volume as the data.
     archive = Path(archive).resolve()
     db_path = Path(os.environ.get("LMS_DB", archive.parent / "lms.db")).resolve()
-    repo = Path(args.repo or os.environ.get(
-        "LMS_BACKUP_REPO", archive.parent / "LMS_backup")).resolve()
+    repo = repo_path(args.repo)
 
     print(f"==> database  {db_path}")
     print(f"==> archive   {archive}")
