@@ -254,7 +254,47 @@ def test_only_the_first_authentication_results_header_is_trusted():
 def test_a_missing_header_is_not_a_failure():
     """Absence of evidence. Photographed mail and older messages have none."""
     r = gmail.auth_results({})
-    assert not any(r[k] for k in ("spf_fail", "dkim_fail", "dmarc_fail"))
+    assert not any(r.values()), (
+        "EVERY flag, not just the three _fail ones — the version of this test "
+        "that checked only spf/dkim/dmarc_fail passed while dmarc_none was "
+        "firing on every internal message in the mailbox")
+
+
+def test_an_absent_verdict_is_not_a_missing_policy():
+    """The defect that quarantined Matthew's own mail as suspected phishing.
+
+    Mail from matthew@mrecai.com to matthew@mrecai.com never leaves Google, so
+    there is nothing to authenticate and Gmail writes no Authentication-Results
+    header at all. Reading that absence as `dmarc=none` — a domain that
+    published no policy — flagged every internal message he sends.
+    """
+    assert not gmail.auth_results({})["dmarc_none"]
+    assert not gmail.auth_results(
+        {"Authentication-Results": "mx.google.com; spf=pass"})["dmarc_none"]
+
+
+def test_an_explicit_dmarc_none_is_still_reported():
+    """The check itself is right and must keep working: a sender CLAIMING a
+    domain we know, where the receiving server checked and found no policy,
+    means anyone can forge that address."""
+    assert gmail.auth_results(
+        {"Authentication-Results": "mx.google.com; dmarc=none header.from=x.com"}
+    )["dmarc_none"]
+
+
+def test_internal_workspace_mail_is_not_phishing():
+    """End to end on the shape that actually broke: his own address, both
+    sides, no auth header."""
+    reg = load_registry(CONFIG)
+    known = sorted({d for e in reg.entities.values() for d in e.domains})[0]
+    raw = {"id": "int1", "payload": {"mimeType": "text/plain", "headers": [
+        {"name": "From", "value": f"Matthew <matthew@{known}>"},
+        {"name": "To", "value": f"matthew@{known}"},
+        {"name": "Subject", "value": "Re: SIGNATURE PAGE"},
+    ], "body": {"data": b64("signed and attached")}}}
+
+    _, auth = mail._artifact_for(gmail.parse_message(raw), reg)
+    assert not any(auth.values()), auth
 
 
 # ---------------------------------------------------------------------------

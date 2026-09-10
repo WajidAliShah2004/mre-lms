@@ -371,9 +371,20 @@ def auth_results(headers: dict[str, str]) -> dict[str, bool]:
         "spf_fail": seen.get("spf") == HARD_FAIL,
         "dkim_fail": seen.get("dkim") == HARD_FAIL,
         "dmarc_fail": seen.get("dmarc") == HARD_FAIL,
-        # Not a failure — the ABSENCE of a policy. Only meaningful when the
-        # From domain is one we know, so ingest decides; this just reports it.
-        "dmarc_none": seen.get("dmarc") in {"none", None},
+        # An EXPLICIT `dmarc=none` — the receiving server checked, found a
+        # domain with no published policy, and said so.
+        #
+        # `== "none"`, not `in {"none", None}`. The first version had None in
+        # that set, so a message with NO Authentication-Results header at all
+        # counted as "no DMARC policy", and every message Matthew sends from
+        # matthew@mrecai.com to himself was quarantined as suspected phishing
+        # on the first real run. Internal Workspace mail never leaves Google,
+        # so there is nothing to authenticate and Gmail writes no header.
+        #
+        # Absence of a verdict is not a verdict. The test that was supposed to
+        # cover this asserted spf_fail/dkim_fail/dmarc_fail were all False on a
+        # missing header — true, and not the flag that fires.
+        "dmarc_none": seen.get("dmarc") == "none",
     }
 
 

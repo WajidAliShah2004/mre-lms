@@ -867,7 +867,22 @@ What separates them is `Content-ID`: the body references the part as `<img src="
 
 **This is why `--dry-run` exists**, and it is the first time on this project a defect was caught before it reached the archive rather than after. Twelve of the previous thirteen were found by reading output that had already been written.
 
-**292 passed, 1 xfailed** — 36 new tests.
+**Then the fix ate two real documents.** The next run's listing showed `—` where `Requested Document(s) #1.pdf` and `SIGNATURE PAGE 2022 TOYOTA.pdf` had been. Both had arrived from Outlook, which marks genuine attachments `Content-Disposition: inline` — there it means "show this in the reading pane", not "this is decoration". So the disposition is not sufficient on its own, and the rule is now **mime type first**: only an `image/*` part can ever be body content. A PDF is never a signature logo, whatever headers it carries.
+
+I had written the sentence *"the opposite mistake silently drops an invoice, and only one of those is recoverable"* into a comment, and then written code that did exactly that. The asymmetry has to be enforced by the mime check, not by remembering.
+
+**Then everything was quarantined as phishing**, and that was a third defect in the same feature:
+
+```python
+auth["dmarc_none"] = seen.get("dmarc") in {"none", None}     # wrong
+auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
+```
+
+`None` in that set meant a message with **no `Authentication-Results` header at all** counted as "a known domain that published no DMARC policy". Mail from `matthew@mrecai.com` to himself never leaves Google — there is nothing to authenticate, so Gmail writes no header — and every internal message he sends was flagged as suspected phishing. **Absence of a verdict is not a verdict.**
+
+`test_a_missing_header_is_not_a_failure` was supposed to cover this. It asserted `spf_fail`, `dkim_fail` and `dmarc_fail` were all False on a missing header — true, and not the flag that fires. It now asserts on **every** flag, which is the only version of that test worth having.
+
+**302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
 
 ### D-039 — Mail arrives over OAuth, and the scope is the security boundary
 **Status:** Built · Sept 10 2026 · supersedes the Aug 5 access plan
