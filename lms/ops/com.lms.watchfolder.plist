@@ -35,8 +35,7 @@
     <key>ProgramArguments</key>
     <array>
         <string>/Users/mleca/lms-repo/lms/.venv/bin/python</string>
-        <string>-m</string>
-        <string>core.adapters.watchfolder</string>
+        <string>/Users/mleca/lms-repo/lms/ops/watch.py</string>
     </array>
 
     <key>WorkingDirectory</key>
@@ -44,21 +43,22 @@
 
     <key>EnvironmentVariables</key>
     <dict>
-        <!-- Mirrors ops/lms.env, which bringup_mac.sh generates. If you change
-             the volume layout, change both — they are not linked. -->
-        <key>LMS_ARCHIVE_ROOT</key>
-        <string>/Volumes/MacStudioHD/LMS/archive</string>
-        <key>LMS_ORIGINALS_ROOT</key>
-        <string>/Volumes/MacStudioHD/LMS/_originals</string>
-        <key>LMS_QUARANTINE_ROOT</key>
-        <string>/Users/mleca/LMS/quarantine</string>
-        <key>LMS_DB</key>
-        <string>/Volumes/MacStudioHD/LMS/lms.db</string>
+        <!--
+          NO LMS_* PATHS HERE. ops/watch.py reads ops/lms.env itself.
 
-        <!-- The Shortcut drops files here. iCloud Drive, so the phone can
-             reach it. -->
-        <key>LMS_INBOX</key>
-        <string>/Users/mleca/Library/Mobile Documents/com~apple~CloudDocs/LMS/inbox</string>
+          This block used to mirror lms.env, under a comment saying "they are
+          not linked". They diverged: this plist declared the iCloud inbox,
+          which is right, and lms.env declared ~/LMS/inbox, which is an empty
+          directory nothing has ever written to. The scheduled job looked in
+          the right place; anything run from a shell looked at nothing, found
+          nothing, and reported no error at all — the failure described in this
+          file's own header comment, one variable further down.
+
+          Second occurrence of D-035. lms.env is generated from the volume
+          layout, so it is derived rather than retyped, and it is now the only
+          description of these paths. tests/test_plists.py fails on any plist
+          that declares an LMS_* variable.
+        -->
 
         <!-- Named zone, never an offset (Rec 21). -->
         <key>TZ</key>

@@ -884,6 +884,34 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 
 **302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
 
+### D-045 — Mail runs on a schedule, and a plist may not name a path
+**Status:** Built · Sept 10 2026
+
+**D-035 happened a second time, in the file that carried the warning.**
+
+`com.lms.watchfolder.plist` declared its own `LMS_*` block under the comment *"Mirrors ops/lms.env … they are not linked."* They were not linked, and they had already diverged:
+
+```
+plist:    LMS_INBOX = ~/Library/Mobile Documents/…/CloudDocs/LMS/inbox   ← where the Shortcut writes
+lms.env:  LMS_INBOX = ~/LMS/inbox                                        ← empty, always
+```
+
+The scheduled job looked in the right place. Anything run from a shell that had sourced `lms.env` looked at an empty directory, found nothing, and reported no error at all — **the exact failure that plist's own header comment warns about**, one variable further down.
+
+`poll_mail.py` had the same hole: it never called `load_lms_env()`, so it only filed to the array because the operator happened to have sourced the file in that shell. Scheduled, it would have filed everything to `~/LMS/archive` instead.
+
+Writing the lesson down twice did not stop it happening twice, so it is a test now. **`tests/test_plists.py` fails on any plist declaring an `LMS_*` variable**, and also on: an interpreter that is not the venv's absolute path, a script that is not in `ops/`, a secret in the environment, a Label that does not match the filename, `KeepAlive` on a scheduled job, and discarded output. Entry points moved into `ops/` (`ops/watch.py`) so `core/` never has to import from `ops/` to read its own paths.
+
+That test caught something on its first run: **`--days 2` inside an XML comment**. A double hyphen makes a plist unparseable, launchd refuses the file, and the symptom is a job that silently never runs — with nothing in the log, because the log path is configured inside the file it could not read. Now its own named test, since these plists carry long comments and quoting a flag is exactly what such a comment wants to do.
+
+**The mail poll is scheduled 07:00 and 19:00, with a two-day window.** The overlap is the design: identity is the sha256 of the rendered message, so re-reading yesterday files nothing and costs one hash. That is what makes a missed run harmless — a stored cursor would be cheaper and would lose mail permanently the first time a run died between reading and committing. C8 (who unlocks the Mac after a power cut) is still unanswered, so missed windows are a live scenario rather than a hypothetical.
+
+The morning poll lands **after** the 06:30 brief, deliberately: polling at 06:00 would put a network call and twenty inference passes in front of the one thing that has to arrive on time. Mail is at most a day late reaching a brief, and the evening run means most of a day is already filed. If that is the wrong trade, move the brief, not the poll.
+
+Scheduling adds no new risk: the credential is `gmail.readonly` and cannot delete, flag or label anything (D-039).
+
+**385 passed, 1 xfailed.**
+
 ### D-044 — `List-Unsubscribe` identifies the senders who are already behaving well
 **Status:** Built · Sept 10 2026
 

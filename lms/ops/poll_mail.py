@@ -33,6 +33,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from _env import load_lms_env                              # noqa: E402
 from _reexec import ensure_venv                            # noqa: E402
 from core.adapters import gmail                            # noqa: E402
 from core.db import database as db                         # noqa: E402
@@ -77,6 +78,12 @@ def build_client(address: str) -> gmail.GmailClient:
 
 def main() -> int:
     ensure_venv("LMS_POLLMAIL_REEXEC", script=__file__)
+    # Before anything reads a path. Without this the archive root came from the
+    # code default (~/LMS/archive) unless the operator happened to have sourced
+    # lms.env in that shell — so the same command filed to a different place
+    # depending on who typed it, and the scheduled job would have filed
+    # everything off the array entirely.
+    load_lms_env()
 
     p = argparse.ArgumentParser(
         description=__doc__,

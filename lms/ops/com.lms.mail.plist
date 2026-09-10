@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Mail poll — reads matthew@mrecai.com and files what is in it.
+
+  Install:
+    cp ops/com.lms.mail.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.lms.mail.plist
+
+  Run it once by hand before trusting the schedule:
+    launchctl kickstart -p gui/$(id -u)/com.lms.mail
+
+  Stop:
+    launchctl bootout gui/$(id -u)/com.lms.mail
+
+  READ-ONLY, AND NOT BY PROMISE
+  The OAuth grant this uses is gmail.readonly (D-039). It cannot delete a
+  message, cannot mark one read, and cannot write a label — Google refuses,
+  rather than this software declining. Scheduling it therefore adds no risk
+  that running it by hand did not already carry.
+
+  A LaunchAgent, not a LaunchDaemon, and that is required: the refresh token
+  lives in the user's Keychain, which a system daemon cannot read. Same reason
+  as the backup job.
+
+  A TWO-DAY WINDOW, NOT ONE. It deliberately overlaps itself.
+
+  (Written as "two-day" rather than with the flag spelled out because an XML
+  comment may not contain a double hyphen. launchd refuses to load a plist
+  whose comments do, and the failure is a job that silently never runs.)
+
+  Re-reading yesterday is free: identity is the sha256 of the rendered message,
+  which does not change between polls, so the second sighting files nothing and
+  prints DUPLICATE. The overlap is what makes a missed run harmless — if the
+  Mac is asleep at 07:00 the next run still catches the mail, and nothing needs
+  a repair script. A stored cursor would have been cheaper and would lose mail
+  permanently the first time a run died between reading and committing.
+
+  StartCalendarInterval, not StartInterval: if the machine is off at the
+  appointed hour launchd runs the job at the next opportunity, where an
+  interval timer would simply skip the day. C8 — who unlocks the machine after
+  a power cut — is still unanswered, so missed windows are a live scenario.
+
+  07:00 and 19:00, and the morning run lands AFTER the 06:30 brief rather than
+  before it. That is a deliberate compromise and worth naming.
+
+  Polling at 06:00 would put a network call and up to twenty inference passes
+  directly in front of the one thing that has to arrive on time, and a slow
+  mailbox would delay it. So mail filed at 07:00 appears in the NEXT morning's
+  brief — at most a day late. Matthew asked for a daily rhythm, not an alerting
+  system, and the evening run means most of a day's mail is already filed before
+  the brief is built. If this turns out to be the wrong trade, the fix is to
+  move the brief later, not to move the poll earlier.
+
+  NO CREDENTIAL APPEARS HERE. A plist is world-readable and lands in git. The
+  refresh token is read from the Keychain at run time (D-016, D-039).
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.lms.mail</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/mleca/lms-repo/lms/.venv/bin/python</string>
+        <string>/Users/mleca/lms-repo/lms/ops/poll_mail.py</string>
+        <string>matthew@mrecai.com</string>
+        <string>--days</string>
+        <string>2</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/mleca/lms-repo/lms</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <!-- NO LMS_* PATHS HERE. poll_mail.py reads ops/lms.env itself.
+             See D-035, and com.lms.watchfolder.plist for the second time it
+             happened. tests/test_plists.py enforces this. -->
+        <key>TZ</key>
+        <string>America/New_York</string>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict>
+            <key>Hour</key>
+            <integer>7</integer>
+            <key>Minute</key>
+            <integer>0</integer>
+        </dict>
+        <dict>
+            <key>Hour</key>
+            <integer>19</integer>
+            <key>Minute</key>
+            <integer>0</integer>
+        </dict>
+    </array>
+
+    <!-- One-shot. It reads the window and exits; KeepAlive would restart it
+         in a loop and re-poll the mailbox continuously. -->
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/mleca/LMS/logs/mail.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/mleca/LMS/logs/mail.err</string>
+
+    <!-- Below normal. OCR and inference must never make the machine feel slow
+         while Matthew is using it. -->
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>Nice</key>
+    <integer>10</integer>
+</dict>
+</plist>

@@ -60,14 +60,28 @@ echo "==> Creating storage roots"
 ARCHIVE="$RAID_ROOT/LMS/archive"
 ORIGINALS="$RAID_ROOT/LMS/_originals"
 QUARANTINE="$HOME/LMS/quarantine"
-INBOX="$HOME/LMS/inbox"
+
+# iCloud Drive, because that is where the phone Shortcut writes. This said
+# "$HOME/LMS/inbox" until Sept 10 while com.lms.watchfolder.plist declared the
+# iCloud path — two descriptions of the inbox, disagreeing, exactly the D-035
+# shape. The scheduled watcher looked in the right place and anything run from
+# a shell that had sourced lms.env looked at an empty directory forever and
+# reported no error at all, which is the failure that plist's own comment warns
+# about.
+INBOX="$HOME/Library/Mobile Documents/com~apple~CloudDocs/LMS/inbox"
+
+# Where poll_mail.py stages a rendered message and its attachments before
+# filing. Under the LMS root rather than /tmp so a crash leaves the evidence
+# somewhere findable.
+MAIL_SPOOL="$RAID_ROOT/LMS/spool/mail"
 
 # Tree names must match entities.yaml `tree:` values exactly.
 for tree in PERSONAL/Matthew PERSONAL/Jesse PERSONAL/Mother PERSONAL/Father \
             PERSONAL/Household MRECAI CHSHINK ATLASE MLECA _UNASSIGNED _JUNK; do
   mkdir -p "$ARCHIVE/$tree"
 done
-mkdir -p "$ORIGINALS" "$QUARANTINE" "$INBOX"
+mkdir -p "$ORIGINALS" "$QUARANTINE" "$INBOX" "$MAIL_SPOOL"
+mkdir -p "$INBOX/business" "$INBOX/personal"
 
 # The originals store is the only copy that is never rewritten. Lock it down.
 chmod 700 "$ORIGINALS"
@@ -168,7 +182,12 @@ cat > "$REPO_DIR/ops/lms.env" <<EOF
 export LMS_ARCHIVE_ROOT="$ARCHIVE"
 export LMS_ORIGINALS_ROOT="$ORIGINALS"
 export LMS_QUARANTINE_ROOT="$QUARANTINE"
+# iCloud Drive — where the phone Shortcut writes. This file said
+# "\$HOME/LMS/inbox" until Sept 10 while the watcher's plist declared the iCloud
+# path, so a shell that sourced this watched an empty directory forever and
+# reported nothing at all.
 export LMS_INBOX="$INBOX"
+export LMS_MAIL_SPOOL="$MAIL_SPOOL"
 # Written from $RAID_ROOT/LMS, not as "$ARCHIVE/../". Both resolve to the same
 # directory, but a path containing ".." cannot be eyeballed against another
 # path, and telling two repository locations apart by eye is exactly what was
@@ -226,7 +245,7 @@ if [[ -n "$_env_out" ]]; then
 fi
 
 for _v in LMS_ARCHIVE_ROOT LMS_ORIGINALS_ROOT LMS_QUARANTINE_ROOT \
-          LMS_INBOX LMS_DB LMS_BACKUP_REPO LMS_PYTHON TZ; do
+          LMS_INBOX LMS_MAIL_SPOOL LMS_DB LMS_BACKUP_REPO LMS_PYTHON TZ; do
   _got="$(set +u; . "$REPO_DIR/ops/lms.env" >/dev/null 2>&1; eval "printf '%s' \"\${$_v}\"")"
   if [[ -z "$_got" ]]; then
     echo "    ERROR: ops/lms.env does not set $_v" >&2
