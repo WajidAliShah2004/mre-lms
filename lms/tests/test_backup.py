@@ -174,6 +174,51 @@ def restored_tree(tmp_path: Path, *, rows: int = 5, sidecars: int = 2,
     return tmp_path / "restored"
 
 
+def with_manifest(tree: Path, **claims) -> Path:
+    """Give a restored tree the manifest a real snapshot carries."""
+    import json
+    root = next(tree.rglob("lms.db")).parent
+    (root / "manifest.json").write_text(json.dumps(claims), encoding="utf-8")
+    return tree
+
+
+def test_the_manifest_makes_the_sidecar_check_exact(tmp_path):
+    """Checking against the LIVE archive is checking against a moving target.
+
+    The first version reported "4 sidecar(s) restored (archive has 2)" as a
+    PASS — arithmetic rather than evidence, because --documents put every
+    sidecar in twice and `>=` swallowed it.
+    """
+    tree = with_manifest(restored_tree(tmp_path, sidecars=3), sidecars=3)
+    verify_restore(tree, {"artifacts": 5}, live_sidecars=99)
+    assert restore_test.failures == [], restore_test.failures
+
+
+def test_a_snapshot_missing_sidecars_it_claims_is_a_failure(tmp_path):
+    tree = with_manifest(restored_tree(tmp_path, sidecars=1), sidecars=8)
+    verify_restore(tree, {"artifacts": 5}, live_sidecars=1)
+    assert any("claims 8 sidecars" in f for f in restore_test.failures), \
+        restore_test.failures
+
+
+def test_growth_since_the_snapshot_does_not_fail_the_sidecar_check(tmp_path):
+    """A document filed between the backup and this check must not make a
+    perfectly good backup look short."""
+    tree = with_manifest(restored_tree(tmp_path, sidecars=2), sidecars=2)
+    verify_restore(tree, {"artifacts": 5}, live_sidecars=40)
+    assert restore_test.failures == [], restore_test.failures
+
+
+def test_a_snapshot_with_no_manifest_still_verifies(tmp_path):
+    """Repositories written before manifests existed must still be checkable.
+
+    A restore test that refuses to run on an old snapshot is useless exactly
+    when an old snapshot is all there is.
+    """
+    verify_restore(restored_tree(tmp_path, sidecars=2), {"artifacts": 5}, 2)
+    assert restore_test.failures == []
+
+
 def test_a_good_restore_verifies(tmp_path):
     verify_restore(restored_tree(tmp_path, rows=5, sidecars=2),
                    {"artifacts": 5}, 2)
@@ -204,10 +249,21 @@ def test_a_corrupt_database_fails_the_restore(tmp_path):
     assert restore_test.failures
 
 
-def test_missing_sidecars_fail_the_restore(tmp_path):
-    """Without them a restored tree is a heap of well-named files."""
+def test_without_a_manifest_a_short_count_is_ambiguous_not_a_failure(tmp_path):
+    """This used to assert a hard FAIL, and that was the defect.
+
+    Restored-fewer-than-live has two causes that look identical: sidecars lost
+    from the backup, or documents filed since the snapshot. Calling it loss
+    produces a false alarm every time a document arrives between the backup
+    and the check — and the alarm that cries wolf is the one nobody reads on
+    the morning it is real.
+
+    With a manifest the question is answerable exactly, which is why manifests
+    exist. Without one, saying "cannot tell, take a fresh backup" is the only
+    honest answer available.
+    """
     verify_restore(restored_tree(tmp_path, sidecars=1), {"artifacts": 5}, 9)
-    assert any("sidecars came back" in f for f in restore_test.failures)
+    assert restore_test.failures == [], restore_test.failures
 
 
 def test_a_restore_without_entities_yaml_fails(tmp_path):

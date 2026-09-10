@@ -686,6 +686,33 @@ The alphabet is letters and digits only. Punctuation survives a pipe perfectly w
 
 It prints the passphrase once, deliberately. That is not a leak, it is the requirement: restic has no recovery path, so a human must capture it exactly once.
 
+**The first successful run, and what it showed.**
+
+```
+==> consistent database snapshot (online backup API, not cp)
+    actions_log=6, artifacts=2, classifications=2, processed=4, tasks=2
+    integrity_check: ok
+snapshot e9fc569a saved
+...
+Restore verified — the backup is usable.
+```
+
+Then, in the same output:
+
+```
+PASS  4 sidecar(s) restored (archive has 2)
+```
+
+Four from two. With `--documents` the sidecars go in twice — once inside the archive tree, once from the staged copy that exists *because* documents are normally excluded. The check passed on arithmetic rather than evidence: `4 >= 2` is true for reasons that have nothing to do with whether the sidecars survived.
+
+And the comparison was against a **moving target**. A document filed between the backup and the restore test makes `restored < live`, which the check treated as failure — while the row-count check, three lines above, correctly treats growth as expected. The same situation, opposite verdicts, in one function.
+
+Both fixed by making the snapshot **state its own contents**. `backup.py` writes a `manifest.json` — created_at, whether documents were included, sidecar count, row counts — and `restore_test.py` verifies against that claim exactly, falling back to the live comparison only for repositories written before manifests existed. A restore test that refuses to run on an old snapshot is useless precisely when an old snapshot is all there is.
+
+The staged sidecar copy is now skipped when `--documents` is set, since they are already in the tree.
+
+One existing test had to invert: `test_missing_sidecars_fail_the_restore` asserted a hard failure for restored-fewer-than-live, and that assertion *was* the defect. Without a manifest the two causes — sidecars lost, or documents filed since — are indistinguishable, and calling it loss produces a false alarm every time the archive grows. The alarm that cries wolf is the one nobody reads on the morning it is real. It now pins the honest answer: cannot tell, take a fresh backup. **Fifth time this build a test was asserting the wrong behaviour.**
+
 Added **[8] Backup readiness** to `verify_setup.py`: restic present, the password readable and long enough, and whether the repo shares a volume with the archive. Every one of those is something the 02:30 job would otherwise discover alone, in a log nobody reads, on the night it mattered. Platform-guarded like [7] — off a Mac it reports the platform rather than failing forever.
 
 **206 passed.**

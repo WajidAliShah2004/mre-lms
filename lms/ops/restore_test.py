@@ -25,6 +25,7 @@ because it will be run when things are already going badly.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import sqlite3
@@ -64,6 +65,24 @@ def find_restored(root: Path, name: str) -> Path | None:
     dir by its original location. Search rather than guess at the depth."""
     matches = sorted(root.rglob(name))
     return matches[0] if matches else None
+
+
+def read_manifest(restored: Path) -> dict | None:
+    """What the snapshot says about itself, if it said anything.
+
+    Absent for repositories written before manifests existed, so every caller
+    falls back to the live comparison rather than failing on its absence — a
+    restore test that refuses to run on an old snapshot is useless precisely
+    when an old snapshot is all there is.
+    """
+    path = find_restored(restored, "manifest.json")
+    if path is None:
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        warn(f"manifest.json is present but unreadable: {exc}")
+        return None
 
 
 def verify_restore(restored: Path, live_counts: dict[str, int] | None,
@@ -127,13 +146,42 @@ def verify_restore(restored: Path, live_counts: dict[str, int] | None,
         else:
             ok(f"row counts match the live database ({sum(restored_counts.values())} rows)")
 
-    sidecars = list(restored.rglob("*.meta.json"))
-    if live_sidecars is None:
+    # Sidecars, checked against the snapshot's own manifest where possible.
+    #
+    # Comparing to the LIVE archive is comparing to a moving target: a document
+    # arriving between the backup and this check makes a perfectly good backup
+    # look short, and the only way to tolerate that is a >= comparison loose
+    # enough to miss real loss. The first version did exactly that and reported
+    # "4 sidecar(s) restored (archive has 2)" as a PASS — arithmetic, not
+    # evidence.
+    #
+    # A snapshot that states its own contents can be checked exactly.
+    sidecars = {p.resolve() for p in restored.rglob("*.meta.json")}
+    manifest = read_manifest(restored)
+
+    if manifest is not None and "sidecars" in manifest:
+        claimed = int(manifest["sidecars"])
+        if len(sidecars) == claimed:
+            ok(f"{len(sidecars)} sidecar(s), exactly what the snapshot claims")
+        elif len(sidecars) > claimed:
+            # Only expected with --documents, where each sidecar is inside the
+            # archive tree; a duplicate is harmless but should be explained.
+            warn(f"{len(sidecars)} sidecars restored, manifest claims {claimed} "
+                 f"— duplicated between the archive tree and the staged copy")
+        else:
+            fail(f"the snapshot claims {claimed} sidecars and only "
+                 f"{len(sidecars)} came back")
+    elif live_sidecars is None:
         print(f"        {len(sidecars)} sidecar(s) restored")
     elif len(sidecars) >= live_sidecars:
         ok(f"{len(sidecars)} sidecar(s) restored (archive has {live_sidecars})")
     else:
-        fail(f"only {len(sidecars)} of {live_sidecars} sidecars came back")
+        # No manifest, so this snapshot predates them. Fewer than live is
+        # ambiguous — growth or loss — and saying so is more useful than
+        # picking one.
+        warn(f"{len(sidecars)} restored, archive has {live_sidecars}. Without a "
+             f"manifest this cannot distinguish loss from documents filed "
+             f"since the snapshot. Take a fresh backup and re-run.")
 
     entities = find_restored(restored, "entities.yaml")
     if entities is None:

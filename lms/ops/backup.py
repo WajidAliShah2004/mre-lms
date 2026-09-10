@@ -54,6 +54,7 @@ history and the process table.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import sqlite3
@@ -343,17 +344,37 @@ def main() -> int:
                     shutil.copy2(src, staging / name)
 
         sidecars = sorted(archive.rglob("*.meta.json"))
-        print(f"==> {len(sidecars)} sidecar(s)")
-        for s in sidecars:
-            rel = s.relative_to(archive)
-            target = staging / "sidecars" / rel
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(s, target)
 
-        targets = [str(staging)]
+        # Only stage a separate copy when the archive itself is NOT going in.
+        # With --documents the sidecars are already inside the archive tree,
+        # and copying them again put two of everything in the snapshot — which
+        # made the restore check read "4 sidecar(s) restored (archive has 2)"
+        # and pass on arithmetic rather than on evidence.
         if args.documents:
-            print("==> including the filed documents")
-            targets.append(str(archive))
+            print(f"==> including the filed documents ({len(sidecars)} sidecars "
+                  f"among them)")
+            targets = [str(staging), str(archive)]
+        else:
+            print(f"==> {len(sidecars)} sidecar(s)")
+            for s in sidecars:
+                target = staging / "sidecars" / s.relative_to(archive)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(s, target)
+            targets = [str(staging)]
+
+        # What this snapshot CLAIMS to contain, written into the snapshot.
+        #
+        # Without it, a restore can only be checked against the live archive —
+        # a moving target. A document arriving between the backup and the
+        # check makes a perfectly good backup look short, and the only way to
+        # tolerate that is a >= comparison loose enough to miss real loss.
+        # A backup that states its own contents can be verified exactly.
+        (staging / "manifest.json").write_text(json.dumps({
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+            "documents_included": bool(args.documents),
+            "sidecars": len(sidecars),
+            "row_counts": counts,
+        }, indent=2, sort_keys=True), encoding="utf-8")
 
         try:
             ensure_repo(repo, password, args.dry_run)
