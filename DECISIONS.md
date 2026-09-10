@@ -767,6 +767,35 @@ Two more guards: a stop declared in `rules.yaml` with no enforcement entry fails
 
 **Sixth test this build that was passing while describing the wrong thing** — and the first one where the wrong thing being described was a security guarantee.
 
+### D-037 — A comment in a generated file executed, and cost the only backup
+**Status:** Fixed · Sept 10 2026 · **my defect, and the near-miss was worse than the bug**
+
+The D-011 change added a comment to the block in `bringup_mac.sh` that generates `ops/lms.env`. The comment contained backticks around a command name — written as prose, meant as prose. The heredoc is **unquoted**, because `$ARCHIVE` and friends have to expand. Command substitution expands too.
+
+So bringup ran `diskutil list` and pasted its output into `lms.env`. On the Mac:
+
+```
+/Users/mleca/lms-repo/lms/ops/lms.env: line 18: 0:: command not found
+```
+
+The first line of substituted output stays inside the `#`. Every line after it does not. Single-line output would have hidden completely — this failed loudly only because `diskutil` is chatty.
+
+**What followed is the part worth recording.** `source ops/lms.env` returned non-zero, the `&&` chain short-circuited, and the `echo "repo: …"` that would have shown the new path never ran. `LMS_BACKUP_REPO` never took effect. The backup went to the **old** location, on the array, and reported:
+
+> *Restore verified — the backup is usable.*
+
+True, and about the wrong repository. On the strength of that line the old repository was then deleted, per an instruction I had written. **For a few minutes there was no backup at all.** Nothing was lost — the archive is intact and two documents small — but the sequence is exact: a config generator that executed, a verdict that was true of the wrong thing, and a destructive step gated on reading rather than on checking.
+
+**Three fixes, in order of how much they matter.**
+
+*The generator now verifies what it wrote.* `bringup_mac.sh` sources the file in a clean subshell and fails if it produces **any output at all**, then confirms all eight variables are set. Silence is the whole test: a config file that prints anything is a config file executing something. Reproduced and confirmed — the guard catches the multi-line case with the same `command not found` the Mac saw.
+
+*The heredoc is now free of substitution, comments included* — and the warning saying so is spelled out in words, because writing the construct in a warning about the construct would be an instance of it.
+
+*And the instruction was wrong, not just unlucky.* "Delete the old repository once you see `Restore verified`" asked someone to check a verdict when the thing in doubt was a **path** — which was printed three lines above the verdict and contradicted it. A destructive step must be gated on the specific fact in question, mechanically. Nothing about that failure required the operator to be careless; it required them to read the line I told them to read.
+
+**Eleventh defect found by running the thing rather than testing it, and the only one I introduced myself.**
+
 ### D-014 — Call transcripts are the first thing cut if the week slips
 **Status:** Decided (contingency) · [GUIDELINES_7DAY_BUILD.md:40](GUIDELINES_7DAY_BUILD.md:40)
 Email + photographed mail + the to-do list are the visible value. Day 4's call-transcript ingestion (C15) goes first, before anything else is touched.

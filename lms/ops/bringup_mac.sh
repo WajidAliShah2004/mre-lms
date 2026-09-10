@@ -168,12 +168,21 @@ export LMS_DB="$RAID_ROOT/LMS/lms.db"
 # the interactive runs and the nightly job ended up writing to two different
 # repositories while both reported success (D-035).
 #
-# ON THE INTERNAL DISK, NOT THE ARRAY. `diskutil list` on Sept 10 showed the
-# 12 TB array is four 4 TB disks presented as ONE device (disk10) carrying ONE
+# ON THE INTERNAL DISK, NOT THE ARRAY. diskutil on Sept 10 showed the 12 TB
+# array is four 4 TB disks presented as ONE device (disk10) carrying ONE
 # volume (MacStudioHD). There is no second partition and no room to make a
 # meaningful one: anything carved out of that container shares the physical
 # store, so it dies with the enclosure, the controller, or the filesystem.
 # Single-parity RAID survives one disk failing; it is not a backup.
+#
+# NO BACKTICKS OR DOLLAR-PAREN ANYWHERE IN THIS HEREDOC, COMMENTS INCLUDED.
+# (Spelled out rather than written literally, because writing the construct
+#  here would itself be an instance of it.)
+# It is an unquoted heredoc so that $ARCHIVE and friends expand — which means
+# command substitution expands too. A backtick pair around "diskutil list" in
+# this very comment ran the command at bringup time and wrote its output into
+# lms.env. Sourcing the result failed, LMS_BACKUP_REPO never took effect, and
+# the backup silently went to the old location.
 #
 # The internal SSD is different hardware, so this genuinely survives the array
 # failing. It does NOT survive the machine — theft, fire, or the Mac dying take
@@ -184,6 +193,36 @@ export TZ="America/New_York"
 export LMS_PYTHON="$PY"
 EOF
 chmod 600 "$REPO_DIR/ops/lms.env"
+
+# Verify the file we just wrote. Everything downstream sources it — the
+# scripts, the launchd jobs, the shell — so a bad one is not a small problem.
+#
+# This exists because of a real failure, not a hypothetical: a backtick pair
+# in a comment above ran `diskutil list` at generation time and pasted the
+# output into the file. Sourcing it errored, LMS_BACKUP_REPO never got set,
+# the backup went to the old location, and the run still printed
+# "Restore verified" — from the repository it was supposed to be leaving.
+#
+# The check is: source it in a clean subshell, prove every variable arrived,
+# and prove it produced no output. Silence is the whole point — a config file
+# that prints anything is a config file executing something.
+_env_out="$(set +u; . "$REPO_DIR/ops/lms.env" 2>&1 >/dev/null)"
+if [[ -n "$_env_out" ]]; then
+  echo "    ERROR: ops/lms.env is not clean. Sourcing it produced output:" >&2
+  echo "$_env_out" | sed 's/^/      /' >&2
+  echo "    Nothing downstream can be trusted until this is fixed." >&2
+  exit 1
+fi
+
+for _v in LMS_ARCHIVE_ROOT LMS_ORIGINALS_ROOT LMS_QUARANTINE_ROOT \
+          LMS_INBOX LMS_DB LMS_BACKUP_REPO LMS_PYTHON TZ; do
+  _got="$(set +u; . "$REPO_DIR/ops/lms.env" >/dev/null 2>&1; eval "printf '%s' \"\${$_v}\"")"
+  if [[ -z "$_got" ]]; then
+    echo "    ERROR: ops/lms.env does not set $_v" >&2
+    exit 1
+  fi
+done
+echo "    verified: sources cleanly, all 8 variables set"
 
 # ---------------------------------------------------------------------------
 # 5. Verify on the real machine
