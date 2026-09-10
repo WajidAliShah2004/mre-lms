@@ -309,6 +309,14 @@ def stalled_jobs(conn: sqlite3.Connection, now: datetime) -> list[str]:
     job, and an alarm that fires on day one is an alarm that gets ignored by
     day two. The first successful run arms it.
     """
+    # Every ts in actions_log carries an offset — now_iso() writes
+    # "2026-09-10T08:31:40-04:00" — and `datetime.now()` is naive. Subtracting
+    # one from the other raises, and it raised on the Mac on the first real run
+    # after eleven tests had passed against naive fixtures on both sides.
+    # Normalise here, once, rather than at every caller.
+    if now.tzinfo is None:
+        now = now.astimezone()
+
     out = []
     for action, (name, hours) in sorted(WATCHED_JOBS.items()):
         row = conn.execute(
@@ -320,6 +328,8 @@ def stalled_jobs(conn: sqlite3.Connection, now: datetime) -> list[str]:
             last = datetime.fromisoformat(row["ts"])
         except (TypeError, ValueError):
             continue
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=now.tzinfo)
         gap = now - last
         if gap > timedelta(hours=hours):
             days = gap.days

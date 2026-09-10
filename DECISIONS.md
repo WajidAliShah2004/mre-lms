@@ -897,7 +897,11 @@ Thresholds are generous, roughly two missed runs. One skipped night is a Mac tha
 
 Two more defects found by the tests before the Mac saw them: the column is `ts`, not `at` (my query was simply wrong), and the append-only trigger correctly refused the test helper's `UPDATE` — that hard stop working exactly as designed, on the person who wrote it.
 
-**452 passed, 1 xfailed.**
+**Then it crashed on the Mac on the first real run.** `can't subtract offset-naive and offset-aware datetimes`. Every `ts` in the audit log carries an offset — `now_iso()` writes `2026-09-10T08:31:40-04:00` — and `datetime.now()` is naive. Eleven tests had passed, because the fixtures were naive on *both* sides. **A fixture in a shape the real data never takes is D-041 again**, one day later, in code written with D-041 fresh in mind.
+
+The fix normalises once at the top of `stalled_jobs`. The test that matters now goes through `log_action` itself — no hand-built row — with a naive `now` exactly as `deliver_brief.py` passes it. Verified by removing the fix and watching the two new tests fail with the Mac's exact message.
+
+**455 passed, 1 xfailed.**
 
 ### D-050 — The backup contains the documents
 **Status:** Built · Sept 10 2026 · changes a spec default

@@ -9,7 +9,7 @@ been a catalogue of things that failed silently while reporting success. So the
 brief, which is the one thing he reads, says when the system itself is unwell.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -39,7 +39,12 @@ def logged_at(conn, action: str, when: datetime, ts: str | None = None) -> None:
     conn.commit()
 
 
-NOW = datetime(2026, 9, 12, 6, 30)
+# Offset-aware, as now_iso() writes every ts column. The first version of
+# these fixtures was naive on both sides; eleven tests passed, and the first
+# real run on the Mac raised "can't subtract offset-naive and offset-aware
+# datetimes". A fixture in a shape the real data never takes is D-041 again.
+NY = timezone(timedelta(hours=-4))
+NOW = datetime(2026, 9, 12, 6, 30, tzinfo=NY)
 
 
 # ---------------------------------------------------------------------------
@@ -149,3 +154,30 @@ def test_a_stalled_job_alone_is_not_an_empty_brief(conn):
     text = reports.render_text(b)
     assert "Nothing needs you" not in text
     assert "THE SYSTEM NEEDS ATTENTION" in text
+
+
+# ---------------------------------------------------------------------------
+# Against the real writer, not a hand-built row
+# ---------------------------------------------------------------------------
+
+def test_it_works_against_what_log_action_actually_writes(conn):
+    """No fixture. The real function writes the row, the real function reads
+    it, and a naive `now` — which is what every caller passes — must not blow
+    up against it."""
+    db.log_action(conn, "MAIL_POLL_STOP", detail="just now")
+    # datetime.now() with no tz, exactly as deliver_brief.py calls it.
+    assert reports.stalled_jobs(conn, datetime.now()) == []
+
+
+def test_a_naive_now_and_an_aware_row_do_not_raise(conn):
+    logged_at(conn, "BACKUP_COMPLETED", NOW - timedelta(days=5))
+    naive_now = NOW.replace(tzinfo=None)
+    stalled = reports.stalled_jobs(conn, naive_now)
+    assert len(stalled) == 1 and stalled[0].startswith("backup:")
+
+
+def test_a_naive_row_and_an_aware_now_do_not_raise(conn):
+    """Rows written before now_iso() carried an offset, if any exist."""
+    logged_at(conn, "BRIEF_DELIVERED", NOW, ts="2026-09-01T06:30:00")
+    stalled = reports.stalled_jobs(conn, NOW)
+    assert len(stalled) == 1 and stalled[0].startswith("brief:")
