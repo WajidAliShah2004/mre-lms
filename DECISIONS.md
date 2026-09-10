@@ -605,6 +605,42 @@ Matthew's sentence has four clauses — *"determine if it's business, which busi
 
 The title now says only what the task *is*. The date lives in `tasks.due_date`, where it can be sorted, filtered and re-rendered — a date baked into a title string can only be read. **189 passed.**
 
+### D-035 — Backup, and a restore that is actually run
+**Status:** Built · Sept 9 2026 · spec §Day-6.4
+
+Until this there was no backup of any kind. The archive, the classifications and the append-only audit log sat on one volume. It was the last remaining risk in the build whose downside is unrecoverable, and it needed nothing from Matthew.
+
+**The measurement that decided the design.** SQLite runs in WAL mode, so committed rows live in `lms.db-wal` until a checkpoint. Copying `lms.db` with `cp` while anything holds the database open gets the main file and none of them:
+
+```
+WAL present : True
+snapshot    : {'artifacts': 500}      # Connection.backup()
+naive cp    : {}                      # shutil.copy2()
+```
+
+**Five hundred committed rows in, zero rows out** — and the bad copy passes `PRAGMA integrity_check` cleanly. It restores, it opens, it is empty. That is the worst failure mode available to a backup: it announces nothing, and reveals itself only on the day it is needed. `Connection.backup()` takes a consistent snapshot of a live database, and that is the whole difference between a backup and a file that resembles one.
+
+`test_a_file_copy_of_a_live_database_loses_rows` pins it. The first version of that test quietly proved nothing — the fixture returned a path and let the connection be garbage-collected, which checkpoints the WAL and erases the condition under test. It now returns the connection and the caller holds it, because the scenario *is* "a process is using this database right now".
+
+**`restore_test.py` is the other half, and the reason the spec says "test a restore now, not later."** An untested backup is a belief about a directory. It restores the latest snapshot to a temp directory and checks what actually decides whether a bad morning is survivable: the database opens, passes integrity_check, its row counts match the live database table by table, the sidecars came back, and `entities.yaml` is present and parses.
+
+Two of those checks exist because of specific failure shapes:
+
+- **Counting, not just integrity_check.** An empty database is perfectly valid. Only the count catches the naive-copy failure.
+- **A backup with MORE rows than the live database is a FAILURE, not drift.** Fewer is expected — the database grew since the snapshot. More means rows have vanished from the original, which is a different and far more interesting problem, and must not be filed under "drift".
+
+Nothing is written outside the temp directory and the live archive is opened read-only throughout: running the restore test must never be able to make things worse, because it will be run when things are already going badly.
+
+**Secrets.** restic encrypts client-side; the repository password lives in the Keychain and is read at run time. It is not in the script, not in `lms.env`, and not in the plist — plists are world-readable and land in git.
+
+**Scheduling.** `StartCalendarInterval` at 02:30, deliberately not `StartInterval`: if the Mac is asleep or off, launchd runs the job at the next opportunity, where an interval timer would simply skip the night. C8 — who unlocks the machine after a power cut — is still unanswered, so missed windows are a live scenario rather than a hypothetical. It is a LaunchAgent for a second reason beyond the watcher's: a system daemon cannot read the user's Keychain.
+
+**A side fix.** The re-exec block from D-032/D-033 had been copied into three ops scripts at module level, which made them re-exec *on import* — a test that imported `backup.py` to exercise its snapshot logic instead relaunched the script, which exited complaining `LMS_ARCHIVE_ROOT` was unset. Code that cannot be imported cannot be unit-tested, and the backup path is the last place to accept "we think it works". It is now `ops/_reexec.py`, called from `main()`.
+
+**Still outstanding, and it is Matthew's decision (D-012).** A local repository does not survive theft, fire, or the volume failing. An off-machine copy means client tax and NPI data leaving the premises — restic encrypts before upload so the provider only ever holds ciphertext, and that is the mitigation, not an argument that the question does not arise. It needs his sign-off in writing, plus an account. `backup.py` prints this every run rather than letting it become invisible.
+
+**201 passed, 1 xfailed.**
+
 ### D-014 — Call transcripts are the first thing cut if the week slips
 **Status:** Decided (contingency) · [GUIDELINES_7DAY_BUILD.md:40](GUIDELINES_7DAY_BUILD.md:40)
 Email + photographed mail + the to-do list are the visible value. Day 4's call-transcript ingestion (C15) goes first, before anything else is touched.

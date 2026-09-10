@@ -1,0 +1,191 @@
+"""Backup and restore.
+
+The load-bearing test here is `test_a_file_copy_of_a_live_database_loses_rows`.
+It is the reason this module uses SQLite's online backup API instead of `cp`,
+and it fails in the worst available way: the copy opens cleanly, passes
+integrity_check, and is empty.
+"""
+
+import sqlite3
+import sys
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ops"))
+
+from backup import BackupError, row_counts, snapshot_database   # noqa: E402
+from restore_test import verify_restore                          # noqa: E402
+import restore_test                                              # noqa: E402
+
+
+def live_db(path: Path, rows: int = 500) -> sqlite3.Connection:
+    """A database in the state the daemon leaves it in: WAL, committed, OPEN.
+
+    Returns the connection, and the caller must hold it. Closing the database
+    — or merely letting the connection be garbage-collected, which is how the
+    first version of this fixture failed — checkpoints the WAL into the main
+    file and erases the exact condition under test. The whole scenario is "a
+    process is using this database right now", so the handle has to stay.
+    """
+    conn = sqlite3.connect(path)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("CREATE TABLE artifacts (id INTEGER PRIMARY KEY, sha TEXT)")
+    conn.executemany("INSERT INTO artifacts (sha) VALUES (?)",
+                     [(f"{i:064d}",) for i in range(rows)])
+    conn.commit()
+    return conn
+
+
+# ---------------------------------------------------------------------------
+# Why the online backup API
+# ---------------------------------------------------------------------------
+
+def test_a_file_copy_of_a_live_database_loses_rows(tmp_path):
+    """The measurement behind the design.
+
+    In WAL mode, committed rows live in lms.db-wal until a checkpoint. Copying
+    lms.db alone gets the main file and none of them. The result opens, passes
+    integrity_check, and contains NOTHING — a backup that fails silently and
+    only reveals itself on the day it is needed.
+    """
+    import shutil
+
+    src = tmp_path / "lms.db"
+    conn = live_db(src)                      # held open on purpose
+    assert (tmp_path / "lms.db-wal").exists(), "no WAL — the test proves nothing"
+
+    naive = tmp_path / "naive.db"
+    shutil.copy2(src, naive)
+
+    assert sqlite3.connect(naive).execute(
+        "PRAGMA integrity_check").fetchone()[0] == "ok", \
+        "the bad copy is not even detectably corrupt"
+    assert sum(row_counts(naive).values()) == 0, \
+        "if a plain copy works here, this module's whole design is unnecessary"
+
+
+def test_the_online_backup_keeps_every_row(tmp_path):
+    src = tmp_path / "lms.db"
+    conn = live_db(src, rows=500)            # held open on purpose
+    snap = snapshot_database(src, tmp_path / "out" / "lms.db")
+    assert row_counts(snap) == {"artifacts": 500}
+
+
+def test_the_snapshot_checks_itself_before_being_trusted(tmp_path):
+    """Verified while a good original still exists to compare against.
+
+    A backup nobody checked is a hope.
+    """
+    src = tmp_path / "lms.db"
+    conn = live_db(src, rows=10)             # held open on purpose
+    snap = snapshot_database(src, tmp_path / "out" / "lms.db")
+    assert sqlite3.connect(snap).execute(
+        "PRAGMA integrity_check").fetchone()[0] == "ok"
+
+
+def test_a_missing_database_is_an_error_not_an_empty_backup(tmp_path):
+    """Backing up nothing must fail loudly. A zero-byte snapshot uploaded
+    nightly is worse than no backup, because it looks like one."""
+    with pytest.raises(BackupError) as exc:
+        snapshot_database(tmp_path / "absent.db", tmp_path / "out.db")
+    assert "no database" in str(exc.value)
+
+
+# ---------------------------------------------------------------------------
+# Verifying a restore
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def clear_failures():
+    restore_test.failures.clear()
+    yield
+    restore_test.failures.clear()
+
+
+def restored_tree(tmp_path: Path, *, rows: int = 5, sidecars: int = 2,
+                  entities: bool = True) -> Path:
+    """What restic leaves behind: the original paths, nested under a temp dir."""
+    root = tmp_path / "restored" / "Volumes" / "MacStudioHD" / "LMS"
+    root.mkdir(parents=True)
+
+    conn = sqlite3.connect(root / "lms.db")
+    conn.execute("CREATE TABLE artifacts (id INTEGER PRIMARY KEY, sha TEXT)")
+    conn.executemany("INSERT INTO artifacts (sha) VALUES (?)",
+                     [(str(i),) for i in range(rows)])
+    conn.commit()
+    conn.close()
+
+    for i in range(sidecars):
+        p = root / "sidecars" / f"doc{i}.meta.json"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("{}", encoding="utf-8")
+
+    if entities:
+        cfg = root / "config"
+        cfg.mkdir(exist_ok=True)
+        (cfg / "entities.yaml").write_text(
+            "businesses:\n  B_MRE:\n    tree: MRECAI\npeople:\n  P_MRE:\n"
+            "    tree: PERSONAL/Matthew\n", encoding="utf-8")
+
+    return tmp_path / "restored"
+
+
+def test_a_good_restore_verifies(tmp_path):
+    verify_restore(restored_tree(tmp_path, rows=5, sidecars=2),
+                   {"artifacts": 5}, 2)
+    assert restore_test.failures == []
+
+
+def test_an_empty_restored_database_is_caught(tmp_path):
+    """The naive-copy failure, caught at the point it matters.
+
+    integrity_check passes on an empty database. Counting is the only check
+    that sees it.
+    """
+    verify_restore(restored_tree(tmp_path, rows=0), {"artifacts": 500}, 0)
+    assert any("EMPTY" in f for f in restore_test.failures), restore_test.failures
+
+
+def test_a_missing_database_fails_the_restore(tmp_path):
+    tree = restored_tree(tmp_path)
+    next(tree.rglob("lms.db")).unlink()
+    verify_restore(tree, {"artifacts": 5}, 2)
+    assert any("no catalogue" in f for f in restore_test.failures)
+
+
+def test_a_corrupt_database_fails_the_restore(tmp_path):
+    tree = restored_tree(tmp_path)
+    next(tree.rglob("lms.db")).write_bytes(b"this is not a database at all")
+    verify_restore(tree, {"artifacts": 5}, 2)
+    assert restore_test.failures
+
+
+def test_missing_sidecars_fail_the_restore(tmp_path):
+    """Without them a restored tree is a heap of well-named files."""
+    verify_restore(restored_tree(tmp_path, sidecars=1), {"artifacts": 5}, 9)
+    assert any("sidecars came back" in f for f in restore_test.failures)
+
+
+def test_a_restore_without_entities_yaml_fails(tmp_path):
+    """It can hold documents but cannot correctly file another one.
+    entities.yaml IS the classifier."""
+    verify_restore(restored_tree(tmp_path, entities=False), {"artifacts": 5}, 2)
+    assert any("entities.yaml" in f for f in restore_test.failures)
+
+
+def test_a_backup_ahead_of_the_live_database_is_a_failure_not_drift(tmp_path):
+    """Fewer rows than live is expected — the database grew since the snapshot.
+
+    MORE rows in the backup means rows have vanished from the live database,
+    which is a different and far more interesting problem, and must not be
+    filed under 'drift'.
+    """
+    verify_restore(restored_tree(tmp_path, rows=5), {"artifacts": 2}, 2)
+    assert any("rows the live database does not" in f
+               for f in restore_test.failures), restore_test.failures
+
+
+def test_normal_growth_since_the_snapshot_is_only_a_warning(tmp_path):
+    verify_restore(restored_tree(tmp_path, rows=5), {"artifacts": 40}, 2)
+    assert restore_test.failures == []

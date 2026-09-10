@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Nightly backup — spec §Day-6.4.
+
+  Install:
+    cp ops/com.lms.backup.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.lms.backup.plist
+
+  Run it once by hand before trusting the schedule:
+    launchctl kickstart -p gui/$(id -u)/com.lms.backup
+
+  Stop:
+    launchctl bootout gui/$(id -u)/com.lms.backup
+
+  02:30, chosen so it does not collide with the 06:30 morning brief or with
+  anyone using the machine. A LaunchAgent rather than a LaunchDaemon for the
+  same reason as the watcher: it needs the login session, and here it needs it
+  for a second reason — the restic repository password lives in the user's
+  Keychain, which a system daemon cannot read.
+
+  StartCalendarInterval, NOT StartInterval. If the Mac is asleep or off at
+  02:30, launchd runs the job at the next opportunity; a plain interval timer
+  would simply skip the night. C8 — who unlocks the machine after a power cut
+  — is still unanswered, so missed windows are a live scenario, not a
+  hypothetical.
+
+  NO PASSWORD APPEARS HERE. A plist is world-readable and lands in git. The
+  script reads the repo password from the Keychain at run time (D-016).
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.lms.backup</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/mleca/lms-repo/lms/.venv/bin/python</string>
+        <string>/Users/mleca/lms-repo/lms/ops/backup.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/mleca/lms-repo/lms</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <!-- Mirrors ops/lms.env. Change both together; they are not linked. -->
+        <key>LMS_ARCHIVE_ROOT</key>
+        <string>/Volumes/MacStudioHD/LMS/archive</string>
+        <key>LMS_ORIGINALS_ROOT</key>
+        <string>/Volumes/MacStudioHD/LMS/_originals</string>
+        <key>LMS_QUARANTINE_ROOT</key>
+        <string>/Users/mleca/LMS/quarantine</string>
+        <key>LMS_DB</key>
+        <string>/Volumes/MacStudioHD/LMS/lms.db</string>
+        <key>LMS_BACKUP_REPO</key>
+        <string>/Volumes/MacStudioHD/LMS_backup</string>
+
+        <key>TZ</key>
+        <string>America/New_York</string>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+
+        <!-- restic is installed by Homebrew and launchd inherits no PATH. -->
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>2</integer>
+        <key>Minute</key>
+        <integer>30</integer>
+    </dict>
+
+    <!-- One-shot. Unlike the watcher, exiting is the correct behaviour, so
+         KeepAlive here would restart it in a loop all night. -->
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/mleca/LMS/logs/backup.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/mleca/LMS/logs/backup.err</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>Nice</key>
+    <integer>10</integer>
+</dict>
+</plist>

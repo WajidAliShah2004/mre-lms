@@ -131,6 +131,20 @@ fi
 
 echo "    deps: $("$PY" -m pip list 2>/dev/null | grep -Ei 'pyyaml|pytest|pyobjc-framework-(vision|quartz)' | tr '\n' ' ')"
 
+# restic — the backup engine (spec §Day-6.4). Encrypts client-side, so the
+# repository is ciphertext at rest and an off-machine copy never hands a
+# provider readable client data.
+#
+# Not fatal if it is missing: everything else works, and ops/backup.py says
+# exactly what to install. But a machine with no backup is the only remaining
+# failure in this build whose downside is unrecoverable, so it is loud.
+if command -v restic >/dev/null 2>&1; then
+  echo "    backup: restic $(restic version 2>/dev/null | awk '{print $2}')"
+else
+  echo "    backup: restic NOT INSTALLED — there is no backup on this machine." >&2
+  echo "            brew install restic" >&2
+fi
+
 # ---------------------------------------------------------------------------
 # 4. Environment. Written to a file the LaunchAgent sources.
 #    NOT a .env with secrets in it — these are paths only. Credentials live
