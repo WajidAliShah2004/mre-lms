@@ -26,6 +26,7 @@ from typing import Any
 
 import yaml
 
+from .. import addressing
 from ..db import database as db
 from . import filing, ocr
 from .classify import Artifact, Classification, Classifier
@@ -122,7 +123,11 @@ def phishing_check(art: Artifact, registry: Registry,
         if auth_results.get(failure):
             return f"SUSPECTED_PHISHING: {failure}"
 
-    sender_domain = (art.sender or "").rpartition("@")[2].lower()
+    # addressing.domain, not rpartition: a real From: header is
+    # `"Matthew R. Epstein" <matthew@mrecai.com>` and the hand-rolled version
+    # returned `mrecai.com>`, which is edit distance 1 from `mrecai.com` — so
+    # every message from a domain we know was flagged as impersonating itself.
+    sender_domain = addressing.domain(art.sender)
     if sender_domain:
         known = {d.lower() for e in registry.entities.values() for d in e.domains}
         for domain in known:

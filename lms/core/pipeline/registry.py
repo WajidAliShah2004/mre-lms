@@ -19,6 +19,8 @@ from typing import Any
 
 import yaml
 
+from .. import addressing
+
 CONFIG_DIR = Path(__file__).resolve().parents[2] / "config"
 
 PLACEHOLDER_MARKER = "TODO(C16)"
@@ -148,21 +150,30 @@ class Registry:
             )
 
     def resolve_by_email(self, address: str) -> Entity | None:
-        addr = (address or "").strip().lower()
-        if not addr:
-            return None
-        for ent in self.entities.values():
-            if addr in (e.lower() for e in ent.emails):
-                return ent
+        """Match a `To:` header against the addresses in entities.yaml.
+
+        Every address in it, not just the first: a message addressed to a
+        client with Matthew in copy is still his. Precedence within the header
+        is order of appearance, which is the only ordering it has.
+
+        This used to lowercase the raw header and compare the whole string,
+        so `"Matthew R. Epstein" <matthew@mrecai.com>` matched nothing and
+        recipient_email — the FIRST rule in D-005's precedence chain — never
+        fired on a real message.
+        """
+        known = {e.lower(): ent for ent in self.entities.values()
+                 for e in ent.emails}
+        for addr in addressing.addresses(address) or [addressing.address(address)]:
+            if addr in known:
+                return known[addr]
         return None
 
     def resolve_by_domain(self, address_or_domain: str) -> Entity | None:
-        text = (address_or_domain or "").strip().lower()
-        domain = text.rpartition("@")[2] if "@" in text else text
-        if not domain:
+        d = addressing.domain(address_or_domain)
+        if not d:
             return None
         for ent in self.entities.values():
-            if domain in (d.lower() for d in ent.domains):
+            if d in (x.lower() for x in ent.domains):
                 return ent
         return None
 

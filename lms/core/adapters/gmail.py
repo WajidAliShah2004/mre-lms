@@ -56,6 +56,8 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any, Iterable, Protocol
 
+from .. import addressing
+
 # The whole security posture, in one tuple. Read-only. Nothing else.
 #
 # `gmail.modify` would permit trashing a message; `gmail.compose` permits
@@ -123,7 +125,7 @@ class Message:
 
     @property
     def sender_domain(self) -> str:
-        return self.sender.rpartition("@")[2].strip(">").lower()
+        return addressing.domain(self.sender)
 
     @property
     def real_attachments(self) -> list[Attachment]:

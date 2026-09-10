@@ -884,6 +884,36 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 
 **302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
 
+### D-041 — Nothing computes a domain from a header by hand
+**Status:** Built · Sept 10 2026 · the worst defect of this build
+
+Real mail says:
+
+```
+From: "Matthew R. Epstein" <matthew@mrecai.com>
+```
+
+Three places computed the domain as `address.rpartition("@")[2]`, which on that header returns **`mrecai.com>`** — with the bracket. One missing function produced four failures at once, and they only became visible when a live mailbox arrived:
+
+| what | why it failed |
+|---|---|
+| `resolve_by_email` | compared the whole display-name string against `entities.yaml` |
+| `resolve_by_domain` | `mrecai.com>` is not `mrecai.com` |
+| **the entire precedence chain** | so every message fell through to the model |
+| `phishing_check` | `sender 'mrecai.com>' is a look-alike of 'mrecai.com'` — edit distance 1 |
+
+The third row is the serious one. **"Deterministic routing beats the model" is the load-bearing claim of the whole classification design** (D-005), and it had never once fired on a real message — code that cannot be argued with by an email was silently not running, and the model was deciding everything. The fourth row is the one that stopped the run: every message from a domain we know was quarantined as an impersonation of itself.
+
+`email.utils.parseaddr` has been in the standard library since 1999. **The rule from here: no module computes a domain from a header itself** — `core/addressing.py` is the only place that parses an address, and `registry`, `ingest` and `gmail` all call it.
+
+`addresses()` returns **every** address in a `To:` header, not the first. A message addressed to a client with Matthew in copy is still his, and `getaddresses` is also the only thing that parses `"Epstein, Matthew" <…>` correctly — a naive `split(",")` makes that two recipients, one of them with no `@` at all.
+
+Writing the tests found a fifth: `parseaddr("not an address")` returns `("", "not")` — the first word, confidently, as though it were an address. `address()` now requires an `@`, because a domain we invented is exactly the kind of value the look-alike check will then have an opinion about.
+
+**None of this was caught by 302 tests**, because every fixture ever written used a bare `matthew@mrecai.com` — the one form real mail does not use. That is the pattern of this entire build restated in a single defect: the tests agreed with the code, and both were wrong about the world.
+
+**331 passed, 1 xfailed.**
+
 ### D-039 — Mail arrives over OAuth, and the scope is the security boundary
 **Status:** Built · Sept 10 2026 · supersedes the Aug 5 access plan
 
