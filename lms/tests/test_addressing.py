@@ -186,6 +186,56 @@ def test_the_entity_domains_really_are_close_together(reg):
         "look-alike regression test above is no longer exercising anything")
 
 
+def test_a_quarantined_document_is_read_again_on_the_next_run(reg, tmp_path,
+                                                             monkeypatch):
+    """A stage marker records that OCR RAN, not what it produced.
+
+    OCR's output is only persisted when the document is filed. So a document
+    that read successfully and then quarantined — for phishing, for low
+    confidence, for anything — had its text discarded, and the second run
+    skipped the read and called the result a blank scan. Permanently: every
+    later run skipped it too, so no downstream fix could recover it.
+
+    A GEICO insurance card with a 10,533-character text layer sat in the review
+    queue described as a blank scan.
+    """
+    from core.db import database as db
+    from core.pipeline import filing
+
+    conn = db.connect(tmp_path / "lms.db")
+    roots = filing.StorageRoots(archive=tmp_path / "a", originals=tmp_path / "o",
+                                quarantine=tmp_path / "q")
+    roots.ensure()
+
+    doc = tmp_path / "policy.txt"
+    doc.write_text("WIRE TRANSFER instructions: updated bank details follow. "
+                   "Please send urgent payment to the beneficiary details "
+                   "below." * 3, encoding="utf-8")
+
+    reads = []
+    real_read = ingest.ocr.read_any
+    monkeypatch.setattr(ingest.ocr, "read_any",
+                        lambda p, **kw: (reads.append(p), real_read(p, **kw))[1])
+
+    class Refuser:
+        def complete(self, **kw):
+            raise AssertionError("phishing must be caught before the model")
+
+    from core.pipeline.classify import Classifier
+    clf = Classifier(reg, client=Refuser())
+
+    first = ingest.ingest_file(conn, roots, reg, clf, doc, source="email")
+    second = ingest.ingest_file(conn, roots, reg, clf, doc, source="email")
+
+    assert first.status == "SUSPECTED_PHISHING", first.reason
+    assert second.status == "SUSPECTED_PHISHING", (
+        f"the second run reported {second.status}: {second.reason}")
+    assert len(reads) == 2, (
+        "the second run skipped the read and would have called a readable "
+        "document empty")
+    conn.close()
+
+
 def test_an_actual_lookalike_is_still_caught(reg):
     """The check must still do its job — this is the one case that matters."""
     known = sorted({d for ent in reg.entities.values() for d in ent.domains})

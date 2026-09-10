@@ -4,10 +4,17 @@
                                                             -> task
                                                             -> log
 
-Every stage is recorded in `processed(sha256, stage)`, so a crash halfway
-through is safe to re-run: completed stages are skipped and nothing is done
-twice. That is why the whole thing can be driven by a dumb watched-folder loop
-that simply calls `ingest_file()` on anything it sees.
+Re-running is safe because the pipeline is IDEMPOTENT, not because it skips
+work. Filing dedupes on the sha256 and returns the existing path; a document
+already filed never gets past the first check in `ingest_file`. That is what
+lets a dumb watched-folder loop call `ingest_file()` on anything it sees.
+
+`processed(sha256, stage)` is an audit trail — it records that a stage ran. It
+is NOT a cache, and it must never be used to skip one. It does not keep what
+the stage produced, so skipping on it means the next run proceeds without the
+output: an OCR skipped this way leaves an empty body, and a readable document
+is reported as a blank scan. Permanently, since every later run skips it too.
+See the comment at the OCR call.
 
 The order is not arbitrary. Dedupe comes before OCR because OCR is the
 expensive step and a resent invoice is common. The phishing pre-check comes
@@ -227,17 +234,36 @@ def ingest_file(conn, roots: filing.StorageRoots, registry: Registry,
     suffix = source_path.suffix.lower()
 
     if run_ocr and suffix in ocr.READABLE_SUFFIXES:
-        if not db.already_processed(conn, sha, "ocr"):
-            try:
-                result = ocr.read_any(source_path)
-                ocr_text, engine = result.text, result.engine
-                db.mark_processed(conn, sha, "ocr")
-            except ocr.OCRError as exc:
-                # Not fatal here. An unreadable photograph still needs to reach
-                # the review queue, where a human can look at it in two seconds.
-                # The emptiness check below is what stops it reaching the model.
-                db.log_action(conn, "OCR_FAILED", detail=str(exc)[:400])
-                ocr_text, engine = "", "failed"
+        # NO `already_processed` GUARD HERE. It was here, and it was a defect.
+        #
+        # `processed` records that a stage RAN. It does not keep what the stage
+        # produced, and OCR's output is only persisted when the document is
+        # filed — the sidecar's `.txt`. So for anything that OCR'd successfully
+        # and then quarantined, the second run skipped the read, found an empty
+        # body, and reported "no text extracted: most likely a blank scan"
+        # about a document it had simply declined to open. Permanently: every
+        # later run skipped it too, so no fix downstream could ever recover it.
+        #
+        # A GEICO insurance card with a 10,533-character text layer was in the
+        # review queue described as a blank scan.
+        #
+        # The guard could never have helped, either. A document that HAS been
+        # filed never reaches this line — the dedupe check at the top of this
+        # function returns DUPLICATE first. So the only artifacts arriving here
+        # are ones not yet filed, which are exactly the ones that must be read
+        # again. The cache was pure cost.
+        #
+        # `mark_processed` stays: the audit trail should still say OCR ran.
+        try:
+            result = ocr.read_any(source_path)
+            ocr_text, engine = result.text, result.engine
+            db.mark_processed(conn, sha, "ocr")
+        except ocr.OCRError as exc:
+            # Not fatal here. An unreadable photograph still needs to reach
+            # the review queue, where a human can look at it in two seconds.
+            # The emptiness check below is what stops it reaching the model.
+            db.log_action(conn, "OCR_FAILED", detail=str(exc)[:400])
+            ocr_text, engine = "", "failed"
         if ocr_text and not art.body:
             art.body = ocr_text
 

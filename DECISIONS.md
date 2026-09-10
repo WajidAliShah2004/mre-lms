@@ -884,6 +884,30 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 
 **302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
 
+### D-042 — `processed` is an audit trail, not a cache
+**Status:** Built · Sept 10 2026
+
+A GEICO insurance card with a **10,533-character text layer** sat in the review queue described as *"no text extracted: the PDF has no text layer and OCR of its pages produced nothing — most likely a blank scan."*
+
+The text extraction was never the problem. `pdf_text_layer` read the document perfectly, on the first run and every run since. This did it:
+
+```python
+if not db.already_processed(conn, sha, "ocr"):
+    result = ocr.read_any(source_path)
+    ...
+    db.mark_processed(conn, sha, "ocr")
+```
+
+**`processed` records that a stage RAN. It does not keep what the stage produced.** OCR's output is only persisted when the document is filed — the sidecar `.txt`. So a document that read successfully and then quarantined for any reason had its text discarded, and the next run skipped the read, found an empty body, and reported it as blank. **Permanently** — every later run skipped it too, so no downstream fix could recover it. The PDFs only became visible once the phishing false positives were fixed and they stopped being quarantined for a different reason first.
+
+The guard could never have helped. A document that HAS been filed never reaches that line — the dedupe check at the top of `ingest_file` returns `DUPLICATE` first. So the only artifacts arriving there are ones not yet filed, which are exactly the ones that must be read again. **The cache was pure cost.**
+
+The module docstring claimed *"a crash halfway through is safe to re-run: completed stages are skipped and nothing is done twice."* The first half is true and the second half was the bug — re-running is safe because filing is **idempotent on the sha256**, not because stages are skipped. Corrected, along with a standing rule: `processed` is an audit trail and must never gate work.
+
+The regression test was run against the old code before being kept, and produced the exact production symptom — `no text extracted: read as empty` on the second ingest of a document the first ingest read fine.
+
+**334 passed, 1 xfailed.**
+
 ### D-041 — Nothing computes a domain from a header by hand
 **Status:** Built · Sept 10 2026 · the worst defect of this build
 
