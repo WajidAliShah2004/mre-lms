@@ -274,8 +274,10 @@ def warn_if_same_volume(archive: Path, repo: Path) -> bool:
     print("  It does NOTHING about the disk failing, which is the case the word")
     print("  'backup' is usually reaching for. Both copies die together.")
     print()
-    print("  Point LMS_BACKUP_REPO at the mirror volume. Which volume that is")
-    print("  depends on D-011, which is still open.")
+    print("  Point LMS_BACKUP_REPO at a DIFFERENT DEVICE — not another volume")
+    print("  or partition on the same one. See D-011: the 12 TB array is four")
+    print("  disks presented as a single device, so anything carved out of it")
+    print("  shares the same failure. `diskutil list` shows what is separate.")
     print("  " + "!" * 68)
     return True
 

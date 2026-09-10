@@ -804,14 +804,33 @@ Two consequences:
 **Status:** OPEN · blocks Phase 1 item 4 · client item **C5**
 Which volumes hold LMS data, models, and the repo — and approval to encrypt in place. Per the meeting (00:26:35), "some of it's encrypted, some of it isn't." FileVault covers the boot volume only. Record which volumes are encrypted and which are deliberately not, and why.
 
-**Sept 10 — direction given, target not yet named.** Backups are to go "in a backup partition". That settles the intent, which was the part in question: the repository should not sit beside the archive. It does not yet settle *which* volume, and the name matters more than usual here — a separate **partition** on the same physical disk is not protection. Partitions share the device; when the disk fails they fail together, which is exactly the case a backup is for.
+**Sept 10 — measured, and the plan did not survive contact with the hardware.**
 
-So the answer needed is a volume that is a **different device**, not merely a different mount point. `diskutil list` distinguishes them; `ops/backup.py` also checks `st_dev` at run time and warns on every run until the two differ, so this cannot be closed by assertion — only by the warning going away.
+The instruction was "backups go in a backup partition". `diskutil list` says there is no such partition, and no room to make a useful one:
 
-> **Volumes:**
-> **Backup target (must be a different device, not a partition of the same one):**
-> **Approved to encrypt in place:**
-> **Date:**
+```
+disk6 disk7 disk8 disk9   4 × 4 TB external, IDENTICAL partition GUIDs → RAID members
+disk10                    12 TB Apple_APFS — the array as ONE device
+disk11 (synthesized)      Physical Store disk10
+  └─ APFS Volume MacStudioHD     the only volume on it
+```
+
+16 TB of hardware presenting 12 TB is single-parity RAID. **That survives one disk failing. It is not a backup.** It does nothing about the enclosure, the controller, filesystem corruption, an accidental delete, ransomware, or theft — and from the LMS's point of view all four disks are one failure domain.
+
+A second APFS volume in container `disk11` would satisfy the words and none of the intent: same container, same physical store, dies with the array. It would also silence the same-volume warning while making nothing safer, which is worse than leaving the warning up.
+
+**Decision: the repository moves to the internal SSD — `$HOME/LMS/backup`.**
+
+`disk0` is genuinely different hardware from `disk10`, so this survives the array failing, and `st_dev` differs so the warning clears on evidence rather than by agreement. `MacStudioHD` is using 170.5 MB against 723 GB free internally, so capacity is not a near-term constraint.
+
+What it does **not** survive: the machine. Theft, fire, or the Mac itself dying takes both copies, because both are inside it. That is **D-012**, still open, and this decision does not reduce its urgency — it removes the case where a single array fault loses everything, and leaves the case where a single *building* fault does.
+
+Reversible in one line of `lms.env` if a dedicated external disk is added later.
+
+> **Volumes:** 12 TB array = `disk10` (4 × 4 TB, single-parity), one volume `MacStudioHD`. Internal = `disk0`, `Macintosh HD - Data`.
+> **Backup target:** `$HOME/LMS/backup` — internal SSD, different device from the array · Sept 10 2026
+> **Approved to encrypt in place:** n/a — the array was already encrypted (D-019); the internal volume is under FileVault
+> **Date:** Sept 10 2026
 
 ### D-012 — Off-site backup target
 **Status:** OPEN · blocks Phase 8 item 5 · client item **C6**

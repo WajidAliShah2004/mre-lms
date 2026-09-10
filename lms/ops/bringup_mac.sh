@@ -167,7 +167,18 @@ export LMS_DB="$RAID_ROOT/LMS/lms.db"
 # carry their own copy, this variable was missing from this file entirely, and
 # the interactive runs and the nightly job ended up writing to two different
 # repositories while both reported success (D-035).
-export LMS_BACKUP_REPO="$RAID_ROOT/LMS/LMS_backup"
+#
+# ON THE INTERNAL DISK, NOT THE ARRAY. `diskutil list` on Sept 10 showed the
+# 12 TB array is four 4 TB disks presented as ONE device (disk10) carrying ONE
+# volume (MacStudioHD). There is no second partition and no room to make a
+# meaningful one: anything carved out of that container shares the physical
+# store, so it dies with the enclosure, the controller, or the filesystem.
+# Single-parity RAID survives one disk failing; it is not a backup.
+#
+# The internal SSD is different hardware, so this genuinely survives the array
+# failing. It does NOT survive the machine — theft, fire, or the Mac dying take
+# both copies. That is D-012's job and it is still open.
+export LMS_BACKUP_REPO="$HOME/LMS/backup"
 export TZ="America/New_York"
 # The interpreter every launchd job must name explicitly. Never "python3".
 export LMS_PYTHON="$PY"

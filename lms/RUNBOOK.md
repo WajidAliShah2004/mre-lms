@@ -233,17 +233,26 @@ backup immediately afterwards:
 ./ops/set_backup_password.py     # generates, stores, verifies, prints once
 ```
 
-## What this backup does not protect against yet
+## Where it lives, and what that covers
 
-The repository is on **the same volume as the archive** (D-011 unanswered —
-nobody has said which volume is the mirror). It survives a bad delete, a
-corrupted database, or a classification run gone wrong. It does not survive
-the disk: both copies die together.
+`$HOME/LMS/backup` — the **internal SSD**, deliberately not the array.
 
-There is **no off-machine copy** (D-012 unanswered). A local repository does
-not survive theft or fire. The blocker is not technical — an off-machine
-target means client tax and NPI data leaving the premises, and that needs
-Matthew's decision in writing.
+`diskutil list` (Sept 10): the 12 TB array is `disk10`, four 4 TB disks
+presented as one device carrying one volume, `MacStudioHD`. There is no second
+partition and no useful one to make — anything inside that container shares the
+physical store. Single-parity RAID survives one disk failing; it is not a
+backup, and does nothing about the enclosure, the controller, filesystem
+corruption, a bad delete, or theft.
+
+So: **this survives the array failing.** It does not survive the machine.
+Theft, fire, or the Mac dying takes both copies, because both are inside it.
+
+There is still **no off-machine copy** — D-012, open. The blocker is not
+technical: an off-machine target means client tax and NPI data leaving the
+premises, and that needs Matthew's decision in writing.
+
+If a dedicated external disk is ever added, change one line in `ops/lms.env`
+and re-run `./ops/backup.py`. The same-volume check will confirm it.
 
 `./ops/verify_setup.py` check [8] reports both every time it runs.
 
