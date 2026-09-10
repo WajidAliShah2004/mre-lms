@@ -152,6 +152,40 @@ def test_a_known_domain_is_not_a_lookalike_of_itself(reg):
     assert ingest.phishing_check(art, reg) is None
 
 
+def test_two_of_his_own_domains_are_not_lookalikes_of_each_other(reg):
+    """The second reason the first live run quarantined everything:
+
+        SUSPECTED_PHISHING: sender 'mrecai.com' is a look-alike of 'mleca.com'
+
+    Both are Matthew's. MRECAI and MLECA are deliberately similar brand names
+    and happen to be edit distance 2 apart. The old guard only excused a domain
+    from being a look-alike of ITSELF, so his real domains impersonated each
+    other forever.
+    """
+    known = sorted({d for ent in reg.entities.values() for d in ent.domains})
+    for d in known:
+        art = Artifact(sender=f'"Matthew R. Epstein" <matthew@{d}>',
+                       subject="Re: SIGNATURE PAGE", body="Signed, attached.")
+        assert ingest.phishing_check(art, reg) is None, (
+            f"{d} is one of ours and cannot be impersonating one of ours")
+
+
+def test_the_entity_domains_really_are_close_together(reg):
+    """Guards the test above against becoming vacuous.
+
+    If entities.yaml is ever edited so no two domains are within the edit
+    distance, the assertion above would pass for the wrong reason and stop
+    protecting anything.
+    """
+    import itertools
+    known = sorted({d for ent in reg.entities.values() for d in ent.domains})
+    close = [(a, b) for a, b in itertools.combinations(known, 2)
+             if ingest._confusable(a, b, 2)]
+    assert close, (
+        "no two entity domains are within edit distance 2 any more — the "
+        "look-alike regression test above is no longer exercising anything")
+
+
 def test_an_actual_lookalike_is_still_caught(reg):
     """The check must still do its job — this is the one case that matters."""
     known = sorted({d for ent in reg.entities.values() for d in ent.domains})

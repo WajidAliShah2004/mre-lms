@@ -128,11 +128,22 @@ def phishing_check(art: Artifact, registry: Registry,
     # returned `mrecai.com>`, which is edit distance 1 from `mrecai.com` — so
     # every message from a domain we know was flagged as impersonating itself.
     sender_domain = addressing.domain(art.sender)
-    if sender_domain:
-        known = {d.lower() for e in registry.entities.values() for d in e.domains}
+    known = {d.lower() for e in registry.entities.values() for d in e.domains}
+
+    # A domain that IS one of ours cannot be impersonating one of ours.
+    #
+    # Matthew runs MRECAI and MLECA, and `mrecai.com` is edit distance 2 from
+    # `mleca.com` — deliberately similar brand names, both legitimate, both in
+    # entities.yaml. The per-domain `sender_domain != domain` guard only
+    # excused a domain from being a look-alike of ITSELF, so every message from
+    # mrecai.com was quarantined as an impersonation of mleca.com, permanently.
+    #
+    # The check answers "is this pretending to be someone we know". An exact
+    # match is not pretending. It is the answer.
+    if sender_domain and sender_domain not in known:
         for domain in known:
-            if sender_domain != domain and _confusable(sender_domain, domain,
-                                                       rules["lookalike"]["max_edit_distance"]):
+            if _confusable(sender_domain, domain,
+                           rules["lookalike"]["max_edit_distance"]):
                 return (f"SUSPECTED_PHISHING: sender {sender_domain!r} is a "
                         f"look-alike of {domain!r}")
 
