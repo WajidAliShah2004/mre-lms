@@ -134,6 +134,32 @@ def row_counts(db_path: Path) -> dict[str, int]:
 # reported verbatim rather than guessed at.
 _SEC_ITEM_NOT_FOUND = 44
 
+# The repository password is the only thing protecting client tax and NPI data
+# in an off-machine copy. `security add-generic-password -w` accepts an empty
+# value in silence — it happened on the first real run here, and restic would
+# then have initialised the repository with an empty passphrase and reported
+# success. An encrypted-at-rest backup whose key is "" is a plaintext backup
+# with extra steps.
+MIN_PASSWORD_CHARS = 12
+
+_CREATE_HINT = f"""    # 1. put a long random passphrase on the clipboard
+    LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 40 | pbcopy
+
+    # 2. paste it at BOTH prompts (nothing is echoed — paste, do not type)
+    security add-generic-password -a "$USER" -s {KEYCHAIN_SERVICE} -w
+
+    # 3. prove it took. Anything under {MIN_PASSWORD_CHARS} means it did not.
+    security find-generic-password -s {KEYCHAIN_SERVICE} -w | tr -d '\\n' | wc -c
+
+  No value after -w, so the secret never reaches your shell history or the
+  process table. The clipboard holds it briefly instead, which is the lesser
+  exposure of the two.
+
+  THEN PUT IT IN THE PASSWORD MANAGER, BEFORE THE FIRST BACKUP RUNS.
+  restic has no recovery path. If this passphrase is lost, every snapshot in
+  the repository is permanently unreadable — the backup will still be there,
+  still be encrypted, and be of no use to anyone."""
+
 
 def restic_password() -> str:
     """From the Keychain. Never from a file, an env var in lms.env, or a plist.
@@ -148,13 +174,20 @@ def restic_password() -> str:
     r = subprocess.run(cmd, capture_output=True, text=True)
 
     if r.returncode == 0 and r.stdout.strip():
-        return r.stdout.rstrip("\n")
+        password = r.stdout.rstrip("\n")
+        if len(password) < MIN_PASSWORD_CHARS:
+            raise BackupError(
+                f"the {KEYCHAIN_SERVICE!r} password is {len(password)} "
+                f"characters. This key is the only thing protecting client tax "
+                f"and NPI data in an off-machine copy — a short one makes the "
+                f"encryption decorative.\n"
+                f"Replace it:\n"
+                f"    security delete-generic-password -s {KEYCHAIN_SERVICE}\n"
+                f"{_CREATE_HINT}")
+        return password
 
     stderr = r.stderr.strip()
-    create = (f'    security add-generic-password -a "$USER" '
-              f"-s {KEYCHAIN_SERVICE} -w\n"
-              f"  (no value after -w — it prompts, so the secret stays out of "
-              f"your shell history and the process table)")
+    create = _CREATE_HINT
 
     if r.returncode == _SEC_ITEM_NOT_FOUND:
         raise BackupError(

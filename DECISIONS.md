@@ -656,7 +656,21 @@ Both on `MacStudioHD`. That survives a bad delete, a corrupted database, or a cl
 
 Detected with `st_dev`, not by comparing path strings: `/Volumes/MacStudioHD/LMS` and `/Volumes/MacStudioHD_backup` look unrelated and can be one device. The check also has to work before the repo directory exists, since restic creates it on first run — otherwise the warning would never fire on the one run where it matters most.
 
-Not fatal, deliberately. A same-volume repository is better than none, and refusing to run would leave the machine with no backup at all while **D-011 is open** — nobody has yet said which volume is the mirror. So it warns, loudly, every run, and names D-011 as the thing that unblocks it. **206 passed.**
+Not fatal, deliberately. A same-volume repository is better than none, and refusing to run would leave the machine with no backup at all while **D-011 is open** — nobody has yet said which volume is the mirror. So it warns, loudly, every run, and names D-011 as the thing that unblocks it.
+
+**Third correction, and the improved error message caught it on its first run.** With the diagnostics fixed, the script said:
+
+> *`security` reported success for 'lms/restic-repo' but returned an empty password.*
+
+`security add-generic-password -w` had **accepted an empty password in silence**. Exit 0, nothing stored. Confirmed directly: `security find-generic-password -s lms/restic-repo -w; echo "exit=$?"` printed a blank line and `exit=0`.
+
+Left alone, restic would have initialised the repository with an empty passphrase and reported success. **An encrypted-at-rest backup whose key is `""` is a plaintext backup with extra steps** — and the encryption is the entire mitigation for D-012's off-machine copy, the one that lets client tax and NPI data leave the premises at all. The mitigation would have been nominally in place and worth nothing.
+
+So `restic_password()` now enforces a 12-character floor, and the creation hint generates a 40-character passphrase to the clipboard rather than asking someone to type one — paste it at both prompts, and the secret never touches shell history or the process table. The hint ends with the thing nobody says out loud until it is too late: **restic has no recovery path.** Lose the passphrase and every snapshot is permanently unreadable — still there, still encrypted, useless. It belongs in Matthew's password manager before the first backup runs, which makes it a C7-adjacent custody question rather than a detail of this script.
+
+Added **[8] Backup readiness** to `verify_setup.py`: restic present, the password readable and long enough, and whether the repo shares a volume with the archive. Every one of those is something the 02:30 job would otherwise discover alone, in a log nobody reads, on the night it mattered. Platform-guarded like [7] — off a Mac it reports the platform rather than failing forever.
+
+**206 passed.**
 
 ### D-014 — Call transcripts are the first thing cut if the week slips
 **Status:** Decided (contingency) · [GUIDELINES_7DAY_BUILD.md:40](GUIDELINES_7DAY_BUILD.md:40)

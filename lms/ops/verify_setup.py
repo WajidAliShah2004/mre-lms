@@ -34,6 +34,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 from datetime import datetime, timedelta
@@ -367,6 +368,65 @@ def check_readers_available() -> None:
              "scan needs Vision and it is missing")
 
 
+def check_backup_ready() -> None:
+    """Can this machine actually take a backup tonight?
+
+    Every part of this is something the 02:30 job would otherwise discover on
+    its own, in a log nobody reads, on the night it was needed. The Keychain
+    item in particular failed silently on the first real run: `security
+    add-generic-password -w` accepted an EMPTY password without complaint, and
+    restic would have initialised the repository with an empty passphrase and
+    reported success.
+    """
+    print("\n[8] Backup readiness")
+
+    # The Keychain is macOS-only, so off a Mac this section can only ever
+    # report the platform back at you. Same reasoning as [7]: a check that
+    # always fails somewhere it cannot pass trains people to skip the section
+    # that also carries the real failures.
+    if sys.platform != "darwin":
+        warn(f"backup readiness is not checkable on {sys.platform} — the "
+             f"Keychain and the target volume are macOS-only")
+        return
+
+    if shutil.which("restic") is None:
+        fail("restic is not installed — there is no backup on this machine. "
+             "`brew install restic`")
+    else:
+        v = subprocess.run(["restic", "version"], capture_output=True, text=True)
+        ok(f"restic present ({v.stdout.split()[1] if v.stdout.split() else '?'})")
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    try:
+        import backup as bk
+    except Exception as exc:
+        fail(f"could not import ops/backup.py: {exc}")
+        return
+
+    try:
+        pw = bk.restic_password()
+    except Exception as exc:
+        first = str(exc).splitlines()[0]
+        fail(f"repository password: {first}")
+    else:
+        ok(f"repository password present ({len(pw)} chars) — and it is in "
+           f"Matthew's password manager, yes? restic has no recovery path.")
+
+    archive = os.environ.get("LMS_ARCHIVE_ROOT")
+    if not archive:
+        warn("LMS_ARCHIVE_ROOT unset — cannot check where the repo would go")
+        return
+    archive = Path(archive).resolve()
+    repo = Path(os.environ.get("LMS_BACKUP_REPO",
+                               archive.parent / "LMS_backup")).resolve()
+    if bk.same_volume(archive, repo):
+        warn(f"the repo ({repo}) is on the SAME VOLUME as the archive. It "
+             f"survives a mistake, not the disk. Blocked on D-011 — nobody has "
+             f"said which volume is the mirror.")
+    else:
+        ok(f"repo is on a different volume from the archive")
+
+
 # ---------------------------------------------------------------------------
 
 def main() -> int:
@@ -383,6 +443,7 @@ def main() -> int:
     check_no_cloud_provider()
     check_dst_boundary()
     check_readers_available()
+    check_backup_ready()
     if not args.skip_openclaw:
         check_openclaw_drift()
         check_lmstudio_loopback()
