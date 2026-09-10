@@ -859,7 +859,15 @@ Only the **first** `Authentication-Results` header is read. Everything below the
 
 **Two things arrive from strangers and are treated accordingly.** Attachment filenames are rebuilt from an allowlist rather than filtered for known-bad — `../../.ssh/authorized_keys` is a legal MIME filename, and a blocklist here is a bet that we thought of every encoding. And attachments are fetched only by suffix and under 25MB, which is not a security control (the read-only scope is) but a "do not download 60MB of video in order to OCR it" control.
 
-**287 passed, 1 xfailed** — 31 new tests. Still unrun against a live mailbox; that is the next thing, and on this project's record it is where the defects are.
+**A signature block is not nine documents.** The first `--dry-run` against the real mailbox — before anything was written — showed `image001.gif` through `image009.png` on every message Matthew sends. Gmail reports each of them **exactly** the way it reports an invoice PDF: an attachmentId, a filename, a size. The first real run would have downloaded all nine, sent each to Vision to have a logo OCR'd, and filed nine junk artifacts per email.
+
+What separates them is `Content-ID`: the body references the part as `<img src="cid:…">`, so it is drawn *inside* the message rather than attached *to* it. `Content-Disposition: inline` is accepted as the same signal. A part with **neither** header is treated as a real attachment — filing one stray image costs a document in the review queue, and the opposite mistake silently drops an invoice; only one of those is recoverable.
+
+`Message.attachments` still keeps everything, because the raw parse should not throw information away. `Message.real_attachments` is what every caller uses. Inline parts are not reported as skipped either — nine `[SKIPPED]` lines per email would bury the one that matters.
+
+**This is why `--dry-run` exists**, and it is the first time on this project a defect was caught before it reached the archive rather than after. Twelve of the previous thirteen were found by reading output that had already been written.
+
+**292 passed, 1 xfailed** — 36 new tests.
 
 ### D-039 — Mail arrives over OAuth, and the scope is the security boundary
 **Status:** Built · Sept 10 2026 · supersedes the Aug 5 access plan

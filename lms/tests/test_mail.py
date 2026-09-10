@@ -93,6 +93,95 @@ def test_a_zero_byte_attachment_is_reported_not_silently_skipped():
 
 
 # ---------------------------------------------------------------------------
+# A signature block is not nine documents
+#
+# Found on the first dry run against the real mailbox, before anything was
+# written. Every message Matthew sends carries image001.gif .. image009.png —
+# the logo, the social icons, a divider — and Gmail reports each one exactly
+# the way it reports an invoice PDF: attachmentId, filename, size. Ingesting
+# them would have put nine junk artifacts in the archive per email, each one
+# sent to Vision to have a logo OCR'd.
+# ---------------------------------------------------------------------------
+
+def part(filename, *, cid=None, disposition=None, mime="image/gif", size=1200):
+    headers = [{"name": "Content-Type", "value": f"{mime}; name={filename}"}]
+    if cid:
+        headers.append({"name": "Content-ID", "value": cid})
+    if disposition:
+        headers.append({"name": "Content-Disposition",
+                        "value": f"{disposition}; filename={filename}"})
+    return {"mimeType": mime, "filename": filename, "headers": headers,
+            "body": {"attachmentId": f"id-{filename}", "size": size}}
+
+
+SIGNATURE_MAIL = {
+    "id": "sig1", "threadId": "t", "payload": {
+        "mimeType": "multipart/related",
+        "headers": [
+            {"name": "From", "value": '"Matthew R. Epstein" <matthew@mrecai.com>'},
+            {"name": "To", "value": "adjuster@statefarm.com"},
+            {"name": "Subject", "value": "Re: Policy Notice-State Farm"},
+        ],
+        "parts": [
+            {"mimeType": "text/plain", "headers": [],
+             "body": {"data": b64("Attached, as requested.")}},
+            part("Requested Document(s) #1.pdf", mime="application/pdf",
+                 disposition="attachment", size=88000),
+            part("image001.gif", cid="<image001.gif@01DC1234.5678>"),
+            part("image002.gif", cid="<image002.gif@01DC1234.5678>"),
+            part("image007.png", cid="<image007.png@01DC1234.5678>", mime="image/png"),
+        ],
+    },
+}
+
+
+def test_a_signature_logo_is_not_an_attachment():
+    msg = gmail.parse_message(SIGNATURE_MAIL)
+    assert len(msg.attachments) == 4, "the raw parse keeps everything"
+    assert [a.filename for a in msg.real_attachments] == [
+        "Requested Document(s) #1.pdf"], (
+        "nine signature images per email is the difference between an archive "
+        "and a junk drawer")
+
+
+def test_content_disposition_inline_is_enough_on_its_own():
+    p = part("banner.png", disposition="inline", mime="image/png")
+    assert gmail.is_inline(p)
+
+
+def test_a_part_with_no_disposition_is_treated_as_a_real_attachment():
+    """Some senders emit neither header. Filing one stray image costs a
+    document in the review queue; the opposite mistake silently drops an
+    invoice, and only one of those is recoverable."""
+    assert not gmail.is_inline(part("scan.pdf", mime="application/pdf"))
+
+
+def test_the_rendered_email_does_not_list_signature_images():
+    text = mail.render_message(gmail.parse_message(SIGNATURE_MAIL))
+    assert "Attachments: Requested Document(s) #1.pdf" in text
+    assert "image001" not in text
+
+
+def test_inline_images_are_not_reported_as_skipped(tmp_path):
+    """They are body content. Nine [SKIPPED] lines per email would bury the
+    one that matters."""
+    conn = db.connect(tmp_path / "lms.db")
+    roots = filing.StorageRoots(archive=tmp_path / "a", originals=tmp_path / "o",
+                                quarantine=tmp_path / "q")
+    roots.ensure()
+    reg = load_registry(CONFIG)
+    clf = Classifier(reg, client=StubModel(ANSWER))
+    client = GmailClient(FakeTransport(
+        {"sig1": SIGNATURE_MAIL},
+        {"id-Requested Document(s) #1.pdf": b"%PDF-1.4 not really\n"}))
+
+    res = mail.ingest_message(conn, roots, reg, clf, client,
+                              client.fetch("sig1"), spool=tmp_path / "spool")
+    assert res.skipped == []
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
 # Authentication-Results
 # ---------------------------------------------------------------------------
 

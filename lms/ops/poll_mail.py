@@ -101,7 +101,9 @@ def main() -> int:
         print(f"{len(messages)} message(s) in the last {args.days}d "
               f"for {args.address}\n")
         for m in messages:
-            atts = ", ".join(a.filename for a in m.attachments) or "—"
+            # real_attachments: signature logos are body content, and listing
+            # them here is what hid the fact that they were about to be filed.
+            atts = ", ".join(a.filename for a in m.real_attachments) or "—"
             print(f"  {(m.date or '')[:10]}  {m.sender[:38]:38}  "
                   f"{(m.subject or '(no subject)')[:44]:44}  {atts}")
         print("\nNothing was written. Drop --dry-run to file these.")

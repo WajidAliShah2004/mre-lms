@@ -94,6 +94,12 @@ class Attachment:
     filename: str
     mime_type: str
     size: int
+    # True when the part is embedded in the HTML body rather than attached to
+    # the message — a signature logo, a social icon, a spacer. Gmail reports
+    # these identically to real attachments, right down to a filename, and the
+    # only thing separating them is that something in the body says
+    # `<img src="cid:...">`.
+    inline: bool = False
 
 
 @dataclass(frozen=True)
@@ -118,6 +124,17 @@ class Message:
     @property
     def sender_domain(self) -> str:
         return self.sender.rpartition("@")[2].strip(">").lower()
+
+    @property
+    def real_attachments(self) -> list[Attachment]:
+        """What a person would call the attachments.
+
+        `attachments` is everything Gmail reports, inline signature images
+        included, because the raw parse should not throw information away. This
+        is the list every caller actually wants: what was attached TO the
+        message, as opposed to what is drawn INSIDE it.
+        """
+        return [a for a in self.attachments if not a.inline]
 
 
 # ---------------------------------------------------------------------------
@@ -235,6 +252,33 @@ def extract_body(payload: dict) -> tuple[str, bool]:
     return "\n".join(h for h in html if h).strip(), True
 
 
+def is_inline(part: dict) -> bool:
+    """True when this part is part of the BODY, not attached to the message.
+
+    Found on the first dry run against Matthew's real mailbox. His signature
+    block carries nine images — `image001.gif` through `image009.png` — and
+    Gmail reports every one of them exactly the way it reports an invoice PDF:
+    an attachmentId, a filename, a size. Ingesting them would have put nine
+    junk documents in the archive for every email he sends, each one sent to
+    Vision to have a logo OCR'd.
+
+    Two signals, either sufficient:
+
+      * `Content-ID` — the body references it as `<img src="cid:...">`. This is
+        what Outlook and Gmail both emit for signature images.
+      * `Content-Disposition: inline` — the sender saying so directly.
+
+    A real attachment carries `Content-Disposition: attachment`, or no
+    disposition at all. When neither signal is present we treat it as a real
+    attachment: the cost of filing one stray image is a document in the review
+    queue, and the cost of the opposite mistake is silently dropping an invoice.
+    """
+    h = {k.lower(): v for k, v in _headers(part).items()}
+    if h.get("content-id") or h.get("x-attachment-id"):
+        return True
+    return h.get("content-disposition", "").strip().lower().startswith("inline")
+
+
 def extract_attachments(payload: dict) -> list[Attachment]:
     out = []
     for part in _walk(payload):
@@ -247,6 +291,7 @@ def extract_attachments(payload: dict) -> list[Attachment]:
             filename=part.get("filename") or "(unnamed)",
             mime_type=part.get("mimeType", "application/octet-stream"),
             size=int(body.get("size") or 0),
+            inline=is_inline(part),
         ))
     return out
 

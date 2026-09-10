@@ -121,8 +121,8 @@ def render_message(msg: Message) -> str:
         f"Subject: {msg.subject}",
         f"Message-ID: {msg.headers.get('Message-ID', msg.message_id)}",
     ]
-    if msg.attachments:
-        names = ", ".join(a.filename for a in msg.attachments)
+    if msg.real_attachments:
+        names = ", ".join(a.filename for a in msg.real_attachments)
         lines.append(f"Attachments: {names}")
     return "\n".join(lines) + "\n\n" + (msg.body or "")
 
@@ -147,7 +147,7 @@ def _artifact_for(msg: Message, registry: Registry) -> tuple[Artifact, dict]:
         source="email",
         source_ref=msg.message_id,
         received_date=(msg.date or "")[:10] or None,
-        attachments=[a.filename for a in msg.attachments],
+        attachments=[a.filename for a in msg.real_attachments],
         is_html=False,                      # extract_body already un-HTMLed it
         headers=msg.headers,
     )
@@ -179,7 +179,7 @@ def ingest_message(conn, roots: filing.StorageRoots, registry: Registry,
         artifact=art, auth_results=auth,
     )
 
-    if not with_attachments or not msg.attachments:
+    if not with_attachments or not msg.real_attachments:
         return result
 
     # An attachment whose parent was quarantined still gets ingested. The
@@ -187,7 +187,11 @@ def ingest_message(conn, roots: filing.StorageRoots, registry: Registry,
     # attached to it, and the invoice is usually the document that matters.
     parent_id = _artifact_id(conn, result.email)
 
-    for att in msg.attachments:
+    # real_attachments, not attachments: inline signature images are body
+    # content and are not reported as skipped, because a person looking at the
+    # message would not call them attachments in the first place. Nine
+    # [SKIPPED] lines per email would bury the one that matters.
+    for att in msg.real_attachments:
         reason = _unfetchable(att)
         if reason:
             result.skipped.append(f"{att.filename}: {reason}")
