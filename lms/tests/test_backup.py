@@ -209,6 +209,28 @@ def test_growth_since_the_snapshot_does_not_fail_the_sidecar_check(tmp_path):
     assert restore_test.failures == [], restore_test.failures
 
 
+def test_a_catalogue_only_snapshot_says_so(tmp_path, capsys):
+    """`restore latest` takes the newest snapshot, and the nightly job runs
+    without --documents — so the newest is normally the catalogue alone.
+
+    "Restore verified, the backup is usable" would otherwise read as "the
+    documents are safe", which for that snapshot is false.
+    """
+    tree = with_manifest(restored_tree(tmp_path, sidecars=2),
+                         sidecars=2, documents_included=False)
+    verify_restore(tree, {"artifacts": 5}, 2)
+    out = capsys.readouterr().out
+    assert "CATALOGUE ONLY" in out
+    assert restore_test.failures == [], "it is a caveat, not a failure"
+
+
+def test_a_full_snapshot_says_the_documents_are_in_it(tmp_path, capsys):
+    tree = with_manifest(restored_tree(tmp_path, sidecars=2),
+                         sidecars=2, documents_included=True)
+    verify_restore(tree, {"artifacts": 5}, 2)
+    assert "includes the filed documents" in capsys.readouterr().out
+
+
 def test_a_snapshot_with_no_manifest_still_verifies(tmp_path):
     """Repositories written before manifests existed must still be checkable.
 

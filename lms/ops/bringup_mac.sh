@@ -158,12 +158,16 @@ export LMS_ARCHIVE_ROOT="$ARCHIVE"
 export LMS_ORIGINALS_ROOT="$ORIGINALS"
 export LMS_QUARANTINE_ROOT="$QUARANTINE"
 export LMS_INBOX="$INBOX"
-export LMS_DB="$ARCHIVE/../lms.db"
+# Written from $RAID_ROOT/LMS, not as "$ARCHIVE/../". Both resolve to the same
+# directory, but a path containing ".." cannot be eyeballed against another
+# path, and telling two repository locations apart by eye is exactly what was
+# needed to notice they had diverged.
+export LMS_DB="$RAID_ROOT/LMS/lms.db"
 # The restic repository. Declared HERE and nowhere else — the plists used to
 # carry their own copy, this variable was missing from this file entirely, and
 # the interactive runs and the nightly job ended up writing to two different
 # repositories while both reported success (D-035).
-export LMS_BACKUP_REPO="$ARCHIVE/../LMS_backup"
+export LMS_BACKUP_REPO="$RAID_ROOT/LMS/LMS_backup"
 export TZ="America/New_York"
 # The interpreter every launchd job must name explicitly. Never "python3".
 export LMS_PYTHON="$PY"

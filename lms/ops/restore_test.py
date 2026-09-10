@@ -184,6 +184,23 @@ def verify_restore(restored: Path, live_counts: dict[str, int] | None,
              f"manifest this cannot distinguish loss from documents filed "
              f"since the snapshot. Take a fresh backup and re-run.")
 
+    # Say what KIND of snapshot this was.
+    #
+    # `restore latest` takes whatever ran most recently, and the nightly job
+    # runs without --documents. So the newest snapshot is normally the
+    # catalogue alone — and "Restore verified, the backup is usable" would
+    # otherwise read as "the documents are safe", which for that snapshot is
+    # false. The manifest knows; there is no reason to leave the reader
+    # inferring it.
+    if manifest is not None and "documents_included" in manifest:
+        if manifest["documents_included"]:
+            ok("this snapshot includes the filed documents")
+        else:
+            warn("this snapshot is the CATALOGUE ONLY — no filed documents. "
+                 "Restoring it gives a perfect index of files it cannot "
+                 "produce. Run `backup.py --documents` if the documents need "
+                 "to be recoverable from here.")
+
     entities = find_restored(restored, "entities.yaml")
     if entities is None:
         fail("config/entities.yaml is missing — a restore without it can hold "

@@ -732,6 +732,14 @@ The backup plist now carries only what launchd cannot supply any other way — `
 
 This is the same shape as D-032 — the check and the thing checked in different places, with nothing to notice — arriving through configuration rather than through an interpreter.
 
+**And one more thing the fix surfaced.** With a single repository, `restore latest` now picks whatever ran most recently — and the nightly job runs *without* `--documents`. So the newest snapshot is normally the catalogue alone, while the restore test signs off with:
+
+> *Restore verified — the backup is usable.*
+
+Which reads as "the documents are safe", and for that snapshot is false. The manifest already records `documents_included`; there was no reason to leave the reader inferring it. The restore test now says which kind of snapshot it checked, as a caveat rather than a failure — the catalogue-only snapshot is exactly what the spec asks for nightly, it just must not be mistaken for something else.
+
+Also: `lms.env` is written from `$RAID_ROOT/LMS` rather than `$ARCHIVE/../`. Both resolve identically, but a path containing `..` cannot be compared against another path by eye — and telling two repository locations apart by eye is precisely what was needed to notice they had diverged.
+
 Added **[8] Backup readiness** to `verify_setup.py`: restic present, the password readable and long enough, and whether the repo shares a volume with the archive. Every one of those is something the 02:30 job would otherwise discover alone, in a log nobody reads, on the night it mattered. Platform-guarded like [7] — off a Mac it reports the platform rather than failing forever.
 
 **206 passed.**
