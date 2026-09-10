@@ -884,6 +884,23 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 
 **302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
 
+### D-046 — The brief is delivered to iCloud, because Telegram is blocked and stdout is not delivery
+**Status:** Built · Sept 10 2026
+
+The brief has existed since D-034 and **nothing has ever run it.** `ops/brief.py` prints to stdout, on a machine in Matthew's office that he does not sit at. That is a function capable of producing a brief, not a brief.
+
+Telegram is the intended channel and is blocked on C2 — the app is not installed and there is no authorised sender, so there is nothing to send to and no way for him to reply `/halt`. Waiting for it means the daily rhythm he asked for on Aug 5 does not exist at all.
+
+**iCloud Drive is already on his phone**, already syncing, needs no credential and nothing from him — the same folder the photo Shortcut writes into, so both halves of the system are one folder he can see. It is worse than a push notification: he has to go and look. It is the difference between *delivered late* and *not delivered*, and it works today. When C2 lands, the job changes its command and nothing else.
+
+Delivered as `.txt`, not `.md`: the iOS Files app previews plain text inline and offers Markdown as a download, and one tap versus a download is the difference between read and unread. A dated file plus a stable `Latest brief.txt` a Home Screen bookmark can point at.
+
+**The thing that must not go wrong is marking a brief sent that never arrived.** `mark_brief_sent` moves the boundary for the next brief's "filed since last brief" section — so a false mark does not lose one brief, it removes those documents from **every future brief**, permanently, because nothing looks back. iCloud will accept a write into a directory it has not materialised and hand back a file that reads short, which is exactly how that would happen. So the file is written, read back, and compared, and only then is anything marked. A failed delivery logs `BRIEF_DELIVERY_FAILED` and leaves the window where it was, so the next run repeats the same items rather than skipping them.
+
+**Morning only.** The evening brief needs a second Label and a second plist, and it is deliberately not scheduled: two unread files a day is how a daily brief becomes something he stops opening, and until there is evidence he reads the morning one, adding a second is guessing.
+
+**404 passed, 1 xfailed.**
+
 ### D-045 — Mail runs on a schedule, and a plist may not name a path
 **Status:** Built · Sept 10 2026
 

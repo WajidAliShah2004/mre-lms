@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The morning and evening briefs.
+
+  Install:
+    cp ops/com.lms.brief.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.lms.brief.plist
+
+  Run it once by hand before trusting the schedule:
+    launchctl kickstart -p gui/$(id -u)/com.lms.brief
+
+  Stop:
+    launchctl bootout gui/$(id -u)/com.lms.brief
+
+  ONE JOB, MORNING ONLY. The evening brief needs a second Label and a second
+  file, because a plist runs one command; it is not scheduled yet, deliberately.
+  Two unread files a day is how a daily brief becomes something Matthew stops
+  opening, and until there is any evidence he reads the morning one, adding a
+  second is guessing.
+
+  06:30. The mail poll runs at 07:00, AFTER this, which is a stated compromise
+  rather than an oversight: putting a network call and twenty inference passes
+  in front of the one thing that has to arrive on time would risk delaying it.
+  Mail is therefore at most a day late reaching a brief, and the 19:00 poll
+  means most of a day is already filed by the time this runs. See
+  com.lms.mail.plist.
+
+  DELIVERY IS A FILE IN iCLOUD DRIVE, not Telegram. C2 is unanswered: the app
+  is not installed and there is no authorised sender, so there is nothing to
+  send to. iCloud is already on his phone, already syncing, and costs nothing
+  to set up. When Telegram lands this job changes its command and nothing else.
+
+  A LaunchAgent, not a LaunchDaemon: iCloud Drive is per-user and only exists
+  inside a logged-in session. A system daemon would write into a directory that
+  never syncs and report success.
+
+  StartCalendarInterval, not StartInterval: if the Mac is asleep at 06:30 the
+  job runs at the next opportunity rather than skipping the day. C8 is still
+  unanswered, so a machine sitting at a locked login screen is a live scenario.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.lms.brief</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/mleca/lms-repo/lms/.venv/bin/python</string>
+        <string>/Users/mleca/lms-repo/lms/ops/deliver_brief.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/mleca/lms-repo/lms</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <!-- NO LMS_* PATHS HERE. deliver_brief.py reads ops/lms.env itself.
+             D-035, and D-045 for the second occurrence. Enforced by
+             tests/test_plists.py. -->
+        <key>TZ</key>
+        <string>America/New_York</string>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+    </dict>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>6</integer>
+        <key>Minute</key>
+        <integer>30</integer>
+    </dict>
+
+    <!-- One-shot. It writes a file and exits. -->
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/mleca/LMS/logs/brief.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/mleca/LMS/logs/brief.err</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>Nice</key>
+    <integer>5</integer>
+</dict>
+</plist>

@@ -75,12 +75,17 @@ INBOX="$HOME/Library/Mobile Documents/com~apple~CloudDocs/LMS/inbox"
 # somewhere findable.
 MAIL_SPOOL="$RAID_ROOT/LMS/spool/mail"
 
+# Where the morning brief is delivered. iCloud Drive, beside the inbox, so both
+# halves of the system are one folder on his phone. Telegram is the intended
+# channel and is blocked on C2; this works today and needs nothing from him.
+BRIEFS="$HOME/Library/Mobile Documents/com~apple~CloudDocs/LMS/briefs"
+
 # Tree names must match entities.yaml `tree:` values exactly.
 for tree in PERSONAL/Matthew PERSONAL/Jesse PERSONAL/Mother PERSONAL/Father \
             PERSONAL/Household MRECAI CHSHINK ATLASE MLECA _UNASSIGNED _JUNK; do
   mkdir -p "$ARCHIVE/$tree"
 done
-mkdir -p "$ORIGINALS" "$QUARANTINE" "$INBOX" "$MAIL_SPOOL"
+mkdir -p "$ORIGINALS" "$QUARANTINE" "$INBOX" "$MAIL_SPOOL" "$BRIEFS"
 mkdir -p "$INBOX/business" "$INBOX/personal"
 
 # The originals store is the only copy that is never rewritten. Lock it down.
@@ -188,6 +193,7 @@ export LMS_QUARANTINE_ROOT="$QUARANTINE"
 # reported nothing at all.
 export LMS_INBOX="$INBOX"
 export LMS_MAIL_SPOOL="$MAIL_SPOOL"
+export LMS_BRIEF_DIR="$BRIEFS"
 # Written from $RAID_ROOT/LMS, not as "$ARCHIVE/../". Both resolve to the same
 # directory, but a path containing ".." cannot be eyeballed against another
 # path, and telling two repository locations apart by eye is exactly what was
@@ -245,7 +251,8 @@ if [[ -n "$_env_out" ]]; then
 fi
 
 for _v in LMS_ARCHIVE_ROOT LMS_ORIGINALS_ROOT LMS_QUARANTINE_ROOT \
-          LMS_INBOX LMS_MAIL_SPOOL LMS_DB LMS_BACKUP_REPO LMS_PYTHON TZ; do
+          LMS_INBOX LMS_MAIL_SPOOL LMS_BRIEF_DIR LMS_DB LMS_BACKUP_REPO \
+          LMS_PYTHON TZ; do
   _got="$(set +u; . "$REPO_DIR/ops/lms.env" >/dev/null 2>&1; eval "printf '%s' \"\${$_v}\"")"
   if [[ -z "$_got" ]]; then
     echo "    ERROR: ops/lms.env does not set $_v" >&2
