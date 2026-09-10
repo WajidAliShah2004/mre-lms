@@ -144,9 +144,38 @@ def test_a_signature_logo_is_not_an_attachment():
         "and a junk drawer")
 
 
-def test_content_disposition_inline_is_enough_on_its_own():
-    p = part("banner.png", disposition="inline", mime="image/png")
-    assert gmail.is_inline(p)
+def test_an_inline_image_is_body_content():
+    assert gmail.is_inline(part("banner.png", disposition="inline", mime="image/png"))
+    assert gmail.is_inline(part("logo.gif", cid="<logo@x>"))
+
+
+@pytest.mark.parametrize("headers", [
+    {"cid": "<doc@01DC1234>"},
+    {"disposition": "inline"},
+    {"cid": "<doc@01DC1234>", "disposition": "inline"},
+])
+def test_a_pdf_is_never_body_content_whatever_headers_it_carries(headers):
+    """The regression that cost two real documents.
+
+    The first version of is_inline checked only for Content-ID or an inline
+    disposition. Outlook sends genuine attachments with both — `inline` there
+    means "show this in the reading pane", not "this is decoration" — so
+    `Requested Document(s) #1.pdf` and `SIGNATURE PAGE 2022 TOYOTA.pdf`
+    vanished from the very next run. A PDF is never a signature logo.
+    """
+    p = part("Requested Document(s) #1.pdf", mime="application/pdf", **headers)
+    assert not gmail.is_inline(p)
+
+
+@pytest.mark.parametrize("mime,filename", [
+    ("application/pdf", "invoice.pdf"),
+    ("text/plain", "notes.txt"),
+    ("application/vnd.ms-excel", "ledger.xls"),
+    ("message/rfc822", "forwarded.eml"),
+])
+def test_nothing_but_an_image_is_ever_dropped_as_inline(mime, filename):
+    assert not gmail.is_inline(
+        part(filename, mime=mime, cid="<x@y>", disposition="inline"))
 
 
 def test_a_part_with_no_disposition_is_treated_as_a_real_attachment():
@@ -154,6 +183,7 @@ def test_a_part_with_no_disposition_is_treated_as_a_real_attachment():
     document in the review queue; the opposite mistake silently drops an
     invoice, and only one of those is recoverable."""
     assert not gmail.is_inline(part("scan.pdf", mime="application/pdf"))
+    assert not gmail.is_inline(part("photo.jpg", mime="image/jpeg"))
 
 
 def test_the_rendered_email_does_not_list_signature_images():

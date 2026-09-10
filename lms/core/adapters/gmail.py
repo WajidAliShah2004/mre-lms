@@ -253,28 +253,35 @@ def extract_body(payload: dict) -> tuple[str, bool]:
 
 
 def is_inline(part: dict) -> bool:
-    """True when this part is part of the BODY, not attached to the message.
+    """True when this part is drawn INSIDE the message rather than attached.
 
-    Found on the first dry run against Matthew's real mailbox. His signature
-    block carries nine images — `image001.gif` through `image009.png` — and
-    Gmail reports every one of them exactly the way it reports an invoice PDF:
-    an attachmentId, a filename, a size. Ingesting them would have put nine
-    junk documents in the archive for every email he sends, each one sent to
-    Vision to have a logo OCR'd.
+    A signature logo. `image001.gif`.
 
-    Two signals, either sufficient:
+    TWO conditions, both required, and the mime type is the important one.
 
-      * `Content-ID` — the body references it as `<img src="cid:...">`. This is
-        what Outlook and Gmail both emit for signature images.
-      * `Content-Disposition: inline` — the sender saying so directly.
+    The first version of this checked only for `Content-ID` or an inline
+    disposition, and it silently dropped two real documents on the very next
+    run — `Requested Document(s) #1.pdf` and `SIGNATURE PAGE 2022 TOYOTA.pdf`,
+    both of which had arrived from Outlook with exactly those headers. Outlook
+    routinely marks a genuine attachment `inline`; it means "show this in the
+    reading pane", not "this is decoration".
 
-    A real attachment carries `Content-Disposition: attachment`, or no
-    disposition at all. When neither signal is present we treat it as a real
-    attachment: the cost of filing one stray image is a document in the review
-    queue, and the cost of the opposite mistake is silently dropping an invoice.
+    So the disposition is not sufficient, and only an IMAGE can ever be body
+    content. A PDF is never a signature logo. Nothing that is not an image is
+    ever dropped by this function, whatever headers it carries.
+
+    That asymmetry is deliberate and it is the same one as everywhere else in
+    this pipeline: filing one stray image costs a document in the review queue,
+    and getting it wrong the other way loses an invoice silently. Only one of
+    those is recoverable, and I had already written that sentence in a comment
+    before writing the code that violated it.
     """
+    mime = (part.get("mimeType") or "").lower()
+    if not mime.startswith("image/"):
+        return False
+
     h = {k.lower(): v for k, v in _headers(part).items()}
-    if h.get("content-id") or h.get("x-attachment-id"):
+    if h.get("content-id"):
         return True
     return h.get("content-disposition", "").strip().lower().startswith("inline")
 
