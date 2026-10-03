@@ -885,7 +885,7 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 **302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
 
 ### D-057 — C16 narrowed: three legal names filled; EINs live on the Mac, never in git
-**Status:** Built · Oct 3 2026
+**Status:** Built and applied · Oct 3 2026 — on the Mac the local file loads all three EINs, placeholders down to B_CHS, P_AE, P_PE, and git does not see the file
 
 Matthew's Business Owner Records (Sept 27) gave legal names and EINs for three of the four businesses: **MRE Consulting & Insurance LLC** (DBA MRECAI), **MLE Consulting Agency LLC**, **Atlase AI Inc.** Their legal names, the owner record's short name "MRE C&I", the broker licence number and "Matthew Ryan Epstein" are now in `config/entities.yaml` as names and match aliases.
 
