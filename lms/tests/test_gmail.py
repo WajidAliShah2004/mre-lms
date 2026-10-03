@@ -265,3 +265,45 @@ def test_gives_up_after_tries():
     with pytest.raises(_FakeHttpError):
         _with_backoff(call, tries=3, sleep=waits.append)
     assert waits == [2.0, 4.0]
+
+
+# --- Oct 3: the backoff was silent, so it looked hung and was Ctrl-C'd -------
+
+def test_backoff_says_it_is_waiting():
+    from core.adapters.gmail import _with_backoff
+    calls, notes = [], []
+    def call():
+        calls.append(1)
+        if len(calls) < 2:
+            raise _FakeHttpError(429, "Too many requests")
+        return 1
+    _with_backoff(call, sleep=lambda s: None, note=notes.append)
+    assert len(notes) == 1
+    assert "rate limit" in notes[0] and "2s" in notes[0]
+
+
+def test_backoff_outlasts_a_per_minute_quota_by_default():
+    # The quota is "units per minute per user". Giving up before a full
+    # minute has passed gives up before the quota can possibly have reset.
+    import pytest
+    from core.adapters.gmail import _with_backoff
+    waits = []
+    def call():
+        raise _FakeHttpError(429, "Too many requests")
+    with pytest.raises(_FakeHttpError):
+        _with_backoff(call, sleep=waits.append, note=lambda m: None)
+    assert sum(waits) > 120
+
+
+def test_pacer_spaces_calls_out():
+    from core.adapters.gmail import _Pacer
+    now = [0.0]
+    slept = []
+    def sleep(s):
+        slept.append(round(s, 3)); now[0] += s
+    p = _Pacer(min_interval=0.1, clock=lambda: now[0], sleep=sleep)
+    p.wait(); p.wait(); p.wait()
+    assert slept == [0.1, 0.1]
+    now[0] += 5                     # a long gap needs no wait
+    p.wait()
+    assert slept == [0.1, 0.1]

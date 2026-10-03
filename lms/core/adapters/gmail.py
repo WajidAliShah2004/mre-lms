@@ -170,10 +170,16 @@ def _is_retryable(exc: Exception) -> bool:
     return status == 403 and any(r in str(exc) for r in _RETRY_REASONS)
 
 
-def _with_backoff(call, *, tries: int = 6, first_wait: float = 2.0,
-                  sleep=None):
+def _with_backoff(call, *, tries: int = 8, first_wait: float = 2.0,
+                  sleep=None, note=None):
+    """Retry `call` on rate limits. 2+4+...+64+64 = 190s before giving up:
+    the quota is per MINUTE, so anything shorter can give up before it has
+    reset. Each wait is announced — a silent sleep looks like a hang, and on
+    Oct 3 one was Ctrl-C'd as one."""
+    import sys
     import time
     sleep = sleep or time.sleep
+    note = note or (lambda m: print(m, file=sys.stderr, flush=True))
     wait = first_wait
     for attempt in range(tries):
         try:
@@ -181,8 +187,36 @@ def _with_backoff(call, *, tries: int = 6, first_wait: float = 2.0,
         except Exception as exc:              # googleapiclient.errors.HttpError
             if attempt == tries - 1 or not _is_retryable(exc):
                 raise
+            note(f"Gmail rate limit — waiting {wait:.0f}s and retrying "
+                 f"(attempt {attempt + 2} of {tries})")
             sleep(wait)
             wait = min(wait * 2, 64.0)
+
+
+class _Pacer:
+    """At most one call per `min_interval` seconds.
+
+    messages.get costs 5 quota units. At 10 calls/s that is 3,000 units a
+    minute, a fifth of Gmail's default per-user limit — so a catch-up of
+    several hundred messages stays under it instead of relying on backoff.
+    """
+
+    def __init__(self, min_interval: float = 0.1, clock=None, sleep=None):
+        import time
+        self._min = min_interval
+        self._clock = clock or time.monotonic
+        self._sleep = sleep or time.sleep
+        self._last: float | None = None
+
+    def wait(self) -> None:
+        now = self._clock()
+        if self._last is not None:
+            gap = self._min - (now - self._last)
+            if gap > 0:
+                self._sleep(gap)
+                now = self._clock()
+        self._last = now
+
 
 class GoogleTransport:
     """The real one. Imports the Google libraries lazily.
@@ -196,6 +230,7 @@ class GoogleTransport:
         self._creds = credentials
         self._user = user_id
         self._service = None
+        self._pace = _Pacer()
 
     def _svc(self):
         if self._service is None:
@@ -221,6 +256,7 @@ class GoogleTransport:
         return out[:limit]
 
     def get(self, message_id: str) -> dict:
+        self._pace.wait()
         return _with_backoff(lambda: self._svc().users().messages().get(
             userId=self._user, id=message_id, format="full").execute())
 
@@ -233,8 +269,9 @@ class GoogleTransport:
         is why the message body can be fetched cheaply and the 40MB PDF only
         when we have decided we want it.
         """
-        resp = self._svc().users().messages().attachments().get(
-            userId=self._user, messageId=message_id, id=attachment_id).execute()
+        self._pace.wait()
+        resp = _with_backoff(lambda: self._svc().users().messages().attachments().get(
+            userId=self._user, messageId=message_id, id=attachment_id).execute())
         return base64.urlsafe_b64decode(resp.get("data", "").encode("ascii"))
 
 
