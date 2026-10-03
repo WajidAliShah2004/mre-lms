@@ -214,3 +214,18 @@ def test_phase6c_is_only_the_mode_switch():
     text = _patch_text("phase6c.patch.json5")
     code = "\n".join(l.split("//", 1)[0] for l in text.splitlines())
     assert re.sub(r"\s+", "", code) == '{models:{mode:"replace"},}'
+
+
+def test_phase6b_cost_has_every_field_the_catalog_schema_requires():
+    """Oct 3: `cost: { input: 0, output: 0 }` passed `config patch` validation
+    but the per-agent model catalog (plugins/lmstudio/catalog.json) rejected it:
+    "cost.cacheRead: must have required properties cacheRead, cacheWrite".
+    The catalog then failed to load and every built-in cloud model reappeared
+    in `models list --all`, which is what 6c was meant to remove."""
+    import re
+    text = _patch_text("phase6b.patch.json5")
+    costs = re.findall(r"cost:\s*\{([^}]*)\}", text)
+    assert len(costs) == 2
+    for c in costs:
+        keys = set(re.findall(r"(\w+)\s*:", c))
+        assert {"input", "output", "cacheRead", "cacheWrite"} <= keys, c

@@ -946,6 +946,11 @@ Both are pure-helper tested. The test loader sets `LMS_VERIFY_REEXEC=1`: importi
 
 **Done when** (PHASES.md Phase 6): READY through the gateway with zero non-loopback egress; `models list --all` shows exactly two `lmstudio/` models; audit 0 critical; `verify_setup.py` [9] and [10] pass on the Mac.
 
+**Applied Oct 3 — 6b passed, 6c rolled back.**
+- 6b: providers live; `models list --provider lmstudio` shows both tiers, L1 default. First inference ever through the gateway: `READY` from `lmstudio/qwen3.6-35b-a3b-mlx`, no fallback, 3.6 s model time for a 5.9k-token prompt (5.7 s wall incl. CLI start). During it `lsof` showed only `127.0.0.1:18789` (CLI→gateway) and `127.0.0.1:1234` (gateway→LM Studio): zero non-loopback egress.
+- The live gateway has **one agent, `main`**. The `lms-*` agents in `agents.fragment.json` were never created; Phase 6 item 4 is still open, and `verify_setup` [1]/[2] check the repo, not the gateway. `main` exposed one tool, `session_status` (read-only), despite `tools.allow: []` — "zero tools" is really "one status tool".
+- 6c: `models list --all` still listed ~90 cloud models (all `Auth: no`) and printed `model catalog load issue … cost.cacheRead: must have required properties cacheRead, cacheWrite` from `agents/main/agent/plugins/lmstudio/catalog.json`. The 6b patch's `cost` lacked those two fields: `config patch` accepted it, the catalog schema did not. READY still worked under 6c; rolled back per the runbook regardless. Patch fixed and tested; re-apply 6b, confirm no catalog error, then retry 6c. If cloud models are still listed with a clean catalog, "replace" does not trim the listing on 2026.7.1 and D-003 rests on no credentials + disabled plugins — record that, don't force it.
+
 ### D-051 — The brief says when the system itself has stopped
 **Status:** Built · Sept 10 2026
 

@@ -98,7 +98,11 @@ provider — record it; it matters for Phase 7 replies.
 
 ## 5. Apply 6c — `models.mode: "replace"`
 
-Only if step 4 passed.
+Only if step 4 passed, **and** `openclaw models list --all` run now (still
+under 6b) prints no `model catalog load issue` line. Oct 3: the first 6b
+patch omitted `cost.cacheRead`/`cacheWrite`; the per-agent catalog rejected
+it and every built-in cloud model stayed listed. Fixed in the patch — if you
+applied 6b before that fix, `git pull` and re-apply step 3 first.
 
 ```bash
 cp ~/.openclaw/openclaw.json ~/.openclaw/openclaw.json.pre-phase6c
