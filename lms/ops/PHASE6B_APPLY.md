@@ -31,7 +31,8 @@ lsof -nP -iTCP:1234 -sTCP:LISTEN          # must show 127.0.0.1:1234, not *:1234
 curl -s http://localhost:1234/api/v0/models | python3 -c '
 import json,sys
 for m in json.load(sys.stdin)["data"]:
-    print(f"{m[\"id\"]:45} {m.get(\"state\",\"?\"):12} loaded_ctx={m.get(\"loaded_context_length\",\"-\"):>7} max_ctx={m.get(\"max_context_length\",\"-\")}")'
+    print("%-45s %-12s loaded_ctx=%7s max_ctx=%s" % (m["id"], m.get("state", "?"),
+          m.get("loaded_context_length", "-"), m.get("max_context_length", "-")))'
 ```
 
 `qwen3.6-35b-a3b-mlx` and `qwen3.5-122b-a10b` must both read `loaded`.
