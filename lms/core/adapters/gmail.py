@@ -484,12 +484,48 @@ def parse_message(raw: dict) -> Message:
 
 
 # ---------------------------------------------------------------------------
+# Delivery path (D-054)
+#
+# Until Oct 3 2026 mrecai.com's MX was iCloud, and Gmail only saw what iCloud
+# forwarded. These answer, per message, whether that is still happening.
+# ---------------------------------------------------------------------------
+
+_ICLOUD_MARKERS = ("icloud.com", "icloud-mail", "me.com", "mac.com")
+
+
+def delivery_route(raw: dict) -> str:
+    """"via iCloud" if any Received hop went through Apple's mail servers."""
+    hops = [h.get("value", "").lower()
+            for h in (raw.get("payload") or {}).get("headers", [])
+            if h.get("name", "").lower() == "received"]
+    if any(m in hop for hop in hops for m in _ICLOUD_MARKERS):
+        return "via iCloud"
+    return "direct"
+
+
+def inbox_state(raw: dict) -> str:
+    labels = set(raw.get("labelIds") or [])
+    if "SPAM" in labels:
+        return "SPAM"
+    if "TRASH" in labels:
+        return "TRASH"
+    return "inbox" if "INBOX" in labels else "not in inbox"
+
+
+# ---------------------------------------------------------------------------
 # The client
 # ---------------------------------------------------------------------------
 
 class GmailClient:
     def __init__(self, transport: Transport) -> None:
         self._t = transport
+
+    def recent_raw(self, *, newer_than_days: int = 1,
+                   limit: int = 200) -> list[dict]:
+        """Unparsed messages from everywhere, spam and trash included —
+        for asking where mail went, not for filing it."""
+        q = f"in:anywhere newer_than:{int(newer_than_days)}d"
+        return [self._t.get(mid) for mid in self._t.list_ids(q, limit)]
 
     def recent(self, *, newer_than_days: int = 1, limit: int = 100,
                query: str = "") -> list[Message]:

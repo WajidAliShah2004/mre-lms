@@ -884,6 +884,17 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 
 **302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
 
+### D-055 — Attachments the pipeline cannot read are kept, not skipped
+**Status:** Built · Oct 3 2026
+
+The 21-day catch-up skipped a CPA's `1099-DA.xlsx`, two `2025_Questionnaire_and_Document_Checklist_*.docx`, a `.docx` + `.zip` work packet, and an attachment with no extension. The covering emails were filed; the documents existed only in Gmail. Not being able to *read* a format is no reason not to *keep* it.
+
+Now every attachment is fetched except calendar invites (`.ics`, `.vcs` — their details are in the email body, and two per meeting would bury the review queue) and anything over 25MB or of zero bytes. `ingest_file` already handles an unreadable suffix: it never parses it, copies the original into the review queue, and gives the reason `no text extracted: .xlsx is not a format this pipeline can read`. No model sees it (D-024).
+
+The next poll over a window re-fetches attachments of already-filed emails, so `--days 21` recovers the ones skipped on Oct 3.
+
+**Also:** `ops/check_delivery.py` — per message in a window, including spam: `direct` or `via iCloud` (from the Received hops) and whether it is in the inbox. The check for D-054. Separately, an SMTP probe of `smtp.google.com` on Oct 3 returned `250 OK` for `matthew@mrecai.com` and `550 NoSuchUser` for a made-up address: Workspace accepts the mailbox.
+
 ### D-054 — mrecai.com mail now delivered to Google, not iCloud
 **Status:** Done · Oct 3 2026 · verification pending
 

@@ -53,16 +53,12 @@ from .classify import Artifact, Classifier
 from .ingest import IngestResult, ingest_file
 from .registry import Registry
 
-# Attachments the pipeline will fetch. Anything else is recorded on the email's
-# sidecar and left in Gmail.
-#
-# Not a security control — it is a "do not download 60MB of video to OCR it"
-# control. The security boundary is the read-only scope plus the fact that
-# nothing here executes what it downloads.
-INGESTIBLE_SUFFIXES = {
-    ".pdf", ".png", ".jpg", ".jpeg", ".heic", ".tiff", ".tif",
-    ".txt", ".md", ".csv",
-}
+# Never fetched. Everything else is fetched; what the pipeline cannot read
+# goes to the review queue with the original kept (D-055). Fetching is safe:
+# the security boundary is the read-only scope plus the fact that nothing
+# here executes or opens what it downloads — an unreadable file is copied,
+# never parsed. MAX_ATTACHMENT_BYTES still bounds the download.
+NOT_FETCHED_SUFFIXES = {".ics", ".vcs"}
 
 # 25MB. Gmail's own attachment ceiling is 25MB, so this rejects nothing real;
 # it is here so a malformed `size` field cannot ask for an unbounded read.
@@ -232,9 +228,16 @@ def ingest_message(conn, roots: filing.StorageRoots, registry: Registry,
 
 
 def _unfetchable(att: Attachment) -> str | None:
+    """Why an attachment is NOT fetched, or None.
+
+    A format the pipeline cannot read is still fetched (D-055): ingest_file
+    sends it to the review queue as "not a format this pipeline can read",
+    with the original kept. Skipping it left a CPA's 1099-DA.xlsx and tax
+    questionnaires only in Gmail. Calendar invites are the one exception.
+    """
     suffix = Path(att.filename or "").suffix.lower()
-    if suffix not in INGESTIBLE_SUFFIXES:
-        return f"{suffix or 'no extension'} is not a format this pipeline reads"
+    if suffix in NOT_FETCHED_SUFFIXES:
+        return f"{suffix} is a calendar invite — its details are in the email"
     if att.size > MAX_ATTACHMENT_BYTES:
         return f"{att.size} bytes exceeds the {MAX_ATTACHMENT_BYTES} limit"
     if att.size == 0:

@@ -74,8 +74,19 @@ def att(name, size=1000):
                       mime_type="application/octet-stream", size=size)
 
 
-def test_a_video_is_not_downloaded_to_be_ocred():
-    assert mail._unfetchable(att("holiday.mov")) is not None
+def test_an_unreadable_format_is_still_fetched_to_be_kept():
+    """Oct 3: a CPA's 1099-DA.xlsx and two tax questionnaires (.docx) were
+    skipped, so the archive held the covering emails and not the documents.
+    Not being able to READ a file is no reason not to KEEP it."""
+    for name in ("1099-DA.xlsx", "Questionnaire.docx", "packet.zip",
+                 "mime-attachment", "holiday.mov"):
+        assert mail._unfetchable(att(name)) is None, name
+
+
+def test_a_calendar_invite_is_not_fetched():
+    """The invite's details are already in the email body; two .ics files
+    per meeting in the review queue would bury the documents that matter."""
+    assert "calendar" in mail._unfetchable(att("invite.ics"))
 
 
 def test_an_invoice_pdf_is_fetched():
@@ -587,3 +598,20 @@ def test_polling_twice_files_nothing_the_second_time(pipeline):
     assert second[0].email.status in {"DUPLICATE", "QUARANTINED"}
     assert conn.execute(
         "SELECT COUNT(*) c FROM artifacts").fetchone()["c"] == 1
+
+
+def test_a_spreadsheet_attachment_is_kept_and_sent_for_review(pipeline):
+    conn, roots, reg, tmp = pipeline
+    clf = Classifier(reg, client=StubModel(ANSWER))
+    raw = json.loads(json.dumps(RAW))
+    raw["payload"]["parts"][1]["filename"] = "1099-DA.xlsx"
+    client = GmailClient(FakeTransport({"m": raw}, {"att1": b"PK xlsx"}))
+
+    res = mail.ingest_message(conn, roots, reg, clf, client,
+                              client.fetch("m"), spool=tmp / "spool")
+
+    assert res.skipped == []
+    [a] = res.attachments
+    assert a.status == "QUARANTINED"
+    assert ".xlsx" in a.reason
+    assert a.path.is_file() and a.path.read_bytes() == b"PK xlsx"

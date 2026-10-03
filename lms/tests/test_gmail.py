@@ -319,3 +319,35 @@ def test_a_network_timeout_is_retried():
             raise socket.timeout("timed out")
         return "ok"
     assert _with_backoff(call, sleep=lambda s: None, note=lambda m: None) == "ok"
+
+
+# --- Oct 3: is mail arriving direct, and landing in the inbox? ---------------
+
+def _raw(received, labels=("INBOX",)):
+    return {"labelIds": list(labels), "payload": {"headers": [
+        {"name": "Received", "value": v} for v in received]}}
+
+
+def test_direct_delivery_is_recognised():
+    from core.adapters.gmail import delivery_route
+    raw = _raw(["by 2002:a05:6a10 with SMTP id x; Fri, 3 Oct 2026",
+                "from mail-sor-f41.google.com (mail-sor-f41.google.com.) "
+                "by mx.google.com with SMTPS id y"])
+    assert delivery_route(raw) == "direct"
+
+
+def test_mail_forwarded_by_icloud_is_recognised():
+    from core.adapters.gmail import delivery_route
+    raw = _raw(["by 2002:a05 with SMTP id x",
+                "from p00-icloudmta-asmtp-us-west-1a-100-percent-7.p00-icloudmta"
+                "-asmtp-vip.icloud-mail-production.svc.kube.us-west-1a.k8s.cloud"
+                ".apple.com by mx.google.com",
+                "from mx01.mail.icloud.com by ms01.mail.icloud.com"])
+    assert delivery_route(raw) == "via iCloud"
+
+
+def test_inbox_state():
+    from core.adapters.gmail import inbox_state
+    assert inbox_state(_raw([], ["INBOX", "UNREAD"])) == "inbox"
+    assert inbox_state(_raw([], ["SPAM"])) == "SPAM"
+    assert inbox_state(_raw([], ["CATEGORY_UPDATES"])) == "not in inbox"
