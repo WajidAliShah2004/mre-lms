@@ -885,7 +885,7 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 **302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
 
 ### D-056 — The three LMS agents exist on the gateway, each with no tools; D-021 corrected
-**Status:** Prepared · Oct 3 2026 · apply per `lms/ops/PHASE6B_APPLY.md` step 7
+**Status:** Applied and verified · Oct 3 2026 — `agents list` shows `main` (default) + the three; `agent_tools.py`: all three PASS, `tools=none`, READY from the right tier model (drafter on qwen3.5-122b). `main` still reports `session_status`, as expected — the per-agent deny is what removed it from the others.
 
 **D-021 was half wrong.** It said tool policy is global only, because `agents.<name>.tools` does not exist. That key doesn't, but `openclaw config schema` (read Oct 3) shows every `agents.list[]` entry takes `tools` (`profile`, `allow`, `alsoAllow`, `deny`, `byProvider`, `toolsBySender`), plus `skills`, `model`, `workspace` and `sandbox`. The global `allow: []` stays the control that covers every agent, including future ones; per-agent policy narrows it.
 

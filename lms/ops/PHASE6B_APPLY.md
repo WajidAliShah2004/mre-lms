@@ -162,8 +162,9 @@ openclaw agents list                      # main (default) + the three lms-*
 
 **Pass:** `agent_tools.py` prints `PASS` for all three with `tools=none`;
 the drafter answers from `qwen3.5-122b-a10b`, the other two from
-`qwen3.6-35b-a3b-mlx`. `main` still answers (it keeps `session_status` —
-it is not the agent that reads mail).
+`qwen3.6-35b-a3b-mlx`. `main` still answers; `agent_tools.py main` prints
+FAIL for its one tool, `session_status` — expected, it is not the agent that
+reads mail (Oct 3: exactly this result).
 
 If the dry run rejects a key, nothing was written: send the error. If the
 lms-* agents still show `session_status`, the per-agent deny does not reach
