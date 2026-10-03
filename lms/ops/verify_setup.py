@@ -478,6 +478,10 @@ def check_backup_ready() -> None:
         ok(f"restic present ({v.stdout.split()[1] if v.stdout.split() else '?'})")
 
     sys.path.insert(0, str(Path(__file__).resolve().parent))
+    # Every job reads ops/lms.env; without this the check below warned
+    # "LMS_ARCHIVE_ROOT unset" on a Mac where it is set (Oct 3).
+    from _env import load_lms_env
+    load_lms_env()
     try:
         import backup as bk
     except Exception as exc:
