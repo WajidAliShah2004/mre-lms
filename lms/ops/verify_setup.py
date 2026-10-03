@@ -360,6 +360,12 @@ def check_live_providers() -> None:
     try:
         r = subprocess.run(["openclaw", "config", "get", "models.providers", "--json"],
                            capture_output=True, text=True, timeout=30)
+        # Before 6b the key does not exist and the CLI says so as an error
+        # ("Config path not found"), not as an empty object.
+        if r.returncode != 0 and "path not found" in (r.stderr + r.stdout).lower():
+            warn("models.providers is not set — Phase 6b not applied yet "
+                 "(PHASE6B_APPLY.md)")
+            return
         if r.returncode != 0:
             warn("`openclaw config get models.providers --json` failed "
                  f"({(r.stderr or r.stdout).strip()[:120]}) — check by hand")
