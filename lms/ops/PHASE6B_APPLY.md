@@ -98,6 +98,11 @@ provider — record it; it matters for Phase 7 replies.
 
 ## 5. Apply 6c — `models.mode: "replace"`
 
+> **Oct 3 result: tried, rolled back, left off (D-052).** On 2026.7.1 it
+> left `models list --all` unchanged — the cloud catalog is listed either
+> way, every row `Auth: no`. Skip to step 6 unless OpenClaw has been
+> upgraded since; the steps below are kept for re-testing after an upgrade.
+
 Only if step 4 passed, **and** `openclaw models list --all` run now (still
 under 6b) prints no `model catalog load issue` line. Oct 3: the first 6b
 patch omitted `cost.cacheRead`/`cacheWrite`; the per-agent catalog rejected
@@ -132,7 +137,7 @@ sudo systemsetup -gettimezone              # must say America/New_York
 
 | Check | Expected |
 |---|---|
-| `models list --all` | 2 models, both `lmstudio/` |
+| `models list --all` | both `lmstudio/` tiers, L1 `default`; every other row `Auth: no` |
 | `openclaw agent` READY test | passes, zero non-loopback egress |
 | `security audit --deep` | 0 critical, 2 warn (`trusted_proxies_missing`, `probe_failed/operator.read` — the latter clears in Phase 7) |
 | `secrets audit` | if it flags `models.providers.lmstudio.apiKey`: justified, placeholder with no authority (D-052) |
