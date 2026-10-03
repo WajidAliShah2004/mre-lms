@@ -79,7 +79,7 @@ sudo lsof -nP -r 1 -a -c node -i | grep -v -e '127.0.0.1' -e '\[::1\]' -e '^=' -
 Then:
 
 ```bash
-time openclaw agent --json --message "Reply with exactly the word READY and nothing else."
+time openclaw agent --agent lms-orchestrator --json --message "Reply with exactly the word READY and nothing else."
 ```
 
 **Pass:** the reply contains `READY`, the JSON shows the `lmstudio` provider /
@@ -106,7 +106,7 @@ openclaw config patch --file ops/phase6c.patch.json5 --dry-run
 openclaw config patch --file ops/phase6c.patch.json5
 openclaw gateway restart
 openclaw models list --all                # ONLY the two lmstudio models
-openclaw agent --json --message "Reply with exactly the word READY and nothing else."
+openclaw agent --agent lms-orchestrator --json --message "Reply with exactly the word READY and nothing else."
 ```
 
 **Pass:** `models list --all` shows exactly two models, both `lmstudio/…`,
