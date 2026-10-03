@@ -88,8 +88,9 @@ def patch_text():
 def test_applied_patch_locks_tools_absolutely(patch_text):
     """tools.allow: [] replaces profile-derived defaults, it does not trim them.
 
-    This is the control that actually runs on the Mac. The per-agent lists in
-    agents.fragment.json describe intent; OpenClaw 2026.7.1-2 has no such key.
+    This is the control that covers every agent on the Mac, including ones a
+    future update adds. Per-agent lists exist too (agents.list[].tools, D-056)
+    and phase6d.patch.json5 sets them; they narrow this, never widen it.
     """
     assert "allow: []" in patch_text
 
@@ -229,3 +230,96 @@ def test_phase6b_cost_has_every_field_the_catalog_schema_requires():
     for c in costs:
         keys = set(re.findall(r"(\w+)\s*:", c))
         assert {"input", "output", "cacheRead", "cacheWrite"} <= keys, c
+
+
+# --- D-056: the lms-* agents on the gateway, and the check that proves them --
+
+def _agent_tools():
+    import importlib.util
+    path = Path(__file__).resolve().parents[1] / "ops" / "agent_tools.py"
+    spec = importlib.util.spec_from_file_location("agent_tools", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _phase6d_entries():
+    """(id, block) for each agents.list entry, comments stripped."""
+    import re
+    text = _patch_text("phase6d.patch.json5")
+    code = "\n".join(l.split("//", 1)[0] for l in text.splitlines())
+    ids = list(re.finditer(r'id:\s*"([^"]+)"', code))
+    return [(m.group(1), code[m.end():ids[i + 1].start() if i + 1 < len(ids) else len(code)])
+            for i, m in enumerate(ids)]
+
+
+def test_phase6d_keeps_main_as_the_default():
+    """Once agents.list exists it is the whole set; leaving main out would
+    change which agent answers, silently."""
+    entries = _phase6d_entries()
+    assert entries[0][0] == "main"
+    assert "default: true" in entries[0][1]
+    assert sum("default: true" in body for _, body in entries) == 1
+
+
+def test_phase6d_defines_exactly_the_expected_agents():
+    assert {i for i, _ in _phase6d_entries()} == EXPECTED_AGENTS | {"main"}
+
+
+@pytest.mark.parametrize("name", sorted(EXPECTED_AGENTS))
+def test_phase6d_agent_has_no_tools_and_no_skills(name):
+    body = dict(_phase6d_entries())[name]
+    assert "allow: []" in body
+    assert 'deny: ["session_status"]' in body
+    assert "skills: []" in body
+    assert "alsoAllow" not in body
+
+
+def test_phase6d_models_match_core_tiers_and_the_checker():
+    import re
+    from core.adapters.lmstudio import TIER_MODELS
+    want = {"lms-orchestrator": "TIER-L1", "lms-classifier": "TIER-L1",
+            "lms-drafter": "TIER-L2"}
+    entries = dict(_phase6d_entries())
+    checker = _agent_tools().EXPECTED_MODEL
+    for agent, tier in want.items():
+        model = re.search(r'model:\s*"lmstudio/([^"]+)"', entries[agent]).group(1)
+        assert model == TIER_MODELS[tier] == checker[agent], agent
+
+
+GATEWAY_JSON = """│
+\U0001f99e OpenClaw 2026.7.1-2 (0790d9f) — banner
+{
+  "result": {"payloads": [{"text": "READY"}]},
+  "meta": {
+    "winnerProvider": "lmstudio",
+    "winnerModel": "qwen3.6-35b-a3b-mlx",
+    "systemPromptReport": {
+      "skills": {"entries": []},
+      "tools": {"listChars": 0, "schemaChars": 89,
+                "entries": [{"name": "session_status"}]}
+    }
+  }
+}"""
+
+
+def test_checker_reads_tools_past_the_banner():
+    """Shape as seen on the Mac Oct 3: `main` was offered session_status."""
+    r = _agent_tools().report(GATEWAY_JSON)
+    assert r == {"tools": ["session_status"], "text": "READY",
+                 "provider": "lmstudio", "model": "qwen3.6-35b-a3b-mlx"}
+
+
+def test_checker_fails_an_agent_offered_any_tool():
+    at = _agent_tools()
+    bad = at.problems("lms-classifier", at.report(GATEWAY_JSON))
+    assert bad == ["offered tools: session_status"]
+    clean = at.report(GATEWAY_JSON.replace('{"name": "session_status"}', ""))
+    assert at.problems("lms-classifier", clean) == []
+
+
+def test_checker_fails_the_wrong_model():
+    at = _agent_tools()
+    r = at.report(GATEWAY_JSON.replace('{"name": "session_status"}', ""))
+    assert at.problems("lms-drafter", r) == [
+        "answered by model 'qwen3.6-35b-a3b-mlx', expected 'qwen3.5-122b-a10b'"]

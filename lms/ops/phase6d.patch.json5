@@ -1,0 +1,59 @@
+// Phase 6d — the three LMS agents, each with no tools (PHASES.md Phase 6 item 4, D-056).
+//
+// Before this, `agents` had no `list` and the gateway ran one built-in agent,
+// `main`. Once a list exists, the list IS the set of agents — so `main` is
+// named here, first, with `default: true`, or adding three agents would
+// silently change which one answers. Nothing that runs today uses the lms-*
+// agents: mail calls LM Studio directly from core/ with no tools at all.
+// These are the topology Phase 7 (Telegram) routes into.
+//
+// Apply (on the Mac, from ~/lms-repo/lms) — see ops/PHASE6B_APPLY.md step 7:
+//     cp ~/.openclaw/openclaw.json ~/.openclaw/openclaw.json.pre-phase6d
+//     openclaw config patch --file ops/phase6d.patch.json5 --dry-run
+//     openclaw config patch --file ops/phase6d.patch.json5
+//     openclaw gateway restart
+//     ./ops/agent_tools.py                      # proves each agent has no tools
+//
+// Shape from `openclaw config schema` (agents.list items), read Oct 3 2026.
+// D-021 said tool policy is global only; that was true of `agents.<name>.tools`,
+// which does not exist, but each agents.list entry DOES take `tools`.
+//
+// Idempotent — re-running changes nothing.
+
+{
+  agents: {
+    list: [
+      // Unchanged: same model (agents.defaults), same workspace, still default.
+      { id: "main", default: true },
+
+      {
+        id: "lms-orchestrator",
+        name: "LMS orchestrator",
+        description: "Names the next pipeline step from a fixed enum; core/ runs it.",
+        model: "lmstudio/qwen3.6-35b-a3b-mlx",          // TIER-L1
+        workspace: "/Users/mleca/.openclaw/workspace-lms-orchestrator",
+        skills: [],                                     // D-015: ready skills stay 0
+        tools: { profile: "minimal", allow: [], deny: ["session_status"] },
+      },
+      {
+        // The ingest sandbox: the only agent meant to read untrusted text.
+        id: "lms-classifier",
+        name: "LMS classifier",
+        description: "Reads untrusted document text, returns schema-constrained JSON. No tools.",
+        model: "lmstudio/qwen3.6-35b-a3b-mlx",          // TIER-L1
+        workspace: "/Users/mleca/.openclaw/workspace-lms-classifier",
+        skills: [],
+        tools: { profile: "minimal", allow: [], deny: ["session_status"] },
+      },
+      {
+        id: "lms-drafter",
+        name: "LMS drafter",
+        description: "Writes reply text only. core/ puts it in Gmail drafts; a human sends.",
+        model: "lmstudio/qwen3.5-122b-a10b",            // TIER-L2
+        workspace: "/Users/mleca/.openclaw/workspace-lms-drafter",
+        skills: [],
+        tools: { profile: "minimal", allow: [], deny: ["session_status"] },
+      },
+    ],
+  },
+}

@@ -218,7 +218,7 @@ The repository is at `https://github.com/WajidAliShah2004/mre-lms.git` — the d
 **Do not close D-020 by deleting it.** It closes when the transfer is done and verified by Matthew being able to clone it himself.
 
 ### D-021 — Phase 6 applied; the zero-tool guarantee is global, not per-agent
-**Status:** Decided and applied · Sept 8 2026 · verified on the machine
+**Status:** Decided and applied · Sept 8 2026 · verified on the machine · **corrected by D-056:** per-agent tools exist as `agents.list[].tools`
 
 **What was wrong first.** The Phase 6 config was written from the v3.0 specification's vocabulary rather than from OpenClaw's actual schema. It was rejected by the validator (`Unrecognized key: "type"`), which is the good outcome — nothing was written. Reading `openclaw config schema` showed the differences were structural, not cosmetic:
 
@@ -883,6 +883,19 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 `test_a_missing_header_is_not_a_failure` was supposed to cover this. It asserted `spf_fail`, `dkim_fail` and `dmarc_fail` were all False on a missing header — true, and not the flag that fires. It now asserts on **every** flag, which is the only version of that test worth having.
 
 **302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
+
+### D-056 — The three LMS agents exist on the gateway, each with no tools; D-021 corrected
+**Status:** Prepared · Oct 3 2026 · apply per `lms/ops/PHASE6B_APPLY.md` step 7
+
+**D-021 was half wrong.** It said tool policy is global only, because `agents.<name>.tools` does not exist. That key doesn't, but `openclaw config schema` (read Oct 3) shows every `agents.list[]` entry takes `tools` (`profile`, `allow`, `alsoAllow`, `deny`, `byProvider`, `toolsBySender`), plus `skills`, `model`, `workspace` and `sandbox`. The global `allow: []` stays the control that covers every agent, including future ones; per-agent policy narrows it.
+
+**Why it matters.** Under 6b, `main` was offered one tool, `session_status` (read-only), despite global `allow: []`. Phase 6's finish line is that the ingest sandbox *provably* has no tools. `ops/phase6d.patch.json5` gives `lms-orchestrator`, `lms-classifier` (the ingest sandbox) and `lms-drafter` each `allow: []`, `deny: ["session_status"]`, `skills: []` (D-015: ready skills stay 0), their tier model, and their own workspace.
+
+**`main` is named first with `default: true`.** The live config had no `agents.list`; `main` was implicit. A list is the whole set, so leaving `main` out would change which agent answers, silently. `main` itself is unchanged.
+
+**Proof comes from the gateway, not the repo.** verify_setup [1]/[2] read repo files. `ops/agent_tools.py` sends each agent one message through the gateway and reads the tool list OpenClaw reports it offered the model (`systemPromptReport.tools.entries`), failing on any tool or the wrong model.
+
+**What this does not change.** Mail never goes through these agents: core/ calls LM Studio directly with no tools. These are the topology Phase 7 routes Telegram into.
 
 ### D-055 — Attachments the pipeline cannot read are kept, not skipped
 **Status:** Built · Oct 3 2026

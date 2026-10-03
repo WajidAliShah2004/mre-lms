@@ -144,6 +144,32 @@ sudo systemsetup -gettimezone              # must say America/New_York
 | `verify_setup.py` | all pass, including [9] system timezone and [10] live providers loopback |
 | plugins / skills | still 3 / 0 (D-015) |
 
+## 7. Phase 6d — the three LMS agents (D-056)
+
+Adds `lms-orchestrator`, `lms-classifier` and `lms-drafter`, each with no
+tools and no skills, and keeps `main` as the default so nothing that answers
+today changes.
+
+```bash
+cp ~/.openclaw/openclaw.json ~/.openclaw/openclaw.json.pre-phase6d
+openclaw config patch --file ops/phase6d.patch.json5 --dry-run
+openclaw config patch --file ops/phase6d.patch.json5
+openclaw gateway restart
+openclaw agents list                      # main (default) + the three lms-*
+./ops/agent_tools.py                      # each: tools=none, right model
+./ops/agent_tools.py main                 # main unchanged: still answers
+```
+
+**Pass:** `agent_tools.py` prints `PASS` for all three with `tools=none`;
+the drafter answers from `qwen3.5-122b-a10b`, the other two from
+`qwen3.6-35b-a3b-mlx`. `main` still answers (it keeps `session_status` —
+it is not the agent that reads mail).
+
+If the dry run rejects a key, nothing was written: send the error. If the
+lms-* agents still show `session_status`, the per-agent deny does not reach
+it — send the output; do not widen anything to work around it. Rollback:
+`cp ~/.openclaw/openclaw.json.pre-phase6d ~/.openclaw/openclaw.json && openclaw gateway restart`.
+
 Send back: the step-1 table, `openclaw --version`, the step-4 JSON (trimmed)
 and wall time, `models list --all`, and the audit summary line. That output
 closes Phase 6 in PHASES.md.
