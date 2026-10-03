@@ -202,3 +202,14 @@ def test_the_nightly_backup_includes_the_documents():
     assert "--catalogue-only" not in argv, (
         "the nightly backup would restore an index of documents it does not "
         "contain")
+
+
+def test_the_mail_poll_reads_every_authorised_mailbox():
+    """Oct 3: five mailboxes on file, one polled. --all means connecting a
+    mailbox is authorising it — not also remembering to edit this plist."""
+    mail = OPS / "com.lms.mail.plist"
+    if not mail.exists():
+        pytest.skip("no mail plist")
+    argv = load(mail)["ProgramArguments"]
+    assert "--all" in argv
+    assert not [a for a in argv if "@" in a], "a hard-coded mailbox in the plist"

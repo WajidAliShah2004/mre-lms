@@ -178,3 +178,73 @@ def test_poll_mail_sets_a_network_timeout():
     src = (Path(__file__).resolve().parents[1] / "ops" / "poll_mail.py").read_text(
         encoding="utf-8")
     assert "socket.setdefaulttimeout(" in src
+
+
+# --- Oct 3: more than one mailbox -------------------------------------------
+
+def _registry_with(*emails):
+    from types import SimpleNamespace
+    ents = {f"E{i}": SimpleNamespace(emails=[e]) for i, e in enumerate(emails)}
+    ents["X"] = SimpleNamespace(emails=[emails[0].upper()])   # same box, other case
+    return SimpleNamespace(entities=ents)
+
+
+def test_all_polls_authorised_mailboxes_and_names_the_rest():
+    pm = _poll_mail()
+    reg = _registry_with("matthew@mrecai.com", "matthew@mleca.com", "mattyeps@gmail.com")
+    chosen, skipped = pm.choose_mailboxes(
+        [], True, reg, granted=lambda a: a != "mattyeps@gmail.com")
+    assert chosen == ["matthew@mrecai.com", "matthew@mleca.com"]
+    assert skipped == ["mattyeps@gmail.com"]
+
+
+def test_a_named_mailbox_is_polled_even_without_a_grant():
+    """Asked for by name, it must fail loudly rather than vanish from the run."""
+    pm = _poll_mail()
+    reg = _registry_with("matthew@mrecai.com")
+    chosen, skipped = pm.choose_mailboxes(["Matthew@MLECA.com"], False, reg,
+                                          granted=lambda a: False)
+    assert chosen == ["matthew@mleca.com"] and skipped == []
+
+
+def test_one_broken_mailbox_does_not_stop_the_others(tmp_path, monkeypatch):
+    """A revoked grant on one mailbox is logged; the next mailbox still runs."""
+    from types import SimpleNamespace
+    from core.db import database as db
+    pm = _poll_mail()
+    conn = db.connect(tmp_path / "lms.db")
+    seen = []
+
+    def build(address):
+        if address == "bad@x.com":
+            raise SystemExit("no OAuth grant for bad@x.com")
+        seen.append(address)
+        return SimpleNamespace(recent=lambda **kw: [])
+
+    monkeypatch.setattr(pm, "build_client", build)
+    args = SimpleNamespace(days=2, limit=500, query="")
+    bad = sum(pm.poll_mailbox(conn, a, args, None, None, None, tmp_path)
+              for a in ("bad@x.com", "good@x.com"))
+    assert bad == 1 and seen == ["good@x.com"]
+    actions = [r[0] for r in conn.execute("SELECT action FROM actions_log")]
+    assert "MAIL_MAILBOX_FAILED" in actions and "MAIL_POLL_STOP" in actions
+
+
+def _authorise():
+    import importlib.util
+    p = Path(__file__).resolve().parents[1] / "ops" / "authorise_gmail.py"
+    spec = importlib.util.spec_from_file_location("authorise_gmail_oct3", p)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+def test_a_grant_for_the_wrong_mailbox_is_refused():
+    """The browser is usually already signed in as matthew@mrecai.com. A token
+    for that mailbox stored as matthew@mleca.com would file MRECAI mail twice
+    and MLE mail never."""
+    au = _authorise()
+    assert au.wrong_mailbox("matthew@mleca.com", "Matthew@MLECA.com") is None
+    msg = au.wrong_mailbox("matthew@mleca.com", "matthew@mrecai.com")
+    assert msg and "matthew@mrecai.com" in msg
+    assert au.wrong_mailbox("matthew@mleca.com", "")

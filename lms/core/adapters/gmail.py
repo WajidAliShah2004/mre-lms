@@ -277,6 +277,17 @@ class GoogleTransport:
             userId=self._user, messageId=message_id, id=attachment_id).execute())
         return base64.urlsafe_b64decode(resp.get("data", "").encode("ascii"))
 
+    def profile_address(self) -> str:
+        """The mailbox this credential actually reads (users.getProfile).
+
+        Used once, when a grant is made: the browser may already be signed in
+        as a different account, and a token for the wrong mailbox stored under
+        this address would file one business's mail as another's.
+        """
+        resp = _with_backoff(lambda: self._svc().users().getProfile(
+            userId=self._user).execute())
+        return resp.get("emailAddress", "")
+
 
 # ---------------------------------------------------------------------------
 # Parsing

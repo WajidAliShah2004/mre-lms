@@ -3,6 +3,12 @@
 
     ./ops/poll_mail.py matthew@mrecai.com --once --days 1
     ./ops/poll_mail.py matthew@mrecai.com --once --days 7 --dry-run
+    ./ops/poll_mail.py --all --days 2       # every mailbox that has a grant
+
+--all reads every address in config/entities.yaml that has been authorised
+(authorise_gmail.py). A mailbox not yet authorised is listed and skipped, not
+an error; one that IS authorised and fails is logged as MAIL_MAILBOX_FAILED
+and the others still run.
 
 Read-only, always: the credential this uses is `gmail.readonly` and cannot be
 anything else (core/adapters/gmail.py, D-039). Nothing here marks a message
@@ -53,7 +59,7 @@ def stored_grant(address: str) -> dict:
         raise SystemExit(
             f"no OAuth grant for {address}. Authorise it once:\n"
             f"    ./ops/authorise_gmail.py {address} "
-            f"--client-json '~/Downloads/client_secret_*.json'")
+            f"--client-from matthew@mrecai.com")
     try:
         return json.loads(r.stdout.rstrip("\n"))
     except ValueError:
@@ -61,6 +67,40 @@ def stored_grant(address: str) -> dict:
             f"the Keychain item {service} is not the JSON blob this expects. "
             f"It may be left over from the old app-password attempt — delete "
             f"it and re-run authorise_gmail.py.")
+
+
+def has_grant(address: str) -> bool:
+    r = subprocess.run(
+        ["security", "find-generic-password", "-s", gmail.keychain_service(address)],
+        capture_output=True, text=True)
+    return r.returncode == 0
+
+
+def registry_mailboxes(registry) -> list[str]:
+    """Every address entities.yaml routes on, lowercased, once each."""
+    out: list[str] = []
+    for ent in registry.entities.values():
+        for e in ent.emails:
+            if e.lower() not in out:
+                out.append(e.lower())
+    return out
+
+
+def choose_mailboxes(named: list[str], use_all: bool, registry,
+                     granted=has_grant) -> tuple[list[str], list[str]]:
+    """(mailboxes to poll, registry mailboxes skipped as not authorised).
+
+    Named mailboxes are always polled: asking for one by name and having it
+    silently skipped would be worse than the error it produces.
+    """
+    chosen = [a.lower() for a in named]
+    skipped: list[str] = []
+    if use_all:
+        for a in registry_mailboxes(registry):
+            if a in chosen:
+                continue
+            (chosen if granted(a) else skipped).append(a)
+    return chosen, skipped
 
 
 def build_client(address: str) -> gmail.GmailClient:
@@ -95,7 +135,9 @@ def main() -> int:
     p = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("address")
+    p.add_argument("addresses", nargs="*", metavar="address")
+    p.add_argument("--all", action="store_true",
+                   help="every mailbox in entities.yaml that has been authorised")
     p.add_argument("--days", type=int, default=1)
     # 500, not 100. A 14-day catch-up on Sept 29 returned exactly 100 and
     # stopped at Sept 22 — a week of mail silently absent from a listing that
@@ -109,32 +151,34 @@ def main() -> int:
     p.add_argument("--dry-run", action="store_true",
                    help="list what would be ingested; write nothing")
     args = p.parse_args()
-
-    client = build_client(args.address)
-    messages = client.recent(newer_than_days=args.days, limit=args.limit,
-                             query=args.query)
-
-    truncated = len(messages) >= args.limit
-    if truncated:
-        oldest = min((m.date or "")[:10] for m in messages) if messages else "?"
-        print(f"WARNING: hit --limit {args.limit}. Only mail back to {oldest} "
-              f"was fetched, not the full {args.days}d. Re-run with a larger "
-              f"--limit; nothing older than {oldest} is in this pass.",
-              flush=True)
-
-    if args.dry_run:
-        print(f"{len(messages)} message(s) in the last {args.days}d "
-              f"for {args.address}\n")
-        for m in messages:
-            # real_attachments: signature logos are body content, and listing
-            # them here is what hid the fact that they were about to be filed.
-            atts = ", ".join(a.filename for a in m.real_attachments) or "—"
-            print(f"  {(m.date or '')[:10]}  {m.sender[:38]:38}  "
-                  f"{(m.subject or '(no subject)')[:44]:44}  {atts}")
-        print("\nNothing was written. Drop --dry-run to file these.")
-        return 0
+    if not args.addresses and not args.all:
+        p.error("name a mailbox, or pass --all")
 
     registry = load_registry()
+    addresses, skipped = choose_mailboxes(args.addresses, args.all, registry)
+    if skipped:
+        print(f"not authorised, skipped: {', '.join(skipped)}", flush=True)
+    if not addresses:
+        print("no authorised mailbox to read", file=sys.stderr)
+        return 1
+
+    if args.dry_run:
+        for address in addresses:
+            client = build_client(address)
+            messages = client.recent(newer_than_days=args.days,
+                                     limit=args.limit, query=args.query)
+            print(f"{len(messages)} message(s) in the last {args.days}d "
+                  f"for {address}\n")
+            for m in messages:
+                # real_attachments: signature logos are body content, and
+                # listing them here is what hid that they were about to be filed.
+                atts = ", ".join(a.filename for a in m.real_attachments) or "—"
+                print(f"  {(m.date or '')[:10]}  {m.sender[:38]:38}  "
+                      f"{(m.subject or '(no subject)')[:44]:44}  {atts}")
+            print()
+        print("Nothing was written. Drop --dry-run to file these.")
+        return 0
+
     outstanding = registry.placeholders()
     if outstanding:
         print(f"WARNING: C16 unanswered for {', '.join(outstanding)} — mail "
@@ -161,13 +205,48 @@ def main() -> int:
     spool = Path(os.environ.get(
         "LMS_MAIL_SPOOL", str(roots.archive.parent / "spool" / "mail")))
 
+    bad = 0
+    try:
+        for address in addresses:
+            bad += poll_mailbox(conn, address, args, registry, classifier,
+                                roots, spool)
+    finally:
+        conn.close()
+    # Non-zero so `launchctl list` shows it; the other mailboxes still filed.
+    return 1 if bad else 0
+
+
+def poll_mailbox(conn, address, args, registry, classifier, roots, spool) -> int:
+    """One mailbox. Returns 1 if it or any of its messages failed, else 0.
+
+    A revoked or expired grant on one mailbox must not stop the others —
+    the same reasoning as file_messages, one level up.
+    """
+    try:
+        client = build_client(address)
+        messages = client.recent(newer_than_days=args.days, limit=args.limit,
+                                 query=args.query)
+    except (Exception, SystemExit) as exc:
+        detail = f"{address}: {type(exc).__name__}: {exc}"
+        print(f"[MAILBOX FAILED] {detail}", file=sys.stderr, flush=True)
+        db.log_action(conn, "MAIL_MAILBOX_FAILED", detail=detail[:400])
+        return 1
+
+    truncated = len(messages) >= args.limit
+    if truncated:
+        oldest = min((m.date or "")[:10] for m in messages) if messages else "?"
+        print(f"WARNING: {address} hit --limit {args.limit}. Only mail back to "
+              f"{oldest} was fetched, not the full {args.days}d. Re-run with a "
+              f"larger --limit; nothing older than {oldest} is in this pass.",
+              flush=True)
+
     db.log_action(conn, "MAIL_POLL_START",
-                  detail=f"{args.address} newer_than:{args.days}d")
+                  detail=f"{address} newer_than:{args.days}d")
     if truncated:
         # Logged so the record shows this pass was partial. A scheduled run
         # that truncates is a missed-mail event, not a quiet success.
         db.log_action(conn, "MAIL_POLL_TRUNCATED",
-                      detail=f"{args.address} limit={args.limit} "
+                      detail=f"{address} limit={args.limit} "
                              f"newer_than:{args.days}d")
 
     counts = {}
@@ -178,11 +257,9 @@ def main() -> int:
                                             client, msg, spool=spool))
     finally:
         db.log_action(conn, "MAIL_POLL_STOP",
-                      detail=_summary(len(messages), counts))
-        conn.close()
+                      detail=f"{address}: {_summary(len(messages), counts)}")
 
-    print(f"\n{_summary(len(messages), counts)}")
-    # Non-zero so `launchctl list` shows it; the rest of the pass still filed.
+    print(f"\n{address}: {_summary(len(messages), counts)}", flush=True)
     return 1 if counts.get("failed") else 0
 
 

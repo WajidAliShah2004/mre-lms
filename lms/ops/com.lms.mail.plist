@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Mail poll — reads matthew@mrecai.com and files what is in it.
+  Mail poll — reads every authorised mailbox and files what is in it.
+  A mailbox is added by authorising it (ops/authorise_gmail.py); this file
+  does not change.
 
   Install:
     cp ops/com.lms.mail.plist ~/Library/LaunchAgents/
@@ -63,7 +65,7 @@
     <array>
         <string>/Users/mleca/lms-repo/lms/.venv/bin/python</string>
         <string>/Users/mleca/lms-repo/lms/ops/poll_mail.py</string>
-        <string>matthew@mrecai.com</string>
+        <string>--all</string>
         <string>--days</string>
         <string>2</string>
     </array>

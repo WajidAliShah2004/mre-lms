@@ -884,6 +884,17 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 
 **302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
 
+### D-058 — Every authorised mailbox is polled, and a grant must be for the mailbox it names
+**Status:** Built · Oct 3 2026
+
+Matthew supplied five mailboxes on Sept 7 (C10); only `matthew@mrecai.com` was ever authorised and the scheduled job named it alone. Mail to MLE and Atlase was never filed.
+
+- **`poll_mail.py --all`** reads every address in `entities.yaml` that has a Keychain grant; the plist now says `--all` and no address. Connecting a mailbox is authorising it — no plist edit, no reinstall. Unauthorised ones are listed as skipped, not failures. A mailbox whose grant fails is logged `MAIL_MAILBOX_FAILED` and the others still run (the per-message guard of D-053, one level up).
+- **`authorise_gmail.py --client-from matthew@mrecai.com`** reuses the internal OAuth app already stored with that grant; the downloaded client JSON was deleted after September, as the script told us to.
+- **The grant is checked against the mailbox it is stored under** (`users.getProfile`) before anything is saved. The browser on the Mac is signed in as `matthew@mrecai.com`; a token for that mailbox saved as `matthew@mleca.com` would file MRECAI mail twice and MLE mail never, with no error anywhere.
+- **Order: change the password, then authorise.** Google revokes Gmail-scoped OAuth tokens when an account's password changes, and D-017's rotation is still owed for all five. Authorising first means a silent disconnect later — visible as `MAIL_MAILBOX_FAILED`, but avoidable.
+- **`mattyeps@gmail.com` is out of reach of this app.** An internal Workspace app cannot authorise a consumer Gmail account. Matthew's call whether personal mail is filed at all, and by what route.
+
 ### D-057 — C16 narrowed: three legal names filled; EINs live on the Mac, never in git
 **Status:** Built and applied · Oct 3 2026 — on the Mac the local file loads all three EINs, placeholders down to B_CHS, P_AE, P_PE, and git does not see the file
 

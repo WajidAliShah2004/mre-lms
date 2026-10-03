@@ -36,6 +36,13 @@ four times.
 
     ./ops/authorise_gmail.py matthew@mrecai.com --client-json ~/Downloads/client_secret_*.json
     ./ops/authorise_gmail.py matthew@mrecai.com --check
+
+    # a second mailbox, reusing the app already stored for the first:
+    ./ops/authorise_gmail.py matthew@mleca.com --client-from matthew@mrecai.com
+
+Before saving, it asks Gmail which mailbox the new token actually reads, and
+refuses if that is not the address given — the browser is usually already
+signed in as someone else.
 """
 
 from __future__ import annotations
@@ -107,6 +114,9 @@ def main() -> int:
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("address")
     p.add_argument("--client-json", default="~/Downloads/client_secret_*.json")
+    p.add_argument("--client-from", metavar="ADDRESS",
+                   help="reuse the OAuth app stored with this mailbox's grant "
+                        "instead of a downloaded client JSON")
     p.add_argument("--check", action="store_true",
                    help="report what is stored, and prove it still works")
     args = p.parse_args()
@@ -133,7 +143,15 @@ def main() -> int:
         return 0
 
     # ---- authorise -----------------------------------------------------
-    client_id, client_secret, json_path = load_client(args.client_json)
+    if args.client_from:
+        donor = keychain_read(gmail.keychain_service(args.client_from))
+        if not donor or not donor.get("client_id") or not donor.get("client_secret"):
+            raise SystemExit(f"no stored OAuth app under {args.client_from} — "
+                             f"use --client-json instead")
+        client_id, client_secret, json_path = (donor["client_id"],
+                                               donor["client_secret"], None)
+    else:
+        client_id, client_secret, json_path = load_client(args.client_json)
 
     try:
         from google_auth_oauthlib.flow import InstalledAppFlow
@@ -147,10 +165,17 @@ def main() -> int:
     print(f"  scope: {gmail.SCOPES[0]}")
     print("  a browser will open — sign in as this mailbox and click Allow\n")
 
-    flow = InstalledAppFlow.from_client_secrets_file(
-        str(json_path), scopes=list(gmail.SCOPES))
+    flow = InstalledAppFlow.from_client_config(
+        {"installed": {"client_id": client_id, "client_secret": client_secret,
+                       "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                       "token_uri": "https://oauth2.googleapis.com/token",
+                       "redirect_uris": ["http://localhost"]}},
+        scopes=list(gmail.SCOPES))
+    # login_hint pre-selects the account; it does not enforce it. The
+    # profile check below does.
     creds = flow.run_local_server(port=0, prompt="consent",
-                                  access_type="offline")
+                                  access_type="offline",
+                                  login_hint=args.address)
 
     if not creds.refresh_token:
         print("\nGoogle returned no refresh token. That happens when this "
@@ -169,6 +194,14 @@ def main() -> int:
                   "read-only guarantee is the point of this.", file=sys.stderr)
             return 1
 
+    actual = gmail.GoogleTransport(creds).profile_address()
+    problem = wrong_mailbox(args.address, actual)
+    if problem:
+        print(f"\n{problem} Nothing was stored. Sign out of that account in "
+              f"the browser (or use a private window) and run this again.",
+              file=sys.stderr)
+        return 1
+
     payload = {"refresh_token": creds.refresh_token,
                "client_id": client_id, "client_secret": client_secret,
                "address": args.address, "scopes": list(gmail.SCOPES)}
@@ -183,9 +216,18 @@ def main() -> int:
     n = _smoke_test(payload, args.address)
     print(f"\nStored {service} and read it back unchanged.")
     print(f"Proved it works: {n} message(s) in the last day.")
-    print(f"\nYou can delete {json_path} now — the client id and secret are "
-          f"in the Keychain.")
+    if json_path:
+        print(f"\nYou can delete {json_path} now — the client id and secret "
+              f"are in the Keychain.")
     return 0
+
+
+def wrong_mailbox(wanted: str, actual: str) -> str | None:
+    """Why the grant is for the wrong mailbox, or None if it is the right one."""
+    if (actual or "").strip().lower() == wanted.strip().lower():
+        return None
+    return (f"Google signed in as {actual or '(unknown)'}, not {wanted}. A "
+            f"token for the wrong mailbox would file its mail as {wanted}'s.")
 
 
 def _smoke_test(stored: dict, address: str) -> int:
