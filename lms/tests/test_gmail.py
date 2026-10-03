@@ -307,3 +307,15 @@ def test_pacer_spaces_calls_out():
     now[0] += 5                     # a long gap needs no wait
     p.wait()
     assert slept == [0.1, 0.1]
+
+
+def test_a_network_timeout_is_retried():
+    import socket
+    from core.adapters.gmail import _with_backoff
+    calls = []
+    def call():
+        calls.append(1)
+        if len(calls) < 2:
+            raise socket.timeout("timed out")
+        return "ok"
+    assert _with_backoff(call, sleep=lambda s: None, note=lambda m: None) == "ok"

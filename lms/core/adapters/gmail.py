@@ -160,6 +160,9 @@ _RETRY_REASONS = ("rateLimitExceeded", "userRateLimitExceeded",
 
 
 def _is_retryable(exc: Exception) -> bool:
+    # socket.timeout is TimeoutError; a dropped connection is ConnectionError.
+    if isinstance(exc, (TimeoutError, ConnectionError)):
+        return True
     status = getattr(getattr(exc, "resp", None), "status", None)
     try:
         status = int(status) if status is not None else None

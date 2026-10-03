@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import socket
 import subprocess
 import sys
 from pathlib import Path
@@ -78,6 +79,12 @@ def build_client(address: str) -> gmail.GmailClient:
 
 def main() -> int:
     ensure_venv("LMS_POLLMAIL_REEXEC", script=__file__)
+    # The Google client (httplib2) has no timeout unless the socket default
+    # sets one, so a stalled Gmail connection hung forever — and launchd will
+    # not start the next scheduled run while this one is alive. A timeout
+    # raises, and the backoff/per-message guard deal with it. LM Studio calls
+    # set their own (180s) and are unaffected.
+    socket.setdefaulttimeout(120)
     # Before anything reads a path. Without this the archive root came from the
     # code default (~/LMS/archive) unless the operator happened to have sourced
     # lms.env in that shell — so the same command filed to a different place

@@ -171,3 +171,10 @@ def test_one_failing_message_does_not_stop_the_pass(tmp_path):
     ).fetchall()
     assert len(rows) == 1
     assert "m1" in rows[0][0] and "isUnlocked" in rows[0][0]
+
+
+def test_poll_mail_sets_a_network_timeout():
+    """httplib2 waits forever without one (Oct 3: a run sat in recv_into)."""
+    src = (Path(__file__).resolve().parents[1] / "ops" / "poll_mail.py").read_text(
+        encoding="utf-8")
+    assert "socket.setdefaulttimeout(" in src
