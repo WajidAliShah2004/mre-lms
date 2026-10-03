@@ -42,13 +42,24 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from _env import load_lms_env                              # noqa: E402
+from _env import archive_volume_problem, load_lms_env      # noqa: E402
 from _reexec import ensure_venv                            # noqa: E402
 
 
 def main() -> int:
     ensure_venv("LMS_WATCH_REEXEC", script=__file__)
     load_lms_env()
+
+    # KeepAlive restarts this ~every 10 s. With the array unmounted, each
+    # restart wrote a full traceback: 77 MB of watchfolder.err in two weeks,
+    # all saying the same thing. One line, then wait 5 min before exiting.
+    problem = archive_volume_problem()
+    if problem:
+        import time
+        print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {problem}",
+              file=sys.stderr, flush=True)
+        time.sleep(300)
+        return 1
 
     from core.adapters import watchfolder
     return watchfolder.run(once="--once" in sys.argv)

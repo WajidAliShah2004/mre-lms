@@ -149,6 +149,41 @@ class Transport(Protocol):
     def get_attachment(self, message_id: str, attachment_id: str) -> bytes: ...
 
 
+
+# Gmail's per-user quota is "units per minute". messages.get(format=full) costs
+# 5 units, and a 14-day catch-up fetching several hundred messages back to back
+# hit 403 rateLimitExceeded on Sept 29. Retry the retryable statuses with
+# exponential backoff; anything else (401, 404, a real 403 permission error)
+# is raised immediately.
+_RETRY_REASONS = ("rateLimitExceeded", "userRateLimitExceeded",
+                  "Quota exceeded", "backendError")
+
+
+def _is_retryable(exc: Exception) -> bool:
+    status = getattr(getattr(exc, "resp", None), "status", None)
+    try:
+        status = int(status) if status is not None else None
+    except (TypeError, ValueError):
+        status = None
+    if status in (429, 500, 502, 503, 504):
+        return True
+    return status == 403 and any(r in str(exc) for r in _RETRY_REASONS)
+
+
+def _with_backoff(call, *, tries: int = 6, first_wait: float = 2.0,
+                  sleep=None):
+    import time
+    sleep = sleep or time.sleep
+    wait = first_wait
+    for attempt in range(tries):
+        try:
+            return call()
+        except Exception as exc:              # googleapiclient.errors.HttpError
+            if attempt == tries - 1 or not _is_retryable(exc):
+                raise
+            sleep(wait)
+            wait = min(wait * 2, 64.0)
+
 class GoogleTransport:
     """The real one. Imports the Google libraries lazily.
 
@@ -180,14 +215,14 @@ class GoogleTransport:
         req = self._svc().users().messages().list(
             userId=self._user, q=query, maxResults=min(limit, 500))
         while req is not None and len(out) < limit:
-            resp = req.execute()
+            resp = _with_backoff(req.execute)
             out.extend(m["id"] for m in resp.get("messages", []))
             req = self._svc().users().messages().list_next(req, resp)
         return out[:limit]
 
     def get(self, message_id: str) -> dict:
-        return self._svc().users().messages().get(
-            userId=self._user, id=message_id, format="full").execute()
+        return _with_backoff(lambda: self._svc().users().messages().get(
+            userId=self._user, id=message_id, format="full").execute())
 
     def get_attachment(self, message_id: str, attachment_id: str) -> bytes:
         """The attachment bytes.

@@ -1,5 +1,11 @@
 # Phase 6 — applying the agent config on the Mac
 
+> **SUPERSEDED — do not follow.** This was written against the v3.0 spec's
+> vocabulary; several commands below use keys OpenClaw does not have
+> (`agents.<name>.tools`, `models.providers.*.type`, `scheduling.*`) — see
+> D-021. What was actually applied is `phase6a.patch.json5`; the provider step
+> is `PHASE6B_APPLY.md` (D-052). Kept for the record only.
+
 **Do not copy `agents.fragment.json` over `~/.openclaw/openclaw.json`.**
 
 The live config already carries two things that exist nowhere else:

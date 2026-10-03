@@ -75,3 +75,99 @@ def test_a_module_that_is_not_a_script_is_not_marked_executable():
         and not has_shebang(REPO / p)
     ]
     assert not wrong, f"executable but not runnable: {wrong}"
+
+
+# --- D-052: verify_setup checks 9 and 10 -------------------------------------
+
+def _vs():
+    """Import verify_setup WITHOUT its re-exec guard.
+
+    At import it os.execv()s into .venv/bin/python when sys.prefix differs —
+    right for `./ops/verify_setup.py`, fatal inside pytest: the test process is
+    replaced and the run ends mid-file with no failure reported.
+    """
+    import importlib.util
+    import os
+    from pathlib import Path
+    os.environ["LMS_VERIFY_REEXEC"] = "1"
+    p = Path(__file__).resolve().parents[1] / "ops" / "verify_setup.py"
+    spec = importlib.util.spec_from_file_location("verify_setup_d052", p)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+def test_zone_from_localtime_link():
+    vs = _vs()
+    assert vs.zone_from_localtime_link(
+        "/var/db/timezone/zoneinfo/America/New_York") == "America/New_York"
+    assert vs.zone_from_localtime_link("/usr/share/zoneinfo/Asia/Karachi") == "Asia/Karachi"
+    assert vs.zone_from_localtime_link("/etc/something") is None
+
+
+def test_offending_providers():
+    vs = _vs()
+    assert vs.offending_providers(
+        {"lmstudio": {"baseUrl": "http://localhost:1234/v1"}}) == []
+    assert vs.offending_providers(
+        {"lmstudio": {"baseUrl": "http://127.0.0.1:1234/v1"}}) == []
+    assert vs.offending_providers(
+        {"lmstudio": {"baseUrl": "http://192.168.1.5:1234/v1"}})
+    assert vs.offending_providers(
+        {"openrouter": {"baseUrl": "https://openrouter.ai/api/v1"}})
+    # a loopback URL under a different provider name is still unexpected
+    assert vs.offending_providers({"custom": {"baseUrl": "http://localhost:4000/v1"}})
+
+
+# --- Sept 29: array unmounted for two weeks, nobody told --------------------
+
+def test_archive_volume_problem_reports_missing_mount(tmp_path):
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ops"))
+    from _env import archive_volume_problem
+    msg = archive_volume_problem("/Volumes/NoSuchArrayXYZ/LMS")
+    assert msg and "not mounted" in msg
+    (tmp_path / "LMS").mkdir()
+    assert archive_volume_problem(str(tmp_path / "LMS")) is None
+    assert "does not exist" in archive_volume_problem(str(tmp_path / "missing"))
+
+
+# --- Oct 2: one bad attachment stopped every mail run -----------------------
+
+def _poll_mail():
+    import importlib.util
+    p = Path(__file__).resolve().parents[1] / "ops" / "poll_mail.py"
+    spec = importlib.util.spec_from_file_location("poll_mail_oct2", p)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+def test_one_failing_message_does_not_stop_the_pass(tmp_path):
+    """The window re-reads the same mail every run, so a message that crashes
+    the loop crashes EVERY run until it ages out — and everything after it in
+    the listing is never filed. It must be logged, counted, and skipped."""
+    from types import SimpleNamespace
+    from core.db import database as db
+    pm = _poll_mail()
+    conn = db.connect(tmp_path / "lms.db")
+
+    def msg(i):
+        return SimpleNamespace(message_id=f"m{i}", subject=f"s{i}", date="")
+
+    def ingest(m):
+        if m.message_id == "m1":
+            raise AttributeError("'PDFDocument' object has no attribute 'isUnlocked'")
+        filed = SimpleNamespace(status="FILED", path=f"/a/{m.message_id}")
+        return SimpleNamespace(email=filed, attachments=[], skipped=[])
+
+    counts = pm.file_messages(conn, [msg(0), msg(1), msg(2)], ingest)
+    assert counts["filed"] == 2
+    assert counts["failed"] == 1
+
+    rows = conn.execute(
+        "SELECT detail FROM actions_log WHERE action = 'MAIL_MESSAGE_FAILED'"
+    ).fetchall()
+    assert len(rows) == 1
+    assert "m1" in rows[0][0] and "isUnlocked" in rows[0][0]

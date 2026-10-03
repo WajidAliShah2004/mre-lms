@@ -220,3 +220,48 @@ def test_a_missing_token_says_how_to_fix_it(monkeypatch):
     with pytest.raises(gmail.GmailError) as exc:
         gmail.stored_token("matthew@mrecai.com")
     assert "authorise_gmail.py" in str(exc.value)
+
+
+# --- Sept 29: 403 rateLimitExceeded on a 14-day catch-up ---------------------
+
+class _Resp:
+    def __init__(self, status): self.status = status
+
+
+class _FakeHttpError(Exception):
+    def __init__(self, status, text):
+        super().__init__(text); self.resp = _Resp(status)
+
+
+def test_rate_limit_is_retried_then_succeeds():
+    from core.adapters.gmail import _with_backoff
+    calls, waits = [], []
+    def call():
+        calls.append(1)
+        if len(calls) < 3:
+            raise _FakeHttpError(403, "Quota exceeded for quota metric ... rateLimitExceeded")
+        return {"ok": True}
+    assert _with_backoff(call, sleep=waits.append) == {"ok": True}
+    assert waits == [2.0, 4.0]
+
+
+def test_permission_403_is_not_retried():
+    import pytest
+    from core.adapters.gmail import _with_backoff
+    waits = []
+    def call():
+        raise _FakeHttpError(403, "Request had insufficient authentication scopes.")
+    with pytest.raises(_FakeHttpError):
+        _with_backoff(call, sleep=waits.append)
+    assert waits == []
+
+
+def test_gives_up_after_tries():
+    import pytest
+    from core.adapters.gmail import _with_backoff
+    waits = []
+    def call():
+        raise _FakeHttpError(429, "Too many requests")
+    with pytest.raises(_FakeHttpError):
+        _with_backoff(call, tries=3, sleep=waits.append)
+    assert waits == [2.0, 4.0]

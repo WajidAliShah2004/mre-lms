@@ -222,7 +222,10 @@ def _open_pdf(path: Path):
         raise OCRError(f"could not open PDF: {path}")
     # An encrypted PDF is not a failed read, it is a locked document, and the
     # difference matters to whoever finds it in the review queue.
-    if doc.isEncrypted() and not doc.isUnlocked():
+    # isLocked, not isEncrypted: a PDF encrypted only for permissions opens
+    # without a password and its text is readable. (`isUnlocked` is not a
+    # PDFKit selector; it crashed every mail run from Oct 2.)
+    if doc.isLocked():
         raise OCRError("PDF is password-protected — it is filed unread, "
                        "nothing was guessed about its contents")
     return doc

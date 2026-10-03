@@ -299,3 +299,35 @@ instructions to a model — so they hold even if the AI is wrong or manipulated:
 
 If you ever see the system appear to do one of these, `/halt` first and
 investigate second.
+
+## Array not mounted
+
+**Symptom:** `launchctl list | grep com.lms` shows exit status `1` on every job;
+`~/LMS/logs/*.err` say `Permission denied: '/Volumes/MacStudioHD'`; the brief
+says THE SYSTEM NEEDS ATTENTION / "is not mounted". First seen Sept 14–29 2026,
+after a restart: the array is encrypted (D-019) and stayed locked.
+
+```bash
+ls /Volumes/                              # MacStudioHD missing?
+diskutil list external                    # are the 4 disks + disk10 even visible?
+diskutil apfs list | grep -B2 -A12 MacStudioHD
+```
+
+- **Disks not listed at all** → physical: enclosure power, Thunderbolt cable, enclosure
+  switched off. Someone at the Mac has to fix this.
+- **Listed but "Locked: Yes"** →
+  `diskutil apfs unlockVolume MacStudioHD` (prompts for the array passphrase).
+- **Unlocked but not mounted** → `diskutil mount MacStudioHD`.
+
+Then confirm, and let the jobs recover on their own:
+
+```bash
+ls /Volumes/MacStudioHD/LMS/lms.db
+launchctl kickstart -k gui/$(id -u)/com.lms.watchfolder
+./ops/verify_setup.py
+```
+
+**Make it survive the next restart.** When unlocking in Disk Utility, tick
+*Remember this password in my keychain* — or the array will be locked again
+after every reboot and this repeats. (Phase 1 item 4 always required the
+passphrase in the keychain; it was never confirmed.)

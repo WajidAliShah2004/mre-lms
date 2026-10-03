@@ -307,6 +307,81 @@ def check_lmstudio_loopback() -> None:
              "any mailbox connects.")
 
 
+# ---------------------------------------------------------------------------
+# 9. The Mac's own clock zone — what launchd actually fires on (D-052)
+# ---------------------------------------------------------------------------
+
+def zone_from_localtime_link(target: str) -> str | None:
+    """'/var/db/timezone/zoneinfo/America/New_York' -> 'America/New_York'."""
+    marker = "zoneinfo/"
+    i = target.find(marker)
+    return target[i + len(marker):] if i >= 0 else None
+
+
+def check_system_timezone() -> None:
+    """Check 4 proves Python's zone maths. It says nothing about launchd.
+
+    Every scheduled job (com.lms.*.plist) uses StartCalendarInterval, which
+    fires on the SYSTEM's local wall clock. If the Mac is set to any other
+    zone, the brief arrives at 06:30 somewhere else, and check 4 still passes.
+    """
+    print("\n[9] System timezone is America/New_York (launchd fires on it)")
+    try:
+        target = os.readlink("/etc/localtime")
+    except OSError:
+        warn("/etc/localtime is not a symlink here — run this on the Mac")
+        return
+    zone = zone_from_localtime_link(target)
+    if zone == "America/New_York":
+        ok(f"system zone {zone}")
+    else:
+        fail(f"system zone is {zone!r} ({target}). Every launchd job will fire "
+             "in that zone. Fix: sudo systemsetup -settimezone America/New_York")
+
+
+# ---------------------------------------------------------------------------
+# 10. Live OpenClaw providers are loopback only (check 3 reads the repo)
+# ---------------------------------------------------------------------------
+
+def offending_providers(providers: dict) -> list[str]:
+    bad = []
+    for name, body in (providers or {}).items():
+        if not isinstance(body, dict):
+            continue
+        url = str(body.get("baseUrl", ""))
+        host = url.split("://", 1)[-1].split("/", 1)[0].rsplit(":", 1)[0]
+        if name != "lmstudio" or host not in {"localhost", "127.0.0.1", "[::1]"}:
+            bad.append(f"{name} -> {url or '(no baseUrl)'}")
+    return bad
+
+
+def check_live_providers() -> None:
+    print("\n[10] Live OpenClaw model providers are local only (D-003)")
+    try:
+        r = subprocess.run(["openclaw", "config", "get", "models.providers", "--json"],
+                           capture_output=True, text=True, timeout=30)
+        if r.returncode != 0:
+            warn("`openclaw config get models.providers --json` failed "
+                 f"({(r.stderr or r.stdout).strip()[:120]}) — check by hand")
+            return
+        providers = json.loads(r.stdout) if r.stdout.strip() else {}
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        warn("openclaw CLI not available — skipped. Run this on the Mac.")
+        return
+    except json.JSONDecodeError:
+        warn("could not parse `openclaw config get models.providers --json` — "
+             "check by hand that only lmstudio at localhost:1234 is listed")
+        return
+    if not providers:
+        warn("models.providers is empty — Phase 6b not applied yet (PHASE6B_APPLY.md)")
+        return
+    bad = offending_providers(providers)
+    if bad:
+        fail("non-local or unexpected provider(s): " + ", ".join(bad))
+    else:
+        ok("only lmstudio, on loopback")
+
+
 def check_readers_available() -> None:
     """Which document readers actually work on THIS machine.
 
@@ -447,6 +522,8 @@ def main() -> int:
     if not args.skip_openclaw:
         check_openclaw_drift()
         check_lmstudio_loopback()
+        check_system_timezone()
+        check_live_providers()
 
     print("\n" + "=" * 60)
     if failures:

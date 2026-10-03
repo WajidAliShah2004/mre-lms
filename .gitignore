@@ -42,3 +42,7 @@ lms/ops/lms.env
 # produces certainly does not.
 client_secret_*.json
 *.apps.googleusercontent.com.json
+
+# Client owner records — contain full EINs. Never commit (D-017 posture).
+*Business_Owner_Record*.pdf
+*Business_Owner_Record*.docx

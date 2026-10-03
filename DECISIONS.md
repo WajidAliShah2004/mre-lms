@@ -884,6 +884,44 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 
 **302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
 
+### D-053 — One encrypted PDF stopped all mail filing
+**Status:** Fixed · Oct 3 2026
+
+After the array came back, `com.lms.mail` still exited 1 on every run: `AttributeError: 'PDFDocument' object has no attribute 'isUnlocked'` in `ocr._open_pdf`. PDFKit has `isEncrypted` and `isLocked`; `isUnlocked` never existed. Every PDF before this one was unencrypted, so `and` short-circuited and the line never ran.
+
+**Two defects, not one.**
+- The check is now `isLocked()` alone. A PDF encrypted only for permissions opens without a password and its text is readable; checking `isEncrypted` would have filed those unread.
+- The bigger one: `poll_mail` had no per-message guard. The poll re-reads the same window every run (by design), so one message that raised ended *every* run, and nothing listed after it was filed. `file_messages()` now logs `MAIL_MESSAGE_FAILED` with the message id and error, carries on, and exits 1 so `launchctl list` still shows it.
+
+Tests use a strict PDFKit fake that raises on any selector PDFKit lacks — it reproduced the production error exactly before the fix.
+
+### D-052 — Phase 6 finished: LM Studio registered as the provider, then the catalog replaced
+**Status:** Decided · Sept 29 2026 · **prepared, not yet applied on the Mac** — `lms/ops/PHASE6B_APPLY.md`
+
+D-021 left `models.providers` empty and withheld `models.mode: "replace"` until a provider existed and one inference had run. The gateway has therefore never run an inference; everything live so far goes through `core/adapters/lmstudio.py` directly. This closes that.
+
+**Two patches, applied in order, with a test between them.**
+- `ops/phase6b.patch.json5` — `models.providers.lmstudio` (`baseUrl http://localhost:1234/v1`, `api: "openai-completions"`), only the two chat tiers (L1, L2), and `agents.defaults.model.primary = lmstudio/<L1>`. OCR, ASR and embedding stay out: they are not chat models and are called by `core/`, never by an agent. Shape taken from the OpenClaw docs (providers/lmstudio, custom-providers), not the spec — the dry run is the check D-021 taught us to rely on.
+- `ops/phase6c.patch.json5` — `models.mode: "replace"` alone. Applied **only after** `openclaw agent` returns READY through the gateway, and the same test is re-run immediately after, with rollback on any failure. That is the whole of D-021's objection ("fails at first inference, hours later"), answered by running the first inference on purpose.
+
+**Why "replace" is worth it.** D-003 is currently held by 31 plugins staying individually disabled, and D-015 showed updates can re-enable things silently. Under "replace", a re-enabled cloud plugin finds no catalog entry to route to.
+
+**`apiKey` is a placeholder, stated as such.** LM Studio runs unauthenticated on loopback; the literal `lm-studio-local-no-auth` grants nothing. If `secrets audit` flags it, the finding is justified. If LM Studio auth is ever enabled it becomes an exec SecretRef like D-016, never a literal.
+
+**Context budget is conservative (32768 / 8192)** and must not exceed LM Studio's `loaded_context_length`, which step 2 reads before applying.
+
+**Never `openclaw agent exec` for testing.** Its documented defaults are sandbox off and the coding tool profile on — the opposite of D-021.
+
+**Two gaps in `verify_setup.py`, found while writing this:**
+- Check 4 proves Python's zone maths across the November change. It proves nothing about **launchd**, which fires `StartCalendarInterval` on the Mac's *system* zone. A Mac set to any other zone sends the brief at 06:30 somewhere else while check 4 passes. New check **[9]** reads `/etc/localtime`.
+- Check 3 reads the repo fragment, not the live config. New check **[10]** reads `openclaw config get models.providers` and fails on anything but `lmstudio` at loopback.
+
+Both are pure-helper tested. The test loader sets `LMS_VERIFY_REEXEC=1`: importing `verify_setup` otherwise `execv`s into `.venv` (D-033) and replaces the pytest process, which ends the run mid-file with no failure reported — observed on the workstation. `test_agents` now also asserts the patch's model ids equal `TIER_MODELS`, since three files name them.
+
+`PHASE6_APPLY.md` is marked superseded — it still used keys OpenClaw doesn't have.
+
+**Done when** (PHASES.md Phase 6): READY through the gateway with zero non-loopback egress; `models list --all` shows exactly two `lmstudio/` models; audit 0 critical; `verify_setup.py` [9] and [10] pass on the Mac.
+
 ### D-051 — The brief says when the system itself has stopped
 **Status:** Built · Sept 10 2026
 

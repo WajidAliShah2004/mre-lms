@@ -44,7 +44,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from _env import load_lms_env                            # noqa: E402
+from _env import archive_volume_problem, load_lms_env    # noqa: E402
 from _reexec import ensure_venv                          # noqa: E402
 from core.db import database as db                       # noqa: E402
 from core.pipeline.registry import load_registry         # noqa: E402
@@ -114,6 +114,30 @@ def main() -> int:
         print("LMS_ARCHIVE_ROOT is not set — ops/lms.env was not found",
               file=sys.stderr)
         return 2
+
+    # The database is ON the archive volume. If that is gone, build_brief
+    # cannot run — and the brief is the only thing that tells anyone. So the
+    # alarm is written from here, to iCloud (internal disk), without the DB.
+    problem = archive_volume_problem(archive)
+    if problem:
+        now = datetime.now()
+        text = (f"{kind.capitalize()} brief · {now:%Y-%m-%d %H:%M}\n\n"
+                f"THE SYSTEM NEEDS ATTENTION\n\n{problem}\n\n"
+                f"Nothing else in this brief can be trusted until this is "
+                f"fixed: without the archive there are no documents, tasks "
+                f"or job history to report.\n")
+        if args.dry_run:
+            print(text)
+            print("(dry run — nothing written)")
+            return 1
+        try:
+            write_verified(brief_dir() / f"{now:%Y-%m-%d} {kind}{SUFFIX}", text)
+            write_verified(brief_dir() / LATEST, text)
+        except (DeliveryError, OSError) as exc:
+            print(f"alarm brief could not be written either: {exc}",
+                  file=sys.stderr)
+        print(problem, file=sys.stderr)
+        return 1        # still a failure: launchctl should show it
 
     conn = db.connect(os.environ.get(
         "LMS_DB", str(Path(archive).parent / "lms.db")))

@@ -154,6 +154,8 @@ Every phase after this one writes into the repo — the Brewfile, `openclaw.json
 4. Define the agents (simplified single-Mac topology per the meeting): an orchestrator, a **zero-tool ingest-sandbox** (verify its tool schema is empty), and a quarantined drafting agent. Per-entity agents can be added later — the topology must allow it without re-architecture.
 5. Cron/heartbeat scheduling declared in **America/New_York** (never UTC offsets — DST safety, Rec 21).
 
+**Status (Sept 29):** 6a applied Sept 8 (D-021). 6b provider + 6c `models.mode: "replace"` prepared — apply per `lms/ops/PHASE6B_APPLY.md` (D-052). Scheduling is launchd, not OpenClaw cron (D-045); DST safety for it is `verify_setup.py` check [9], the system zone.
+
 **Done when:** the gateway starts clean under the `lms` user; the ingest-sandbox provably has no tools; a scheduled heartbeat fires at the declared local time, **and** the scheduler's computed next-fire time for a date past the November DST boundary still lands on the declared local hour.
 
 ## Phase 7 — Control channel (Telegram)

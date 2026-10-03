@@ -1,0 +1,82 @@
+// Phase 6b — register LM Studio as OpenClaw's model provider (D-052).
+//
+// Phase 6a (phase6a.patch.json5) locked tools and commands down but left
+// models.providers EMPTY, which is why models.mode:"replace" was withheld.
+// This fills the provider in. 6c (phase6c.patch.json5) is the "replace"
+// step and is applied ONLY after a test inference through the gateway works.
+//
+// Apply (on the Mac, from ~/lms-repo/lms) — see ops/PHASE6B_APPLY.md:
+//     openclaw config patch --file ops/phase6b.patch.json5 --dry-run
+//     openclaw config patch --file ops/phase6b.patch.json5
+//     openclaw gateway restart
+//
+// Shape taken from the OpenClaw docs (providers/lmstudio, custom-providers),
+// not from the v3.0 spec's vocabulary — D-021 is what happened last time.
+// The dry run is the real check: if the validator rejects a key, nothing is
+// written. Do not "fix" a rejection by deleting keys until the dry run passes;
+// read `openclaw config schema` for the key it names.
+//
+// Idempotent — re-running changes nothing.
+
+{
+  models: {
+    providers: {
+      lmstudio: {
+        // Loopback, never 127.0.0.1-vs-LAN ambiguity. OpenClaw's guarded fetch
+        // allows exactly this scheme://host:port and nothing else for model
+        // HTTP — the provider baseUrl IS the network trust decision.
+        baseUrl: "http://localhost:1234/v1",
+
+        // Chat-completions. Not "openai-responses": LM Studio's /v1/responses
+        // support is not something this build depends on.
+        api: "openai-completions",
+
+        // LM Studio runs unauthenticated on loopback. This is a placeholder,
+        // NOT a secret — some OpenAI-compatible clients refuse an empty key.
+        // If `secrets audit` flags it as plaintext, that finding is justified:
+        // the value grants nothing. If LM Studio auth is ever turned on, this
+        // becomes an exec SecretRef exactly like D-016, never a literal.
+        apiKey: "lm-studio-local-no-auth",
+
+        // ONLY the two chat tiers. OCR, ASR and embedding are not chat models
+        // and are called by core/ directly (core/adapters/lmstudio.py), not
+        // through OpenClaw. Listing them here would offer an agent a model
+        // that fails on first use.
+        //
+        // contextWindow / maxTokens are CONSERVATIVE. They must not exceed
+        // what LM Studio actually loaded (loaded_context_length), or the
+        // gateway will budget prompts the server truncates. Step 2 of
+        // PHASE6B_APPLY.md reads the real number; lower these if it's smaller.
+        models: [
+          {
+            id: "qwen3.6-35b-a3b-mlx",          // TIER-L1 — orchestrator, classifier
+            name: "TIER-L1 (Qwen3.6 35B-A3B MLX)",
+            reasoning: true,
+            input: ["text"],
+            cost: { input: 0, output: 0 },
+            contextWindow: 32768,
+            maxTokens: 8192,
+          },
+          {
+            id: "qwen3.5-122b-a10b",            // TIER-L2 — drafter
+            name: "TIER-L2 (Qwen3.5 122B-A10B)",
+            reasoning: true,
+            input: ["text"],
+            cost: { input: 0, output: 0 },
+            contextWindow: 32768,
+            maxTokens: 8192,
+          },
+        ],
+      },
+    },
+  },
+
+  agents: {
+    defaults: {
+      // provider/model. L1 is the default; the drafter selects L2 when the
+      // Telegram drafting path lands (Phase 7). Model ids must match
+      // core/adapters/lmstudio.py TIER_MODELS — test_agents enforces it.
+      model: { primary: "lmstudio/qwen3.6-35b-a3b-mlx" },
+    },
+  },
+}

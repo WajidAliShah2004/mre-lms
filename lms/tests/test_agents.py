@@ -177,3 +177,40 @@ def test_no_third_party_skills(fragment):
     referenced = {a["skill"] for a in fragment["agents"].values()
                   if isinstance(a, dict) and "skill" in a}
     assert referenced <= on_disk, f"agents reference skills not in the repo: {referenced - on_disk}"
+
+
+# --- D-052: the OpenClaw provider patch and core/ agree on model ids --------
+
+def _patch_text(name: str) -> str:
+    from pathlib import Path
+    return (Path(__file__).resolve().parents[1] / "ops" / name).read_text()
+
+
+def test_phase6b_model_ids_match_core_tiers():
+    """Three places name the models. If they drift, OpenClaw and core/ run
+    different models under the same tier name and nothing errors."""
+    import re
+    from core.adapters.lmstudio import TIER_MODELS
+    text = _patch_text("phase6b.patch.json5")
+    ids = re.findall(r'^\s*id:\s*"([^"]+)"', text, re.M)
+    assert ids == [TIER_MODELS["TIER-L1"], TIER_MODELS["TIER-L2"]]
+    primary = re.search(r'primary:\s*"lmstudio/([^"]+)"', text).group(1)
+    assert primary == TIER_MODELS["TIER-L1"]
+
+
+def test_phase6b_provider_is_loopback_and_no_cloud():
+    import re
+    text = _patch_text("phase6b.patch.json5")
+    urls = re.findall(r'baseUrl:\s*"([^"]+)"', text)
+    assert urls == ["http://localhost:1234/v1"]
+    code = "\n".join(l.split("//", 1)[0] if not l.strip().startswith("baseUrl") else l
+                     for l in text.splitlines())
+    for cloud in ("anthropic", "openai.com", "googleapis", "openrouter"):
+        assert cloud not in code
+
+
+def test_phase6c_is_only_the_mode_switch():
+    import re
+    text = _patch_text("phase6c.patch.json5")
+    code = "\n".join(l.split("//", 1)[0] for l in text.splitlines())
+    assert re.sub(r"\s+", "", code) == '{models:{mode:"replace"},}'

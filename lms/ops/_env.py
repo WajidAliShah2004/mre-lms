@@ -67,3 +67,29 @@ def load_lms_env(path: Path | None = None, *, override: bool = False) -> dict[st
             os.environ[key] = value
             applied[key] = value
     return applied
+
+
+def archive_volume_problem(root: str | None = None) -> str | None:
+    """Why the archive cannot be used right now, or None if it can.
+
+    Sept 14 – 29, 2026: the array stopped mounting after a restart. Every job
+    then died on `mkdir /Volumes/MacStudioHD` with EACCES — including the
+    brief, whose job was to say that the system had stopped. Two weeks passed
+    with nobody told. Every entry point checks this FIRST, before anything
+    tries to create directories under a missing mount point.
+    """
+    root = root or os.environ.get("LMS_ARCHIVE_ROOT", "")
+    if not root:
+        return "LMS_ARCHIVE_ROOT is not set — ops/lms.env was not found"
+    parts = Path(root).parts            # ('/', 'Volumes', 'MacStudioHD', ...)
+    if len(parts) >= 3 and parts[1] == "Volumes":
+        mount = Path(*parts[:3])
+        if not os.path.ismount(mount):
+            return (f"{mount} is not mounted. The archive, the database and "
+                    f"the backup source all live on it. Mail is not being "
+                    f"filed, documents are not being filed, and no backup "
+                    f"has run. Fix: unlock/mount the array (see RUNBOOK, "
+                    f"'Array not mounted').")
+    if not Path(root).is_dir():
+        return f"{root} does not exist on a mounted volume"
+    return None
