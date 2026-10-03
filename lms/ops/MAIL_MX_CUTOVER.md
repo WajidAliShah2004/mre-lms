@@ -2,6 +2,20 @@
 
 Diagnosis and cutover runbook — `mrecai.com`, 2026-09-17.
 
+> **Status, Oct 3 2026 — cutover done (D-054).** `mrecai.com` was removed from
+> iCloud+ Custom Email Domain. Checked from outside via 8.8.8.8 and 1.1.1.1:
+>
+> | Step | State |
+> |---|---|
+> | 2 MX | `1 smtp.google.com` — done (TTL 3600) |
+> | 4 SPF | `v=spf1 include:_spf.google.com ~all` — done, and narrower than §6 planned: `bolt.im` and `_spf-us.ionos.com` were also removed |
+> | DKIM | `google`, `s1`, `s2` all still published — unchanged, correct |
+> | 5 DMARC | **still missing** on `mrecai.com` |
+> | 6 Migration | **open** — mail delivered to iCloud before the cutover is still in iCloud |
+> | 3/§3 Pre-flight | **unconfirmed** — prove with an outside test message (D-054) |
+>
+> `mleca.com` (`smtp.google.com`) and `atlase.ai` (`aspmx` set) already pointed at Google.
+
 ---
 
 ## 1. What is actually wrong

@@ -884,6 +884,19 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 
 **302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
 
+### D-054 — mrecai.com mail now delivered to Google, not iCloud
+**Status:** Done · Oct 3 2026 · verification pending
+
+`mrecai.com` had been set up as an iCloud+ Custom Email Domain, so its MX pointed at iCloud and Gmail only saw what iCloud forwarded (`MAIL_MX_CUTOVER.md` §1). The domain was removed from iCloud on Oct 3. Public DNS now reads MX `1 smtp.google.com` and SPF `include:_spf.google.com ~all`; DKIM unchanged.
+
+**Consequences to watch:**
+- **Proof of delivery is an outside message.** Until one sent from a non-Workspace account appears in `poll_mail --dry-run`, the pre-flight (`mrecai.com` verified in Workspace, `matthew@` a licensed user) is assumed, not shown. If Workspace does not accept the address, senders get a hard bounce.
+- **Sending as matthew@mrecai.com through iCloud now fails.** Any Apple Mail / iPhone account that sends through iCloud SMTP must be switched to the Google account.
+- **SPF lost `bolt.im` and IONOS.** Anything still sending through either (a website form, a bolt.im service) now soft-fails SPF, and with no DKIM of its own it will land in spam. Nobody has established what `bolt.im` sends (§5).
+- **The forwarding leniency in `core/pipeline/mail.py`** (only a hard SPF fail counts) is now wider than needed. Leave it until the iCloud mail is migrated, since the migrated mail is still forwarded-shaped.
+- **iCloud mail from before the cutover** stays in iCloud and is invisible to the LMS until migrated (§4 step 6).
+- DMARC is still unpublished on `mrecai.com`.
+
 ### D-053 — One encrypted PDF stopped all mail filing
 **Status:** Fixed · Oct 3 2026
 
