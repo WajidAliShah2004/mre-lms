@@ -42,7 +42,7 @@ One list, so nothing stalls silently. Each phase below references this table rat
 | C13 | **iMessage** | Messages signed in on the Mac; Full Disk Access granted; group-chat opt-in list | Day 4 — see D-009 | **Partial** — developer authorised for sign-in and FDA. The **group-chat opt-in list stays his decision**: it scopes whose messages get ingested, which is not a setting a contractor should pick. Default remains none |
 | C14 | **Photographed mail** | iOS Shortcut installed on his phone, and he actually uses it | Day 4 | **Open** — developer builds and sends the Shortcut; installation and first-run Allow are on his phone. The only deliverable that depends on a habit rather than a setting |
 | C15 | **Call transcripts** | Where they come from (Retell / Twilio / carrier voicemail) and read access | Day 4 — first thing to cut if the week slips | **Open** |
-| C16 | **Entities & people** | Legal names, EINs, name variants, and exact spellings for the five people | Day 2 | **Open — highest-value blocker.** This *is* `config/entities.yaml`. Placeholders are in place and marked `TODO(C16)`; `tests/test_registry.py::test_no_placeholders_remain` is the acceptance gate and currently xfails by design |
+| C16 | **Entities & people** | Legal names, EINs, name variants, and exact spellings for the five people | Day 2 | **Partly answered Oct 3 (D-057):** legal names for MRECAI, MLE, Atlase filled; EINs on the Mac only. **Open:** C.H. Shink, both parents, Jessie's email. This *is* `config/entities.yaml`. Placeholders are in place and marked `TODO(C16)`; `tests/test_registry.py::test_no_placeholders_remain` is the acceptance gate and currently xfails by design |
 
 ### Confirmations and purchases
 

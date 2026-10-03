@@ -884,6 +884,15 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 
 **302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
 
+### D-057 — C16 narrowed: three legal names filled; EINs live on the Mac, never in git
+**Status:** Built · Oct 3 2026
+
+Matthew's Business Owner Records (Sept 27) gave legal names and EINs for three of the four businesses: **MRE Consulting & Insurance LLC** (DBA MRECAI), **MLE Consulting Agency LLC**, **Atlase AI Inc.** Their legal names, the owner record's short name "MRE C&I", the broker licence number and "Matthew Ryan Epstein" are now in `config/entities.yaml` as names and match aliases.
+
+**EINs are not in that file and the tests keep it so** (`test_committed_registry_holds_no_ein`). `entities.yaml` is in git; an EIN committed once is in the history for good. They go in `config/entities.local.yaml` on the Mac — gitignored, `chmod 600` — which the registry overlays at load. Each EIN also becomes an alias, so a 1099, CP 575 or W-9 printing it routes to its business. MLE holds a duplicate EIN the IRS has not reconciled; both are listed (`other_eins`), because mail can arrive under either. A malformed EIN, or one under an id that is not a business, stops the registry loading: a mistyped EIN would file a tax form under the wrong business.
+
+**Still open under C16:** C.H. Shink (no record supplied), both parents' names, Jessie's email. `test_no_placeholders_remain` stays xfail until then.
+
 ### D-056 — The three LMS agents exist on the gateway, each with no tools; D-021 corrected
 **Status:** Applied and verified · Oct 3 2026 — `agents list` shows `main` (default) + the three; `agent_tools.py`: all three PASS, `tools=none`, READY from the right tier model (drafter on qwen3.5-122b). `main` still reports `session_status`, as expected — the per-agent deny is what removed it from the others.
 

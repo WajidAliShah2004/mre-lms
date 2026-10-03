@@ -27,6 +27,17 @@
 # So C16 is NOT closed by this pass. It is narrowed to two fields per business,
 # both of which live on the formation documents and nowhere else.
 #
+# OCT 3 2026 — legal names filled for B_MRE, B_MLE and B_ATL from Matthew's
+# Business Owner Records (Sept 27). Still open: B_CHS (no record supplied),
+# P_AE / P_PE (parents' names), P_JG's email.
+#
+# EINs ARE NOT IN THIS FILE, and must never be: it is in git. They live in
+# config/entities.local.yaml on the Mac (gitignored, chmod 600), which the
+# registry overlays at load and also uses as match aliases, so a tax form
+# printing an EIN routes to its business. Format:
+#     businesses:
+#       B_MLE: { ein: "NN-NNNNNNN", other_eins: ["NN-NNNNNNN"] }
+#
 # NEVER put credentials in this file. Mailbox secrets live in the macOS
 # Keychain; this file holds addresses only, for routing.
 
@@ -42,6 +53,7 @@ people:
       - "M. Epstein"
       - "Matthew R Epstein"
       - "Matthew R. Epstein"
+      - "Matthew Ryan Epstein"  # Atlase AI Inc. owner record, Sept 27
     emails:
       - "mattyeps@gmail.com"
 
@@ -91,10 +103,10 @@ people:
 
 businesses:
   B_MRE:
-    name: "TODO(C16) — legal name on the formation documents"
+    name: "MRE Consulting & Insurance LLC"   # NY DOS ID 7204958; DBA "MRECAI"
     short: "MRECAI Consulting & Insurance"
     tree: "MRECAI"
-    ein: "TODO(C16)"
+    ein: null            # on the Mac only: config/entities.local.yaml (gitignored)
     # Tax, insurance and accounting firm. Founded 2024.
     # 11 W Mill Dr, Great Neck, NY 11021 · +1 (929) 919-3574
     # Matthew R. Epstein, President & Founder.
@@ -110,6 +122,9 @@ businesses:
       - "MRE Consulting & Insurance"
       - "MRECAI Consulting & Insurance"
       - "MRECAI LLC"            # social handles are mrecaillc / MRECAIllc
+      - "MRE Consulting & Insurance LLC"   # legal name
+      - "MRE C&I"               # the owner record's permitted short name
+      - "BR-1832230"            # NY insurance broker licence, printed on carrier mail
     # Known counterparties — these appear in real mail and are NOT entities.
     # Listed so a future reader does not mistake them for missing businesses.
     #   PSG Global Tax & Accounting Services LLC (Parineet Sehgal) — accounting partner
@@ -131,10 +146,10 @@ businesses:
       - "C H Shink"
 
   B_ATL:
-    name: "TODO(C16) — legal name on the formation documents"
+    name: "Atlase AI Inc."       # Delaware C corp, file 10739457, formed Aug 18 2026
     short: "A.T.L.A.S. ENGINE"
     tree: "ATLASE"
-    ein: "TODO(C16)"
+    ein: null            # on the Mac only: config/entities.local.yaml (gitignored)
     # "Advanced Targeting & Lead Automation System Engine" — autonomous B2B
     # lead generation platform. Built by NovaEdge Solutions. The site lists no
     # address, no phone, and no contact email — unusually thin for an entity
@@ -152,6 +167,8 @@ businesses:
       - "Atlase"
       - "Atlas"
       - "Atlase AI"
+      - "Atlase AI Inc"         # legal name; no trailing "." — the alias match
+                                # is whole-word and a final "." never ends a word
       - "Atlas Engine"
       - "A.T.L.A.S."
       - "ATLAS ENGINE"
@@ -172,10 +189,10 @@ businesses:
     # If MRECAI, move this one line and nothing else changes.
 
   B_MLE:
-    name: "TODO(C16) — legal name on the formation documents"
+    name: "MLE Consulting Agency LLC"   # NY DOS ID 7972473, effective July 22 2026
     short: "MLE Consulting Agency"
     tree: "MLECA"
-    ein: "TODO(C16)"
+    ein: null            # on the Mac only: config/entities.local.yaml (gitignored)
     # AI, automation and technology consulting for small businesses.
     # +1 402-282-1836 — note the Nebraska area code, not NY like MRECAI.
     # Business card on the site reads "Matthew Epstein, President".
@@ -191,6 +208,7 @@ businesses:
       - "MLECA"
       - "MLE Consulting"
       - "MLE Consulting Agency"
+      - "MLE Consulting Agency LLC"   # legal name; biBERK's policy omits "LLC"
 
 # Terminal buckets. Not businesses, not people — but valid classifier outputs.
 system:

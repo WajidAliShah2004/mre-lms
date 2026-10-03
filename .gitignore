@@ -46,3 +46,7 @@ client_secret_*.json
 # Client owner records — contain full EINs. Never commit (D-017 posture).
 *Business_Owner_Record*.pdf
 *Business_Owner_Record*.docx
+
+# EINs for the entity registry — on the Mac only. entities.yaml is committed
+# and must never hold one; the registry overlays this file at load.
+lms/config/entities.local.yaml

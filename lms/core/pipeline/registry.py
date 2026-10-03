@@ -13,6 +13,7 @@ a directory named after a misspelling.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,10 @@ from .. import addressing
 CONFIG_DIR = Path(__file__).resolve().parents[2] / "config"
 
 PLACEHOLDER_MARKER = "TODO(C16)"
+
+# EINs, kept out of git. entities.yaml is committed; this file is not.
+LOCAL_FILE = "entities.local.yaml"
+_EIN = re.compile(r"^\d{2}-\d{7}$")
 
 
 class RegistryError(ValueError):
@@ -246,6 +251,8 @@ def load_registry(config_dir: Path | str = CONFIG_DIR) -> Registry:
     if not entities:
         raise RegistryError("entities.yaml defined no entities")
 
+    _apply_local(entities, config_dir / LOCAL_FILE)
+
     # Trees must be unique, or two entities file into the same folder and the
     # tree stops being a reliable index.
     seen: dict[str, str] = {}
@@ -282,6 +289,35 @@ def load_registry(config_dir: Path | str = CONFIG_DIR) -> Registry:
         descriptions=descriptions,
         overrides=overrides,
     )
+
+
+def _apply_local(entities: dict[str, Entity], path: Path) -> None:
+    """Overlay EINs from the gitignored local file, if there is one.
+
+    A missing file is not an error: the workstation and CI have none, and
+    nothing but routing hints depends on it. A malformed one IS an error —
+    a mistyped EIN would route a tax form to the wrong business, which is
+    worse than not routing on EINs at all.
+
+    Each EIN also becomes an alias, so a document that prints it (a 1099, a
+    CP 575, a W-9) routes to its business on alias_in_body. `other_eins` is
+    for a business holding a duplicate the IRS has not yet reconciled — mail
+    can arrive under either.
+    """
+    if not path.exists():
+        return
+    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    for eid, body in (raw.get("businesses") or {}).items():
+        ent = entities.get(eid)
+        if ent is None or ent.kind != "business":
+            raise RegistryError(f"{path.name}: {eid!r} is not a business in entities.yaml")
+        eins = _as_list((body or {}).get("ein")) + _as_list((body or {}).get("other_eins"))
+        for ein in eins:
+            if not _EIN.match(ein):
+                raise RegistryError(f"{path.name}: {eid} EIN {ein!r} is not NN-NNNNNNN")
+        if eins:
+            ent.ein = eins[0]
+            ent.aliases = ent.aliases + [e for e in eins if e not in ent.aliases]
 
 
 def _load_overrides(raw: list[Any], *, personal: dict[str, list[str]],
