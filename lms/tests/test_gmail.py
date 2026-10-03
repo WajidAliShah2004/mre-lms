@@ -351,3 +351,5 @@ def test_inbox_state():
     assert inbox_state(_raw([], ["INBOX", "UNREAD"])) == "inbox"
     assert inbox_state(_raw([], ["SPAM"])) == "SPAM"
     assert inbox_state(_raw([], ["CATEGORY_UPDATES"])) == "not in inbox"
+    # Oct 3: his own replies read "not in inbox", which looked like misrouting
+    assert inbox_state(_raw([], ["SENT"])) == "sent"

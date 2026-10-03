@@ -57,7 +57,7 @@ def main() -> int:
     print(f"\n{len(raws)} message(s) in {args.days}d: "
           f"{tally['direct']} direct, {tally['via iCloud']} via iCloud; "
           f"{tally['inbox']} in inbox, {tally['SPAM']} spam, "
-          f"{tally['not in inbox']} not in inbox")
+          f"{tally['sent']} sent by him, {tally['not in inbox']} not in inbox")
     return 0
 
 

@@ -509,7 +509,9 @@ def inbox_state(raw: dict) -> str:
         return "SPAM"
     if "TRASH" in labels:
         return "TRASH"
-    return "inbox" if "INBOX" in labels else "not in inbox"
+    if "INBOX" in labels:
+        return "inbox"
+    return "sent" if "SENT" in labels else "not in inbox"
 
 
 # ---------------------------------------------------------------------------
