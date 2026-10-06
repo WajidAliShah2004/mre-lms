@@ -248,6 +248,17 @@ openclaw security audit --deep 2>&1 | tail -15
 Also try it from a **different** Telegram account if one is at hand: the bot
 must not answer, and must not offer pairing.
 
+### 5. Retire the onboarding script
+
+A new agent workspace carries `BOOTSTRAP.md`, OpenClaw's "what should I call
+you?" first-run script, which the agent is expected to delete itself. A
+tool-less agent never can. Move it aside (done Oct 6), then `/new` in the chat:
+
+```bash
+mkdir -p ~/LMS/openclaw-bootstrap-retired
+for a in orchestrator classifier drafter; do f=~/.openclaw/workspace-lms-$a/BOOTSTRAP.md; [ -f "$f" ] && mv "$f" ~/LMS/openclaw-bootstrap-retired/lms-$a-BOOTSTRAP.md; done
+```
+
 ### Rollback (7b)
 
 ```bash

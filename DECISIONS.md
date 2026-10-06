@@ -885,7 +885,7 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 **302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
 
 ### D-060 — The gateway's Telegram channel: allowlist of one, routed to a tool-less agent
-**Status:** Written · Oct 6 2026 · **not yet applied** (`lms/ops/PHASE7_APPLY.md` 7b, `lms/ops/phase7b.patch.json5`)
+**Status:** Applied and verified · Oct 6 2026 — Matthew's Telegram → gateway → `lms-orchestrator` (no tools, local L1) → `READY`. Chat bot username: _record here_.
 
 Written from `openclaw config schema` on the Mac (2026.7.1-2), not from the spec or docs. The schema corrected the Sept 8 draft in three places:
 - the key is `botToken` (an exec SecretRef), not `token`;
@@ -899,6 +899,15 @@ Written from `openclaw config schema` on the Mac (2026.7.1-2), not from the spec
 **Locked down explicitly**, even where the default is already off, so a changed default cannot open one silently (D-015): `groupPolicy: disabled`, `configWrites: false`, `execApprovals.enabled: false`, and `commands.bash/config/mcp/plugins/debug/restart: false`. `commands.ownerAllowFrom` / `allowFrom` name the same one id, which also clears doctor's "no command owner" and the audit's `operator.read`.
 
 **`D015_PLUGINS` 3 → 4** in `verify_setup.py`, in the same commit as the patch. Check [5] fails from `git pull` until `openclaw plugins enable telegram`; that window is the apply itself.
+
+**Applied Oct 6, measured:**
+- Second bot: a pre-existing bot on Matthew's account was reused, its token **revoked first** so nothing that held the old one (the old VPS included) can still poll it. The Keychain entries for the two bots compared `DIFFERENT`.
+- Dry run validated 25 updates; `--allow-exec` resolved the reference. `config get channels.telegram` shows `botToken` as `{source: exec, provider: telegram, id: telegram-bot-token}`, with no token readable. The `telegram` provider mirrors `default` (`allowInsecurePath: true`, `jsonOnly: false`).
+- Routing confirmed from the gateway's own session files: the Telegram conversation is held by `agents/lms-orchestrator`; `agents/main` has none.
+- `agent_tools.py`: all three `lms-*` PASS, tools=none. `verify_setup`: all pass, plugins = 4. Doctor's "no command owner": **cleared**.
+- **Not cleared: audit `probe_failed / missing scope: operator.read`.** The Sept 8 Phase 7 notes called it the same finding as "no command owner"; it is not. It concerns the scope the audit's own probe uses against the gateway, not chat ownership. Audit: 0 critical, 2 warn (this and `trusted_proxies_missing`, both as in Phase 6). Left open, not claimed.
+- **First reply was OpenClaw's onboarding script** ("what should I call you?"), from `BOOTSTRAP.md` in the agent workspace. OpenClaw expects the agent to delete that file once onboarding is done; an agent with no tools never can, so every new conversation would have started with it. Moved (not deleted) from all three `lms-*` workspaces to `~/LMS/openclaw-bootstrap-retired/`. After `/new`: `READY`. The workspaces also hold a `HEARTBEAT.md` template; Phase 5 item 6 (heartbeat in the database, not the file) should be re-checked for these agents.
+- Owner id appears in every agent's system prompt (`commands.ownerDisplay: raw`, the default). Harmless here, and noted: `hash` exists if that ever matters.
 
 `tests/test_phase7b.py` parses the patch, rather than grepping it, and asserts each property above. The halt still covers this: the gateway is an `ai.openclaw.*` job, so `/halt` to @MREOC18bot stops the chat too.
 
