@@ -250,3 +250,35 @@ def test_the_token_never_reaches_an_error_message(monkeypatch):
     # URLError's reason here embeds the URL on purpose, to prove the risk.
     assert "SECRETSECRET" not in str(e.value) or pytest.fail(
         "token leaked into an exception that gets logged")
+
+
+def test_the_poll_loop_runs_against_the_real_call_signature(monkeypatch):
+    """Oct 6: the daemon died on its first poll on the Mac with "got multiple
+    values for keyword argument 'timeout'". getUpdates takes a `timeout` of
+    its own, and call() had an HTTP timeout of the same name. Every helper was
+    tested; the loop that joins them was not. This drives serve() through the
+    real Telegram.call, with only urlopen faked."""
+    import io
+    import urllib.parse
+    import urllib.request
+
+    seen = []
+
+    def fake_urlopen(url, data=None, timeout=None):
+        body = dict(urllib.parse.parse_qsl(data.decode()))
+        seen.append((url.rsplit("/", 1)[1], body, timeout))
+        result = ([{"update_id": 7, "message": msg("/status")}]
+                  if url.endswith("getUpdates") else {})
+        return io.BytesIO(json.dumps({"ok": True, "result": result}).encode())
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(halt_bot, "do_status", lambda: "Running (not halted).")
+    halt_bot.serve(halt_bot.Telegram("1:x"), OWNER, max_polls=2)
+
+    polls = [x for x in seen if x[0] == "getUpdates"]
+    assert len(polls) == 2
+    assert polls[0][1]["timeout"] == str(halt_bot.POLL_S)       # Telegram's
+    assert polls[0][2] == halt_bot.POLL_S + 15                  # the HTTP one
+    assert polls[1][1]["offset"] == "8", "the update was never confirmed"
+    sends = [x for x in seen if x[0] == "sendMessage"]
+    assert sends and sends[0][1]["text"] == "Running (not halted)."

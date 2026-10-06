@@ -95,13 +95,17 @@ class Telegram:
     def __init__(self, token: str):
         self._token = token
 
-    def call(self, method: str, timeout: float = 15, **params) -> dict:
+    def call(self, method: str, http_timeout: float = 15, **params) -> dict:
+        """`params` go to Telegram as-is. The HTTP timeout is named
+        http_timeout because getUpdates has its own `timeout` (the long-poll
+        length); sharing the name crashed the daemon on its first poll on the
+        Mac, Oct 6."""
         data = urllib.parse.urlencode(
             {k: json.dumps(v) if isinstance(v, (list, dict)) else v
              for k, v in params.items()}).encode()
         url = API.format(token=self._token, method=method)
         try:
-            return self._call(url, data, method, timeout)
+            return self._call(url, data, method, http_timeout)
         except RuntimeError as exc:
             # The URL carries the token, and some errors quote the URL.
             raise RuntimeError(str(exc).replace(self._token, "<token>")) from None
@@ -222,17 +226,21 @@ def handle(message: dict, owner_id: int, tg: Telegram, strangers: set) -> None:
         tg.send(owner_id, HELP)
 
 
-def serve(tg: Telegram, owner_id: int) -> int:
+def serve(tg: Telegram, owner_id: int, *, max_polls: int | None = None) -> int:
+    """Poll forever. `max_polls` exists so the loop itself can be tested:
+    the Oct 6 crash was in this function, and every helper had passed."""
     offset = None
     strangers: set = set()
     backoff = 1
     log(f"haltbot up; owner configured; pid {os.getpid()}")
-    while True:
+    polls = 0
+    while max_polls is None or polls < max_polls:
+        polls += 1
         try:
             params = {"timeout": POLL_S, "allowed_updates": ["message"]}
             if offset is not None:
                 params["offset"] = offset
-            updates = tg.call("getUpdates", timeout=POLL_S + 15, **params)["result"]
+            updates = tg.call("getUpdates", http_timeout=POLL_S + 15, **params)["result"]
             backoff = 1
         except RuntimeError as exc:
             log(f"POLL_FAILED {exc}; retry in {backoff}s")
@@ -246,6 +254,7 @@ def serve(tg: Telegram, owner_id: int) -> int:
                     handle(u["message"], owner_id, tg, strangers)
                 except Exception as exc:                      # noqa: BLE001
                     log(f"HANDLE_FAILED {type(exc).__name__}: {exc}")
+    return 0
 
 
 def main() -> int:
