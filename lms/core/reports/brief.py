@@ -291,6 +291,7 @@ WATCHED_JOBS: dict[str, tuple[str, int]] = {
     "MAIL_POLL_STOP":   ("mail",   36),      # runs 07:00 and 19:00
     "BRIEF_DELIVERED":  ("brief",  48),      # runs 06:30
     "BACKUP_COMPLETED": ("backup", 48),      # runs 02:30
+    "AUDIT_COMPLETED":  ("audit", 16 * 24),  # runs Sundays 05:15 (Phase 8)
 }
 
 

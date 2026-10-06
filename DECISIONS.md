@@ -884,6 +884,19 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 
 **302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
 
+### D-063 — Remote access stays on RustDesk; Phase 8 hardens around it
+**Status:** Decided · Oct 6 2026 · resolves D-010 as option (a)
+
+The developer chose not to move remote access to Tailscale. RustDesk remains the build channel and Matthew's remote path, to be removed at handover (§12.4). Tailscale stays installed and logged in (100.69.58.49) but carries no access. Consequences:
+
+- **SSH (Remote Login) is turned off.** Recon showed launchd's sshd listening on all interfaces with password login, used by nothing.
+- **macOS application firewall on, stealth on,** RustDesk explicitly allowed. Inbound only, so RustDesk's outbound relay session is unaffected; applied behind a 5-minute self-revert in case the session does not come back.
+- **Outbound default-deny is deferred to handover.** With RustDesk in the picture the allowlist must include its relays, and a wrong list locks the only remote path out. PHASES Phase 8 item 3 stays open, stated, not quietly skipped.
+- **Weekly audit** is a launchd job (`com.lms.audit`, Sundays 05:15 ET): `security audit --deep` + `verify_setup`, a dated report, and an `AUDIT_COMPLETED` row the brief watches (16 days).
+- **Off-site backup** waits for a private B2 bucket and a bucket-restricted application key; then a second restic repository and a nightly `restic copy`.
+
+Recon also found Tailscale's peer service on ports 38365/51322 (all interfaces, root) and **Ollama** on loopback 11434, which is not part of the plan.
+
 ### D-062 — Five owner follow-ups dropped by developer judgment
 **Status:** Decided · Oct 6 2026
 
@@ -1415,7 +1428,7 @@ The Aug 5 meeting agreed to shared email passwords with 2FA disabled. Written re
 > **Date:**
 
 ### D-010 — Remote-access path
-**Status:** OPEN · must be settled **before default-deny egress goes live** · client item **C4** · [PHASES.md:170](PHASES.md:170)
+**Status:** RESOLVED Oct 6 by D-063 (option a: RustDesk) · was OPEN · must be settled **before default-deny egress goes live** · client item **C4** · [PHASES.md:170](PHASES.md:170)
 
 - (a) Keep RustDesk, allowlist its relay hosts, and accept a third-party relay sitting outside the Tailscale-only posture — removed at handover (§12.4, Q212).
 - (b) **Tailscale + macOS Screen Sharing (recommended)** — what Q213 actually implies.

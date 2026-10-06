@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Weekly security audit: openclaw security audit (deep) plus verify_setup,
+  Sundays 05:15 America/New_York. Phase 8 item 6, spec Q216.
+
+  Install:
+    cp ops/com.lms.audit.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.lms.audit.plist
+  Run once now:
+    launchctl kickstart -p gui/$(id -u)/com.lms.audit
+
+  Read-only. Writes a dated report under ~/LMS/logs/audit and one
+  AUDIT_COMPLETED row; the brief flags it if no row appears for 16 days.
+  A halt (D-059) disables this job with the rest.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.lms.audit</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/mleca/lms-repo/lms/.venv/bin/python</string>
+        <string>/Users/mleca/lms-repo/lms/ops/weekly_audit.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/mleca/lms-repo/lms</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>TZ</key>
+        <string>America/New_York</string>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Weekday</key>
+        <integer>0</integer>
+        <key>Hour</key>
+        <integer>5</integer>
+        <key>Minute</key>
+        <integer>15</integer>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/mleca/LMS/logs/audit.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/mleca/LMS/logs/audit.err</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>Nice</key>
+    <integer>10</integer>
+</dict>
+</plist>
