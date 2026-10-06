@@ -884,6 +884,24 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 
 **302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
 
+### D-060 — The gateway's Telegram channel: allowlist of one, routed to a tool-less agent
+**Status:** Written · Oct 6 2026 · **not yet applied** (`lms/ops/PHASE7_APPLY.md` 7b, `lms/ops/phase7b.patch.json5`)
+
+Written from `openclaw config schema` on the Mac (2026.7.1-2), not from the spec or docs. The schema corrected the Sept 8 draft in three places:
+- the key is `botToken` (an exec SecretRef), not `token`;
+- **`dmPolicy` defaults to `pairing`**, where any stranger who finds the bot can request pairing. It is set to `allowlist` with `allowFrom: ["8783061626"]` (Matthew's numeric id, captured Oct 6 from his own message);
+- **`commands.restart` defaults to `true`**. Off: restarting happens at the Mac, like resuming (D-059).
+
+**Second bot.** Telegram allows one poller per bot, and @MREOC18bot is the kill switch's. The chat bot's token is `lms/telegram-bot-token`, read through its **own** exec provider `telegram`. The `default` provider hard-codes the gateway token's Keychain service in its args and does not substitute the SecretRef id, so pointing Telegram at it would hand Telegram the gateway's token silently.
+
+**Routing.** One `bindings[]` route, `{channel: telegram, peer: {kind: direct, id: 8783061626}}`, to `lms-orchestrator`, which has no tools and no skills (D-056). Without a binding, Telegram lands on `main`, still offered `session_status`.
+
+**Locked down explicitly**, even where the default is already off, so a changed default cannot open one silently (D-015): `groupPolicy: disabled`, `configWrites: false`, `execApprovals.enabled: false`, and `commands.bash/config/mcp/plugins/debug/restart: false`. `commands.ownerAllowFrom` / `allowFrom` name the same one id, which also clears doctor's "no command owner" and the audit's `operator.read`.
+
+**`D015_PLUGINS` 3 → 4** in `verify_setup.py`, in the same commit as the patch. Check [5] fails from `git pull` until `openclaw plugins enable telegram`; that window is the apply itself.
+
+`tests/test_phase7b.py` parses the patch, rather than grepping it, and asserts each property above. The halt still covers this: the gateway is an `ai.openclaw.*` job, so `/halt` to @MREOC18bot stops the chat too.
+
 ### D-059 — The kill switch is its own bot and stops every job, not the gateway
 **Status:** Applied on the Mac · Oct 6 2026 · **local halt 0.3 s, Telegram /halt 0.3 s** (limit 10 s), all five jobs disabled, haltbot up throughout, resume restored all five. Owed: token rotation (below), and /halt from Matthew's own phone at acceptance.
 

@@ -162,7 +162,7 @@ Every phase after this one writes into the repo — the Brewfile, `openclaw.json
 
 *Guide: MAC_SETUP_GUIDE.md §8, §10. Spec: Q157, §8.9, §0.3.*
 
-**Status (Oct 6): redesigned, D-059.** OpenClaw has no `/halt`, and stopping the gateway would not stop the LMS jobs. The kill switch is now a separate daemon and bot (@MREOC18bot) that disables every `com.lms.*` / `ai.openclaw.*` job persistently. Resume happens only at the Mac. **7a applied Oct 6**: local and Telegram /halt both 0.3 s, every job disabled, resume clean. Owed: token rotation before acceptance; /halt from Matthew's own phone at acceptance. 7b (gateway chat) waits on `openclaw config schema` read on the Mac. Items 2–5 below are superseded by that document.
+**Status (Oct 6): redesigned, D-059.** OpenClaw has no `/halt`, and stopping the gateway would not stop the LMS jobs. The kill switch is now a separate daemon and bot (@MREOC18bot) that disables every `com.lms.*` / `ai.openclaw.*` job persistently. Resume happens only at the Mac. **7a applied Oct 6**: local and Telegram /halt both 0.3 s, every job disabled, resume clean. Owed: token rotation before acceptance; /halt from Matthew's own phone at acceptance. 7b (gateway chat): schema read Oct 6, patch written (D-060, `ops/phase7b.patch.json5`); needs the second bot, then apply. Items 2–5 below are superseded by that document.
 
 1. Create the bot via @BotFather; enable 2FA on the Telegram account (**C2**).
 2. Store the token in the macOS Keychain (`security add-generic-password -a lms -s lms/telegram-bot-token -w '<TOKEN>'`) — never in a file, never in the repo.

@@ -158,7 +158,7 @@ EOF
 openclaw plugins list | grep -i telegram
 ```
 
-Send the whole output back. From it, `ops/phase7b.patch.json5` is written to:
+(Done Oct 6. Now `./ops/schema_dump.py /tmp/oc-schema.json channels.telegram bindings commands secrets.providers`, because the heredoc above does not survive RustDesk.) From it, `ops/phase7b.patch.json5` was written to:
 
 - read `botToken` through its **own** exec secrets provider. The `default`
   provider has the gateway token's Keychain service hard-coded in its argument
@@ -171,19 +171,93 @@ Send the whole output back. From it, `ops/phase7b.patch.json5` is written to:
 - set `commands.ownerAllowFrom` to `["telegram:<id>"]`, which also clears the
   `operator.read` audit warning.
 
-### 2. Create the second bot
+### Schema read Oct 6 (OpenClaw 2026.7.1-2) — what it settled
 
-Same as 7a step 1: BotFather `/newbot`, `/setjoingroups` Disable, `/setprivacy`
-Enable, token at the prompt into `lms/telegram-bot-token`. Matthew messages it
-once; `./ops/capture_telegram_id.py --bot chat` should print the **same** id as
-the halt bot.
+- The key is `botToken`, which takes an exec SecretRef `{source, provider, id}`.
+- `dmPolicy` defaults to **`pairing`**; `groupPolicy` is **required**.
+- `bindings[]` = `{type: "route", agentId, match: {channel, peer: {kind, id}}}`.
+- `commands.restart` defaults to **true**; bash/config/mcp/plugins/debug default false.
 
-### 3. Then (once the patch exists)
+All of it is in `ops/phase7b.patch.json5`, and `tests/test_phase7b.py` asserts
+the security properties on the parsed patch.
 
-Enable the plugin and raise `D015_PLUGINS` in `ops/verify_setup.py` **in the
-same commit**, dry-run, apply, restart, `./ops/agent_tools.py`, audit, doctor.
-Rollback is `openclaw.json.pre-phase7`. **Not** `.pre-phase6`: that would undo
-Phase 6.
+### 2. Create the second bot and store its token
+
+BotFather → `/newbot` → a name and a `…bot` username → `/setjoingroups` →
+**Disable**. Copy BotFather's message on the Mac, click into Terminal and run
+this **as one line** (over RustDesk the clipboard can change between two
+commands; D-059):
+
+```bash
+T=$(pbpaste | grep -Eo '[0-9]{8,12}:[A-Za-z0-9_-]{30,}' | head -1); if [ -n "$T" ]; then security add-generic-password -U -a lms -s lms/telegram-bot-token -w "$T" && echo STORED; else echo "NO TOKEN ON CLIPBOARD"; fi; unset T
+pbcopy < /dev/null
+security find-generic-password -a lms -s lms/telegram-bot-token -w | wc -c
+```
+
+About `47`. From Matthew's Telegram: open the new bot, **Start**, `hello`. Then
+(before the gateway is polling it):
+
+```bash
+./ops/capture_telegram_id.py --bot chat
+```
+
+It must show **8783061626** and nobody else. If it shows a different id, stop:
+the patch hard-codes that one.
+
+### 3. Apply
+
+```bash
+openclaw config get secrets.providers.default
+openclaw config patch --file ops/phase7b.patch.json5 --dry-run
+```
+
+The provider in the patch mirrors `default` with only the Keychain service
+changed; compare the two. Then:
+
+```bash
+openclaw config patch --file ops/phase7b.patch.json5
+openclaw plugins enable telegram
+openclaw gateway restart
+openclaw config get channels.telegram
+```
+
+That last output must show `botToken` as a `{source: "exec", …}` reference.
+**If a token is readable there, stop and roll back**: it is in openclaw.json in
+plaintext.
+
+### 4. Verify
+
+From Matthew's Telegram, send the new bot `Reply with exactly READY`. It should
+answer. Then:
+
+```bash
+./ops/agent_tools.py
+./ops/verify_setup.py 2>&1 | tail -25
+openclaw doctor --allow-exec 2>&1 | grep -i -A3 "owner"
+openclaw security audit --deep 2>&1 | tail -15
+./ops/halt.py --status
+```
+
+- `agent_tools.py`: all three `lms-*` PASS, tools=none.
+- `verify_setup`: [5] now expects 4 enabled plugins; all pass.
+- doctor: no "No command owner is configured".
+- audit: 0 critical; the `operator.read` warning gone.
+- `halt.py --status`: the gateway is still a halt target. A `/halt` to
+  **@MREOC18bot** stops this chat too, and that is correct.
+
+Also try it from a **different** Telegram account if one is at hand: the bot
+must not answer, and must not offer pairing.
+
+### Rollback (7b)
+
+```bash
+cp ~/.openclaw/openclaw.json.pre-phase7 ~/.openclaw/openclaw.json
+openclaw plugins disable telegram
+openclaw gateway restart
+```
+
+**Not** `.pre-phase6`: that would undo Phase 6. Revert `D015_PLUGINS` to 3 if
+7b is abandoned.
 
 ---
 

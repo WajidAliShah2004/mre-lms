@@ -1,0 +1,90 @@
+// Phase 7b — Telegram chat with the gateway (D-060). The kill switch is NOT
+// here: it is com.lms.haltbot on its own bot (D-059), and nothing below can
+// stop, start or resume it.
+//
+// Every key below was read from `openclaw config schema` on the Mac,
+// OpenClaw 2026.7.1-2, Oct 6 (ops/schema_dump.py). None is from the spec or
+// the docs; D-021 and D-056 are what that costs.
+//
+// Apply (on the Mac, from ~/lms-repo/lms), see ops/PHASE7_APPLY.md 7b:
+//     cp ~/.openclaw/openclaw.json ~/.openclaw/openclaw.json.pre-phase7   (done Oct 6)
+//     openclaw config patch --file ops/phase7b.patch.json5 --dry-run
+//     openclaw config patch --file ops/phase7b.patch.json5
+//     openclaw plugins enable telegram
+//     openclaw gateway restart
+//
+// Idempotent: re-running changes nothing.
+
+{
+  secrets: {
+    providers: {
+      // Its own provider. `default` has the GATEWAY token's Keychain service
+      // hard-coded in its args, and an exec provider does not substitute the
+      // SecretRef id: pointed at `default`, Telegram would silently be handed
+      // the gateway's token and never connect (D-016).
+      telegram: {
+        source: "exec",
+        command: "/usr/bin/security",
+        args: ["find-generic-password", "-a", "lms", "-s", "lms/telegram-bot-token", "-w"],
+        jsonOnly: false,          // `security -w` prints a raw string
+        trustedDirs: ["/usr/bin"],
+        allowSymlinkCommand: false,
+        // /usr/bin/security is root-owned and the strict owner check wants the
+        // current user. A user-owned wrapper would be writable by anything
+        // running as mleca: worse. Pinned dir + Apple-signed binary. Same
+        // choice as `default` (D-016). Compare with:
+        //     openclaw config get secrets.providers.default
+        allowInsecurePath: true,
+      },
+    },
+  },
+
+  channels: {
+    telegram: {
+      enabled: true,
+      botToken: { source: "exec", provider: "telegram", id: "telegram-bot-token" },
+
+      // The schema's default is "pairing": any stranger who finds the bot can
+      // ask to be paired. Matthew's numeric id only (captured Oct 6 from his
+      // own message; a @handle is not identity and matches nothing).
+      dmPolicy: "allowlist",
+      allowFrom: ["8783061626"],
+
+      // Required by the schema. Groups are also disabled in BotFather.
+      groupPolicy: "disabled",
+      groupAllowFrom: [],
+
+      configWrites: false,        // nothing said in chat edits openclaw.json
+      execApprovals: { enabled: false },   // there is no exec tool to approve
+      linkPreview: false,
+    },
+  },
+
+  // Telegram goes to a tool-less LMS agent, never to `main` (which is still
+  // offered session_status, D-056). Narrow match: this channel, this person.
+  bindings: [
+    {
+      type: "route",
+      agentId: "lms-orchestrator",
+      comment: "Phase 7b: Matthew's Telegram DM. No tools (D-056).",
+      match: { channel: "telegram", peer: { kind: "direct", id: "8783061626" } },
+    },
+  ],
+
+  commands: {
+    // Clears doctor's "no command owner" and the audit's operator.read.
+    ownerAllowFrom: ["telegram:8783061626"],
+    allowFrom: { telegram: ["8783061626"] },
+
+    // Every chat surface that changes the machine stays off. All but restart
+    // are off by default already; they are written down so a later default
+    // change cannot turn one on silently (D-015).
+    bash: false,
+    config: false,
+    mcp: false,
+    plugins: false,
+    debug: false,
+    // Default TRUE. Restarting is done at the Mac, like resuming (D-059).
+    restart: false,
+  },
+}

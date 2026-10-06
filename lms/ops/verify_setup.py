@@ -89,8 +89,10 @@ FRAGMENT = REPO / "openclaw" / "agents" / "agents.fragment.json"
 SKILLS_DIR = REPO / "openclaw" / "skills"
 
 # The D-015 end state, measured on the Mac 2026-08-06 and re-verified
-# 2026-09-08 after the 2026.6.34 -> 2026.7.1-2 upgrade.
-D015_PLUGINS = 3
+# 2026-09-08 after the 2026.6.34 -> 2026.7.1-2 upgrade. Raised to 4 on Oct 6
+# for the Telegram plugin (Phase 7b, D-060), in the same commit as the patch
+# that enables it, so a fourth plugin that is NOT telegram still fails here.
+D015_PLUGINS = 4
 D015_SKILLS_READY = 0
 
 TZ = ZoneInfo("America/New_York")
