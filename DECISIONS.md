@@ -884,6 +884,31 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 
 **302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
 
+### D-061 — One Google app per Workspace, and a published External app for the personal Gmail
+**Status:** Applied · Oct 6 2026 — 4 of 5 mailboxes polled; matthew@atlase.ai pending (separate mailbox or alias of mre@atlase.ai: unknown)
+
+D-058 assumed every business mailbox could reuse the internal app stored with matthew@mrecai.com (`--client-from`). Google answered `Error 403: org_internal` for matthew@mleca.com, then for mre@atlase.ai with both the mrecai and the mleca app. **mrecai.com, mleca.com and atlase.ai are three separate Google Workspaces**, and an Internal app serves only its own.
+
+**So: one Internal app per Workspace,** each `gmail.readonly` only, each a Desktop client, each in a project under that Workspace's organization. Google created the `mleca.com` Cloud organization on first use (Oct 6, 03:16 ET) and made matthew@mleca.com its admin. The per-mailbox Keychain item already holds its own client id and secret, so no code changed.
+
+| Mailbox | App (project) | Type |
+|---|---|---|
+| matthew@mrecai.com | MRE LMS (mrecai.com org) | Internal |
+| matthew@mleca.com | MRE LMS MLE (mleca.com org) | Internal |
+| mre@atlase.ai | MRE LMS ATL (atlase.ai org) | Internal |
+| matthew@atlase.ai | reuse ATL app (`--client-from mre@atlase.ai`) | pending |
+| mattyeps@gmail.com | MRE LMS Personal (mattyeps@gmail.com, no organization) | **External, published** |
+
+**The personal Gmail cannot use an Internal app at all** (no Workspace). Rejected options: a Testing-mode External app (its refresh tokens expire every 7 days); IMAP with an app password (needs 2SV and new code, and grants full mailbox access, where `gmail.readonly` grants read only); forwarding into a business mailbox (mixes personal into business). Chosen: an **External app published to Production, unverified**. Publishing removes the 7-day expiry. Unverified costs a one-time "Google hasn't verified this app" screen and a 100-user lifetime cap; we use one. Branding points at mrecai.com's existing home, privacy-policy and terms pages. The AI-use question on the consent setup was answered **yes**, truthfully: local models classify the mail; nothing is trained; no cloud AI (D-003). Filing personal mail was Matthew's decision under D-058; the developer's instruction on Oct 6 is recorded as that decision.
+
+**Left alone:** a pre-existing project named `openclaw` under mattyeps@gmail.com (External, Testing, **0 users over its lifetime**, so it never had access to anything). Review or delete it at handover (§12.4).
+
+**The wrong-mailbox guard (D-058) fired for real:** the browser signed in as mre@atlase.ai while authorising matthew@atlase.ai; nothing was stored. Sign-ins for a second account on the same domain go in an Incognito window.
+
+**Delivery, `check_delivery.py --days 3`, Oct 6:** mrecai 76/76 direct; mleca 64/64 direct (58 inbox, 2 spam); mre@atlase.ai 2/2 direct; mattyeps 48 direct, **3 via iCloud**: something in iCloud still forwards into the personal Gmail. It is not lost, but it should be identified. The Mac's Mail app holds no mail accounts at all (Accounts4.sqlite: Apple services only), so nothing on the Mac downloads or removes mail. MX for all three business domains reads Google.
+
+**Owed:** passwords for all five mailboxes are still the ones shared in plain text (D-017). Rotating a password **revokes** that mailbox's grant, so rotate, then re-run `authorise_gmail.py` for it. Also found: the Mac's Apple ID is `mreconsultinginsurance@gmail.com`, a sixth address in no list. Ask Matthew whether business mail goes there.
+
 ### D-060 — The gateway's Telegram channel: allowlist of one, routed to a tool-less agent
 **Status:** Applied and verified · Oct 6 2026 — Matthew's Telegram → gateway → `lms-orchestrator` (no tools, local L1) → `READY`. Chat bot: **@MREOCbot**.
 
