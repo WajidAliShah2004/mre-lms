@@ -988,7 +988,7 @@ The next poll over a window re-fetches attachments of already-filed emails, so `
 **Also:** `ops/check_delivery.py` — per message in a window, including spam: `direct` or `via iCloud` (from the Received hops) and whether it is in the inbox. The check for D-054. Separately, an SMTP probe of `smtp.google.com` on Oct 3 returned `250 OK` for `matthew@mrecai.com` and `550 NoSuchUser` for a made-up address: Workspace accepts the mailbox.
 
 ### D-054 — mrecai.com mail now delivered to Google, not iCloud
-**Status:** Done · Oct 3 2026 · verification pending
+**Status:** Done · Oct 3 2026 · **verified Oct 6**: `check_delivery.py matthew@mrecai.com --days 3` → 76 messages, **76 direct, 0 via iCloud**; 54 inbox, 17 spam, 1 sent, 2 not in inbox. MX for mleca.com (`smtp.google.com`) and atlase.ai (`aspmx.l.google.com` set) read Google the same day. **Open:** 17/76 in spam is high; see whether real senders lost SPF with bolt.im/IONOS (below)
 
 `mrecai.com` had been set up as an iCloud+ Custom Email Domain, so its MX pointed at iCloud and Gmail only saw what iCloud forwarded (`MAIL_MX_CUTOVER.md` §1). The domain was removed from iCloud on Oct 3. Public DNS now reads MX `1 smtp.google.com` and SPF `include:_spf.google.com ~all`; DKIM unchanged.
 
