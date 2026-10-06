@@ -890,7 +890,7 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 The developer chose not to move remote access to Tailscale. RustDesk remains the build channel and Matthew's remote path, to be removed at handover (§12.4). Tailscale stays installed and logged in (100.69.58.49) but carries no access. Consequences:
 
 - **SSH (Remote Login) is turned off.** Recon showed launchd's sshd listening on all interfaces with password login, used by nothing.
-- **macOS application firewall on, stealth on,** RustDesk explicitly allowed. Inbound only, so RustDesk's outbound relay session is unaffected; applied behind a 5-minute self-revert in case the session does not come back.
+- **macOS application firewall: skipped** (developer decision, Oct 6). Nobody technical is on site to recover the machine if the RustDesk session were lost, so no network-path change is made while RustDesk is the only way in. The firewall stays off; the Mac sits behind the office router's NAT. Revisit at handover.
 - **Outbound default-deny is deferred to handover.** With RustDesk in the picture the allowlist must include its relays, and a wrong list locks the only remote path out. PHASES Phase 8 item 3 stays open, stated, not quietly skipped.
 - **Weekly audit** is a launchd job (`com.lms.audit`, Sundays 05:15 ET): `security audit --deep` + `verify_setup`, a dated report, and an `AUDIT_COMPLETED` row the brief watches (16 days).
 - **Off-site backup** waits for a private B2 bucket and a bucket-restricted application key; then a second restic repository and a nightly `restic copy`.

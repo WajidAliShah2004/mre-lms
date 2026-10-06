@@ -174,7 +174,7 @@ Every phase after this one writes into the repo — the Brewfile, `openclaw.json
 
 ## Phase 8 — Network & security hardening
 
-**Status (Oct 6): started, D-063.** Remote path stays RustDesk (Tailscale access skipped). Recon done (`ops/phase8_recon.sh`). Steps in `lms/ops/PHASE8_APPLY.md`: SSH off, firewall on, weekly audit job, then off-site B2 once a bucket key exists; outbound default-deny deferred to handover.
+**Status (Oct 6): started, D-063.** Remote path stays RustDesk (Tailscale access skipped). Recon done (`ops/phase8_recon.sh`). Steps in `lms/ops/PHASE8_APPLY.md`: SSH off, weekly audit job (firewall skipped: no on-site recovery), then off-site B2 once a bucket key exists; outbound default-deny deferred to handover.
 
 *Guide: MAC_SETUP_GUIDE.md §5–6, §8. Spec: Q212–Q216, §8.4 (enforce below the agent), §11.4.*
 

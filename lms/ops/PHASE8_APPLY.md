@@ -29,7 +29,9 @@ netstat -an -p tcp | grep LISTEN | grep '\.22 '
 
 No output = off. RustDesk is unaffected.
 
-## Step 3 — macOS firewall on (inbound only)
+## Step 3 — macOS firewall on (inbound only) — SKIPPED Oct 6 (D-063)
+
+Not applied: no technical person on site to recover a lost RustDesk session. Kept here for handover.
 
 The application firewall filters **incoming** connections only; RustDesk's
 connection to its relay is outgoing, so the session survives. Still, a safety
