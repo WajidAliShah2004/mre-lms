@@ -168,6 +168,12 @@ class HaltResult:
 
 
 def _alive(pid: int | None) -> bool:
+    """True while the process exists and is not a zombie.
+
+    kill(pid, 0) succeeds on a zombie: a process that has exited but that
+    launchd has not yet reaped. The first run on the Mac (Oct 6) reported a
+    SIGKILLed gateway as STILL RUNNING for exactly that reason.
+    """
     if not pid:
         return False
     try:
@@ -176,12 +182,47 @@ def _alive(pid: int | None) -> bool:
         return False
     except PermissionError:
         return True
-    return True
+    try:
+        stat = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)],
+                              capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return True
+    return bool(stat.strip()) and not stat.strip().startswith("Z")
+
+
+def _force_kill(pid: int, kill=os.killpg) -> None:
+    """SIGKILL the job's process group, but only if the job LEADS that group.
+
+    launchd normally starts each job as its own group leader, so the group is
+    the job and its children. If that ever is not so, killpg would hit
+    whatever group the job happens to share, up to and including this
+    process. Then only the one pid is killed.
+    """
+    try:
+        pgid = os.getpgid(pid)
+    except OSError:
+        return
+    try:
+        if pgid == pid and pgid != os.getpgid(0):
+            kill(pgid, signal.SIGKILL)
+        else:
+            os.kill(pid, signal.SIGKILL)
+    except OSError:
+        pass
+
+
+def _wait_gone(pids: dict[str, int], until: float, clock, alive, sleep) -> list[str]:
+    """Poll until every pid is gone or `until` passes. Returns the survivors."""
+    while True:
+        left = [lbl for lbl, pid in pids.items() if alive(pid)]
+        if not left or clock() >= until:
+            return left
+        sleep(0.1)
 
 
 def halt(by: str, *, run: Runner = _run, flag: Path = FLAG,
          agents_dir: Path = LAUNCH_AGENTS, clock=time.monotonic,
-         alive=_alive, kill=os.killpg) -> HaltResult:
+         alive=_alive, kill=os.killpg, sleep=time.sleep) -> HaltResult:
     t0 = clock()
     before = loaded(run)
     targets = discover_targets(run, agents_dir)
@@ -200,7 +241,10 @@ def halt(by: str, *, run: Runner = _run, flag: Path = FLAG,
     for label in targets:
         run(["launchctl", "disable", f"{domain()}/{label}"])
 
-    # 3. Unload, concurrently: each bootout may block until its job exits.
+    # 3. Unload, concurrently. Do NOT treat bootout returning as the job
+    #    having stopped: on macOS Tahoe it sends SIGTERM and returns at once
+    #    (measured Oct 6, 0.0 s). The wait in step 4 is what gives each job its
+    #    graceful exit.
     threads = [threading.Thread(
         target=lambda l=label: run(["launchctl", "bootout", f"{domain()}/{l}"]),
         daemon=True) for label in targets if label in before]
@@ -210,19 +254,17 @@ def halt(by: str, *, run: Runner = _run, flag: Path = FLAG,
     for t in threads:
         t.join(max(0.0, deadline - clock()))
 
-    # 4. Anything that ignored SIGTERM gets SIGKILL, whole process group.
+    # 4. Wait for a clean exit; SIGKILL only what is still there at the
+    #    deadline, then give the kernel a moment to take it down.
+    running = {lbl: before[lbl] for lbl in targets if before.get(lbl)}
+    stubborn = _wait_gone(running, deadline, clock, alive, sleep)
     killed = []
-    for label in targets:
-        pid = before.get(label)
-        if pid and alive(pid):
-            try:
-                kill(os.getpgid(pid), signal.SIGKILL)
-            except (ProcessLookupError, PermissionError, OSError):
-                try:
-                    os.kill(pid, signal.SIGKILL)
-                except OSError:
-                    pass
-            killed.append(label)
+    for label in stubborn:
+        _force_kill(running[label], kill)
+        killed.append(label)
+    if killed:
+        _wait_gone({l: running[l] for l in killed}, clock() + 2.0,
+                   clock, alive, sleep)
 
     # 5. Verify from launchd's side, not from what we asked for. Still LOADED
     #    counts as a failure even with no pid: a loaded scheduled job is one

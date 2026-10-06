@@ -282,3 +282,84 @@ def test_the_poll_loop_runs_against_the_real_call_signature(monkeypatch):
     assert polls[1][1]["offset"] == "8", "the update was never confirmed"
     sends = [x for x in seen if x[0] == "sendMessage"]
     assert sends and sends[0][1]["text"] == "Running (not halted)."
+
+
+
+class Proc:
+    """Processes that exit a set time after SIGTERM, on a fake clock."""
+
+    def __init__(self, exit_after: dict[int, float]):
+        self.now = 0.0
+        self.exit_after = exit_after          # pid -> seconds after bootout
+        self.term_at: float | None = None
+        self.killed: list[int] = []
+
+    def clock(self):
+        return self.now
+
+    def sleep(self, s):
+        self.now += s
+
+    def alive(self, pid):
+        if pid in self.killed:
+            return False
+        if self.term_at is None:
+            return True
+        return self.now - self.term_at < self.exit_after.get(pid, 0)
+
+
+def halt_with(proc: Proc, fake, agents, flag):
+    def run(argv):
+        if argv[1] == "bootout" and proc.term_at is None:
+            proc.term_at = proc.now           # returns at once, like Tahoe
+        return fake(argv)
+
+    def kill(pgid, sig):
+        proc.killed.append(pgid)
+    return _halt.halt("test", run=run, flag=flag, agents_dir=agents,
+                      clock=proc.clock, alive=proc.alive, kill=kill,
+                      sleep=proc.sleep)
+
+
+def test_a_job_gets_its_graceful_exit_before_anything_is_killed(env, monkeypatch):
+    """Oct 6, first run on the Mac: bootout returned in 0.0 s, the halt
+    checked immediately, and SIGKILLed a gateway that was in the middle of
+    shutting down cleanly. A job that exits within the deadline is never
+    killed."""
+    fake, agents, flag = env
+    monkeypatch.setattr(_halt, "_force_kill", lambda pid, kill: kill(pid, 9))
+    proc = Proc({103: 1.5, 101: 0.4})        # gateway 1.5 s, watcher 0.4 s
+    r = halt_with(proc, fake, agents, flag)
+    assert r.killed == [] and r.ok, _halt.describe(r)
+    assert 1.5 <= r.elapsed < 2.0
+
+
+def test_only_a_job_that_overstays_the_deadline_is_killed(env, monkeypatch):
+    fake, agents, flag = env
+    monkeypatch.setattr(_halt, "_force_kill", lambda pid, kill: kill(pid, 9))
+    proc = Proc({103: 60.0, 101: 0.4})       # the gateway hangs
+    r = halt_with(proc, fake, agents, flag)
+    assert r.killed == ["ai.openclaw.gateway"]
+    assert r.still_running == [] and r.ok
+    assert r.elapsed <= _halt.LIMIT_S
+
+
+def test_a_zombie_is_not_alive(monkeypatch):
+    """kill(pid, 0) succeeds on a zombie; ps says Z."""
+    monkeypatch.setattr(_halt.os, "kill", lambda pid, sig: None)
+    monkeypatch.setattr(_halt.subprocess, "run", lambda *a, **k:
+                        subprocess.CompletedProcess(a, 0, "Z    \n", ""))
+    assert _halt._alive(1234) is False
+    monkeypatch.setattr(_halt.subprocess, "run", lambda *a, **k:
+                        subprocess.CompletedProcess(a, 0, "Ss   \n", ""))
+    assert _halt._alive(1234) is True
+
+
+def test_a_process_group_is_killed_only_when_the_job_leads_it(monkeypatch):
+    calls = []
+    monkeypatch.setattr(_halt.os, "kill", lambda pid, sig: calls.append(("pid", pid)))
+    monkeypatch.setattr(_halt.os, "getpgid", lambda p: {0: 50, 500: 500, 600: 50}[p])
+    _halt._force_kill(500, kill=lambda g, s: calls.append(("group", g)))
+    _halt._force_kill(600, kill=lambda g, s: calls.append(("group", g)))
+    assert calls == [("group", 500), ("pid", 600)], (
+        "pid 600 shares group 50 with this process; killpg(50) kills the halt")
