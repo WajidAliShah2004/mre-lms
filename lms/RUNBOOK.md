@@ -13,8 +13,8 @@ go looking for it.
 
 Open **@MREOC18bot** (shown as "Jarvis") in Telegram and send **`/halt`**.
 
-That is the kill-switch bot. The *other* bot, the one you chat with, is the
-assistant; it cannot stop anything, and `/halt` stops it too.
+That is the kill-switch bot. The *other* bot, **@MREOCbot**, the one you chat
+with, is the assistant; it cannot stop anything, and `/halt` stops it too.
 
 It stops everything that can act: mail, the watched folder, the brief, the
 backup, and the OpenClaw gateway. It replies with how long that took, which

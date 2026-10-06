@@ -885,7 +885,7 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 **302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
 
 ### D-060 — The gateway's Telegram channel: allowlist of one, routed to a tool-less agent
-**Status:** Applied and verified · Oct 6 2026 — Matthew's Telegram → gateway → `lms-orchestrator` (no tools, local L1) → `READY`. Chat bot username: _record here_.
+**Status:** Applied and verified · Oct 6 2026 — Matthew's Telegram → gateway → `lms-orchestrator` (no tools, local L1) → `READY`. Chat bot: **@MREOCbot**.
 
 Written from `openclaw config schema` on the Mac (2026.7.1-2), not from the spec or docs. The schema corrected the Sept 8 draft in three places:
 - the key is `botToken` (an exec SecretRef), not `token`;
