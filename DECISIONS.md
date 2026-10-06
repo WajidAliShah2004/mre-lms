@@ -884,6 +884,19 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 
 **302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
 
+### D-062 — Five owner follow-ups dropped by developer judgment
+**Status:** Decided · Oct 6 2026
+
+Not pursued, by the developer's decision, recorded so the gap is visible rather than forgotten (as C17/C18 on Sept 7):
+
+- **Mailbox password rotation (D-017).** The five passwords shared in plain text stay as they are. Side effect, and the reason it is not urgent for the build: a password change revokes that mailbox's Gmail grant, so the four live connections (D-061) are not disturbed. The exposure itself remains.
+- **Telegram two-step password strength (C2).** Stays as set; it was shared in chat.
+- **FileVault recovery key custody and the Aug 6 rotation (C7).**
+- **Down-notification for power cuts (C8).** Unlock owner is Matthew; nothing tells him the machine is down beyond the brief's stalled-job section (D-051), which itself stops when the machine does.
+- **Remaining registry data (C16):** C.H. Shink, both parents' names, Jessie's email. `B_CHS`, `P_AE`, `P_PE` stay placeholders and `test_no_placeholders_remain` stays xfail. Mail mentioning them goes to review rather than being filed to them.
+
+Still open and not dropped: @MREOC18bot token rotation, /halt from Matthew's phone at acceptance, and the addendum questions (ADDENDUM_2026-09-28_GAP_ANALYSIS.md §4).
+
 ### D-061 — One Google app per Workspace, and a published External app for the personal Gmail
 **Status:** Applied · Oct 6 2026 — 4 of 5 mailboxes polled; matthew@atlase.ai pending (separate mailbox or alias of mre@atlase.ai: unknown)
 
