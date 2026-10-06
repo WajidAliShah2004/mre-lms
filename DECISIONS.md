@@ -885,7 +885,7 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 **302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
 
 ### D-059 — The kill switch is its own bot and stops every job, not the gateway
-**Status:** Built · Oct 6 2026 · **not yet applied on the Mac** (`lms/ops/PHASE7_APPLY.md`, part 7a) · measured time: _record here_
+**Status:** Applied on the Mac · Oct 6 2026 · **local halt 0.3 s, Telegram /halt 0.3 s** (limit 10 s), all five jobs disabled, haltbot up throughout, resume restored all five. Owed: token rotation (below), and /halt from Matthew's own phone at acceptance.
 
 **OpenClaw has no `/halt`.** Its command list (docs.openclaw.ai/tools/slash-commands, read Oct 6) has `/stop`, which aborts the current reply, and `/restart`. Nothing stops the gateway from chat. The Sept 8 Phase 7 plan, RUNBOOK page 1 and D-005 all assumed a command that does not exist.
 
@@ -904,9 +904,17 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 
 **Credentials, Oct 6.** The @MREOC18bot token was shared as a screenshot. It is to be revoked in BotFather and the new one entered only at the Keychain prompt. The Telegram account's 2FA password was shared in chat and is a company name. Recommended to Matthew: replace it with a long unique one, stored with the FileVault key. It is not recorded here.
 
+**Applied Oct 6. Two defects found on the Mac, neither caught by the suite:**
+- The daemon died on its first poll: getUpdates has its own `timeout` parameter and `Telegram.call()` had an HTTP timeout of the same name. Every helper was tested; the loop that joins them was not. `serve()` now takes `max_polls` and is tested through the real `call()`; the test fails with the Mac's exact message against the old code.
+- The first `verify_halt.sh` said `HALT INCOMPLETE after 0.0s, STILL RUNNING: gateway, watchfolder` while launchd showed nothing loaded. On Tahoe `launchctl bootout` sends SIGTERM and **returns at once**, so the halt checked before anything had exited, SIGKILLed a gateway that was shutting down cleanly, and then counted the unreaped **zombie** as alive (`kill(pid, 0)` succeeds on a zombie). Now: wait up to 7 s for a clean exit, SIGKILL only what overstays, ask `ps` for state `Z`. Also guarded while there: `killpg` only when the job leads its own process group and it is not ours, so a shared group can never take the halt down with it.
+
+Re-run: `verify_halt.sh` PASS, HALTED in 0.3 s, nothing force-killed. Then `/halt` from Telegram (Matthew's account, on the Mac): HALTED in 0.3 s; `/status` showed every job `disabled`.
+
+**Token, Oct 6:** the screenshotted token was kept for now at the developer's request (the user's choice; rotation deferred). Someone holding it cannot halt or resume anything, but can consume updates, which would swallow a /halt, and can message Matthew as the bot. **Rotate before acceptance:** BotFather `/revoke`, then the one-line clipboard store in PHASE7_APPLY step 1 with `-U`, then `launchctl kickstart -k gui/$(id -u)/com.lms.haltbot`. Storing it over RustDesk failed three ways first (a short paste, the whole message, an empty value, because RustDesk overwrote the Mac clipboard between check and store). Only the single-command check-and-store worked.
+
 **7b (gateway chat) is deliberately not written yet.** The Sept 8 draft used `channels.telegram.token`; the docs say `botToken`, and the default DM policy is `pairing`, which lets anyone request pairing. D-021 and D-056 both came from writing config from documents. The patch will be written from `openclaw config schema` read on the Mac (PHASE7_APPLY 7b step 1).
 
-**541 tests: 540 passed, 1 xfailed.**
+**545 passed, 1 xfailed** (after both fixes).
 
 ### D-058 — Every authorised mailbox is polled, and a grant must be for the mailbox it names
 **Status:** Built · Oct 3 2026
