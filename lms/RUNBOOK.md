@@ -11,42 +11,58 @@ go looking for it.
 
 ## From your phone
 
-Send **`/halt`** to the bot on Telegram.
+Open **@MREOC18bot** in Telegram and send **`/halt`**.
 
-That stops the gateway, cancels anything pending, and takes effect in under
-ten seconds. It is the only remote kill switch (D-005) — the menu-bar app in
-the original specification was descoped.
+It stops everything that can act: mail, the watched folder, the brief, the
+backup, and the OpenClaw gateway. It replies with how long that took, which
+should be well under ten seconds. **It stays stopped through a restart or a
+power cut.** It is the only remote kill switch (D-005, D-059).
+
+`/status` tells you whether it is halted and what is running.
 
 Nothing is lost. `/halt` stops work in progress; it does not delete, send, or
 change anything. Documents already filed stay filed. Mail already read stays
-where it was. Restarting picks up where it left off.
+where it was. The next run after resuming picks up where it left off.
+
+**There is no way to restart from the phone.** That is deliberate: someone
+with your phone can stop the system and can never start it again.
 
 **Use it whenever you are unsure.** The cost of halting unnecessarily is a few
 minutes; the cost of not halting when something is wrong is unbounded.
 
+If the bot does not answer, see "If that will not stop it" below. Someone has
+to get to the machine (in person, or Screen Sharing).
+
 ## At the machine
 
 ```bash
-openclaw gateway stop
+cd ~/lms-repo/lms && ./ops/halt.py
 ```
+
+The same code as `/halt`, same result.
 
 ## If that will not stop it
 
 ```bash
-launchctl bootout gui/501/ai.openclaw.gateway
+for p in ~/Library/LaunchAgents/com.lms.*.plist ~/Library/LaunchAgents/ai.openclaw.*.plist; do
+  l=$(basename "$p" .plist); launchctl disable gui/$(id -u)/$l; launchctl bootout gui/$(id -u)/$l
+done
 ```
 
-## Restart afterwards
+Last resort: switch the Mac off at the button. Everything is safe on disk.
+
+## Restart afterwards (at the Mac only)
 
 ```bash
-openclaw gateway restart
-openclaw doctor --allow-exec
-cd ~/lms-repo/lms && ./ops/verify_setup.py
+cd ~/lms-repo/lms
+./ops/halt.py --status
+./ops/halt.py --resume
+./ops/verify_setup.py
 ```
 
-Do not skip `verify_setup.py`. A gateway that starts is not the same as a
-gateway that is configured correctly, and the difference is precisely what
-that script exists to catch.
+If the halt was for a reason, fix the reason first. Do not skip
+`verify_setup.py`: a job that starts is not the same as a job that is
+configured correctly.
 
 ---
 

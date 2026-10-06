@@ -39,7 +39,7 @@ All model calls go to LM Studio at `http://localhost:1234/v1`, loopback-bound. V
 
 ### D-005 — Telegram is the sole control and approval surface
 **Status:** Decided · spec §0.3 descopes the menu-bar app
-`/halt` is the only remote kill switch; the maintenance agent's local command is the on-machine equivalent. `/halt` is page 1 of RUNBOOK.md.
+`/halt` is the only remote kill switch; the maintenance agent's local command is the on-machine equivalent. `/halt` is page 1 of RUNBOOK.md. *(Oct 6: OpenClaw has no such command; it is a separate bot. See D-059.)*
 **Blocked on:** C2 — Telegram account paired, 2FA on, owner user id for `commands.ownerAllowFrom`.
 
 ### D-006 — Repository on a private remote Matthew owns
@@ -883,6 +883,30 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 `test_a_missing_header_is_not_a_failure` was supposed to cover this. It asserted `spf_fail`, `dkim_fail` and `dmarc_fail` were all False on a missing header — true, and not the flag that fires. It now asserts on **every** flag, which is the only version of that test worth having.
 
 **302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
+
+### D-059 — The kill switch is its own bot and stops every job, not the gateway
+**Status:** Built · Oct 6 2026 · **not yet applied on the Mac** (`lms/ops/PHASE7_APPLY.md`, part 7a) · measured time: _record here_
+
+**OpenClaw has no `/halt`.** Its command list (docs.openclaw.ai/tools/slash-commands, read Oct 6) has `/stop`, which aborts the current reply, and `/restart`. Nothing stops the gateway from chat. The Sept 8 Phase 7 plan, RUNBOOK page 1 and D-005 all assumed a command that does not exist.
+
+**And stopping the gateway would not have stopped the LMS.** Spec §8.9 / A16: `/halt` stops *all* cron jobs and all autonomous action within 10 s. Everything that acts unattended today (mail, watcher, brief, backup) is a launchd job calling LM Studio from `core/`; none goes through the gateway (D-056). `verify_halt.sh` timed `openclaw gateway stop`, and it would have passed while mail kept filing.
+
+**What was built:**
+- `ops/_halt.py`: the targets are every `com.lms.*` and `ai.openclaw.*` LaunchAgent, loaded or only installed, discovered rather than listed, except `com.lms.haltbot` itself. Each is **`launchctl disable`d, then booted out**. Disable comes first because a KeepAlive job (gateway, watcher) booted out while enabled is respawned. Disable is also what makes the halt survive a reboot: `bootout` alone lasts until the next login, so after a power cut a halted system would have restarted itself. Bootouts run concurrently. Anything still alive after 7 s is SIGKILLed by process group, since launchd's default exit timeout (20 s) is twice the budget. Success is read back from `launchctl list`, not assumed.
+- `~/LMS/HALTED.json` is written **before** launchd is touched: if the halt dies halfway, resume still knows what to restore. It is on the internal disk because the kill switch must work when the array is not mounted. Audit-log rows (`SYSTEM_HALTED` / `SYSTEM_RESUMED`) are best-effort for the same reason.
+- `ops/halt_bot.py` + `com.lms.haltbot` (KeepAlive): stdlib only, bot **@MREOC18bot**. Obeys `/halt` and `/status` only from the owner's numeric id in a private chat. Strangers get **no reply** (a reply confirms the bot is live) and are logged once each. A `/halt` that arrives late (Mac rebooting) is applied on arrival, with the delay stated: halting late is the safe direction.
+- **A separate bot from the gateway's.** Telegram allows one `getUpdates` reader per bot, and a kill switch inside the gateway cannot act when the gateway is the thing that is wedged. The gateway's chat channel (7b) gets its own bot.
+- **No remote resume** (decided Oct 6). `./ops/halt.py --resume` at the Mac only, re-enabling exactly what the flag recorded. A hijacked phone can stop the system and can never restart it.
+- Token `lms/telegram-halt-token` and owner id `lms/telegram-owner-id` are in the Keychain. The id is not secret but is identity, and stays off git (as D-057). `capture_telegram_id.py --store` writes it and refuses if more than one person has messaged the bot.
+- `verify_setup.py` [11]: token, numeric owner and running daemon, or FAIL; WARN while halted. `verify_halt.sh` now runs the real halt and checks launchd's view, including that every job is disabled.
+
+**Owed to features not yet built:** when anything sends (Day 5), `/halt` must also cancel its delayed-send queue. That queue does not exist yet, so there is nothing to cancel today.
+
+**Credentials, Oct 6.** The @MREOC18bot token was shared as a screenshot. It is to be revoked in BotFather and the new one entered only at the Keychain prompt. The Telegram account's 2FA password was shared in chat and is a company name. Recommended to Matthew: replace it with a long unique one, stored with the FileVault key. It is not recorded here.
+
+**7b (gateway chat) is deliberately not written yet.** The Sept 8 draft used `channels.telegram.token`; the docs say `botToken`, and the default DM policy is `pairing`, which lets anyone request pairing. D-021 and D-056 both came from writing config from documents. The patch will be written from `openclaw config schema` read on the Mac (PHASE7_APPLY 7b step 1).
+
+**541 tests: 540 passed, 1 xfailed.**
 
 ### D-058 — Every authorised mailbox is polled, and a grant must be for the mailbox it names
 **Status:** Built · Oct 3 2026

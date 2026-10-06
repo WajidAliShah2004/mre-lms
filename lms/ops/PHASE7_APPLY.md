@@ -1,218 +1,196 @@
 # Phase 7 — Telegram control channel
 
-Telegram is the only remote kill switch and the only approval surface (D-005).
-The menu-bar app in the original specification was descoped, so if this channel
-is wrong there is no other way to stop the system from outside the building.
+Rewritten Oct 6 (D-059). The Sept 8 version assumed OpenClaw has a `/halt`
+command. It does not: its commands include `/stop` (abort the current reply)
+and `/restart`, and nothing that stops the gateway. And stopping the gateway
+would not have stopped the LMS — mail, the watcher, the brief and the backup are
+launchd jobs that never go through it (D-056).
 
-**Closes C2**, which simultaneously clears two findings that are really one:
-`openclaw doctor`'s "No command owner is configured" and `security audit
---deep`'s `gateway.probe_failed / missing scope: operator.read`.
+So Phase 7 is two parts that do not depend on each other:
 
----
+| Part | What | Bot | Needs |
+|---|---|---|---|
+| **7a** | The kill switch: `com.lms.haltbot`, a stdlib daemon that obeys `/halt` from Matthew's numeric id and stops **every** LMS and OpenClaw job, persistently | **@MREOC18bot** | Token, Matthew sends one message |
+| **7b** | Chat with the gateway (later: approvals on Day 5) | a **second** bot | `openclaw config schema` read on the Mac first |
 
-## The thing that will bite you
+Two bots because Telegram allows one reader per bot, and because a kill switch
+that lives inside the gateway cannot act when the gateway is the thing that is
+stuck.
 
-`secrets.providers.default` — the exec provider D-016 created — has the
-Keychain **service name baked into its argument list**:
-
-```
-/usr/bin/security find-generic-password -a lms -s lms/gateway-auth-token -w
-```
-
-Six literal args. There is no substitution of the SecretRef's `id`. So this:
-
-```json
-{ "source": "exec", "provider": "default", "id": "telegram-bot-token" }
-```
-
-would run that exact command and hand Telegram **the gateway's token**.
-
-It would not error. The bot would authenticate against nothing and silently
-never respond, and every obvious explanation — wrong token, bad pairing,
-network — would be wrong. Telegram gets its **own provider**.
+Work from `~/lms-repo/lms` throughout.
 
 ---
 
-## 1. Create the bot
+## 7a — The kill switch
 
-On Telegram, message **@BotFather** → `/newbot` → name it → copy the token.
+### 1. Revoke the exposed token, store the new one
 
-**Who should own it.** BotFather ties the bot to whichever account creates it.
-Creating it from Matthew's account means it survives handover cleanly and he
-can revoke it himself. Creating it from the developer's account is faster
-today and becomes another D-020-shaped problem later. Prefer Matthew's; if you
-create it, record it as a transfer item.
-
-**Turn on 2FA on the Telegram account itself** (Settings → Privacy and Security
-→ Two-Step Verification). This is the remaining half of C2. Whoever holds that
-account can stop this system, and — once approvals are wired — approve outgoing
-mail as Matthew.
-
-## 2. Token into the Keychain
+The @MREOC18bot token was shared as a screenshot on Oct 6, so treat it as public.
+In Telegram, **@BotFather** → `/revoke` → `@MREOC18bot`. It replies with a new
+token. Do not screenshot it, paste it into chat, or type it on a command line:
 
 ```bash
-security add-generic-password -a lms -s lms/telegram-bot-token -w
+security add-generic-password -a lms -s lms/telegram-halt-token -w
 ```
 
-**No value after `-w`.** It prompts. The token never reaches the command line,
-the process table, or your shell history — the exact exposure D-016 recorded
-when the gateway token was printed to a terminal and had to be rotated.
+**No value after `-w`.** It prompts twice; paste at the prompt. The token never
+reaches shell history or the process table (D-016, D-017).
 
-Verify without printing it:
+Check that it is non-empty without printing it (an empty `-w` is accepted
+silently; this exact thing happened with the backup key, D-049):
 
 ```bash
-security find-generic-password -a lms -s lms/telegram-bot-token -w >/dev/null && echo OK
-security dump-keychain 2>/dev/null | grep -o 'lms/[a-z-]*' | sort -u
+security find-generic-password -a lms -s lms/telegram-halt-token -w | wc -c   # > 40
 ```
 
-You should now see two items: `lms/gateway-auth-token` and
-`lms/telegram-bot-token`.
+Also in BotFather, for @MREOC18bot: `/setjoingroups` → **Disable** (done Oct 6),
+and `/setprivacy` → **Enable**. The bot ignores everything outside a private chat
+with Matthew anyway; this is the first line of that.
 
-## 3. Its own secrets provider
+### 2. Two-step verification on Matthew's Telegram account
+
+Settings → Privacy and Security → Two-Step Verification. Whoever holds this
+account can stop the system now and, from Day 5, approve mail as Matthew. The
+password should be long and unique, **not** a company name, and kept with the
+FileVault recovery key. Do not record it in this repo.
+
+### 3. Capture Matthew's numeric id
+
+Ask Matthew to open `t.me/MREOC18bot`, tap **Start**, and send `hello`. Then:
 
 ```bash
-cat > /tmp/phase7.patch.json5 <<'ENDOFSCRIPT'
-{
-  secrets: {
-    providers: {
-      // Separate from `default`, which is hardcoded to the gateway token.
-      telegram: {
-        source: "exec",
-        command: "/usr/bin/security",
-        args: [
-          "find-generic-password",
-          "-a", "lms",
-          "-s", "lms/telegram-bot-token",
-          "-w",
-        ],
-        jsonOnly: false,          // security returns a raw string
-        trustedDirs: ["/usr/bin"],
-        allowInsecurePath: true,  // see below — deliberate
-      },
-    },
-  },
-}
-ENDOFSCRIPT
-openclaw config patch --file /tmp/phase7.patch.json5 --dry-run
+./ops/capture_telegram_id.py            # shows who has messaged the bot
+./ops/capture_telegram_id.py --store    # saves the id as the owner
 ```
 
-**`allowInsecurePath: true` is deliberate, and D-016 already argued this.**
-OpenClaw wants the exec command owned by the current user; `/usr/bin/security`
-is owned by root, so the strict check rejects it. The alternative is a
-user-owned wrapper script — which would be *worse*, because a script under
-`~/` is writable by anything running as `mleca`, which is exactly the injected
-agent this build defends against. Combined with `trustedDirs: ["/usr/bin"]`,
-the provider can only execute a root-owned, Apple-signed binary from a pinned
-directory. **Do not "fix" this by pointing it at a wrapper script.**
+It must show **exactly one** sender, and it must be him (check the name). If it
+shows more, stop: this id decides who can stop the system. The id is stored in
+the Keychain as `lms/telegram-owner-id`, not in git (same reasoning as the EINs,
+D-057).
 
-Apply once the dry run is clean:
+Run this **before** step 4. Once the daemon is running it consumes the messages
+first.
+
+### 4. Install the daemon
 
 ```bash
-openclaw config patch --file /tmp/phase7.patch.json5
+./ops/halt_bot.py --check        # OK  @MREOC18bot reachable; owner id set
+cp ops/com.lms.haltbot.plist ~/Library/LaunchAgents/
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.lms.haltbot.plist
+launchctl list | grep haltbot    # a pid in the first column
+tail ~/LMS/logs/haltbot.log      # "haltbot up; owner configured"
 ```
 
-## 4. Enable the plugin
+`--check` fails on a missing token, a missing or non-numeric owner id, or an
+unreachable API. If egress filtering is ever on (Phase 8), `api.telegram.org`
+must be on the allowlist, or the kill switch dies silently. Add it to
+`config/egress-allowlist.txt` now.
 
-D-015 disabled it deliberately, to be re-enabled here and nowhere else.
-
-```bash
-openclaw plugins enable telegram
-openclaw plugins list | grep -i telegram
-```
-
-The D-015 baseline moves from **3 enabled to 4**. That is expected, and
-`ops/verify_setup.py` must be updated to match — otherwise check 5 fails and
-the next person reads it as drift. Change the baseline in the same commit that
-enables the plugin, never afterwards.
-
-## 5. Point the channel at the token
-
-```bash
-openclaw config set channels.telegram.token \
-  --ref-provider telegram --ref-source exec --ref-id telegram-bot-token
-openclaw gateway restart
-```
-
-Confirm the config holds a **reference**, not a token:
-
-```bash
-openclaw config get channels.telegram
-```
-
-If you can read a token in that output, stop — it is in the config file in
-plaintext, which is the D-016 finding all over again.
-
-## 6. Pair, and capture the numeric id
-
-Ask Matthew to send **any** message to the bot.
-
-```bash
-openclaw gateway stop          # getUpdates is destructive per offset;
-                               # a running gateway consumes the update first
-cd ~/lms-repo/lms
-./ops/capture_telegram_id.py
-openclaw gateway restart
-```
-
-It prints `telegram:<numeric id>`. Then:
-
-```bash
-openclaw config set commands.ownerAllowFrom '["telegram:<ID>"]'
-openclaw gateway restart
-```
-
-**Numeric id, never the @handle.** The Bot API only reports the numeric id,
-because handles can be changed or unset and are therefore not identity. A
-handle in that field matches nothing, and `/halt` ends up with no authorised
-sender — which you would not discover until you needed it.
-
-## 7. Verify
-
-```bash
-openclaw doctor --allow-exec 2>&1 | grep -A4 -i "command owner"   # should be silent
-openclaw security audit --deep 2>&1 | tail -20                    # operator.read gone
-cd ~/lms-repo/lms && ./ops/verify_setup.py
-```
-
-Then measure the kill switch:
+### 5. Measure the local halt
 
 ```bash
 ./ops/verify_halt.sh
 ```
 
-That measures the **local** stop, which is the floor. The real test is `/halt`
-from the phone, and it belongs in front of Matthew at acceptance — partly to
-prove it works, mostly so he has done it once himself and knows what it feels
-like.
+This runs `./ops/halt.py`, which is the same code `/halt` runs. It checks
+launchd's own view: no LMS/OpenClaw job loaded, every installed one
+**disabled** (so a reboot does not bring it back), the haltbot still up. Then it
+resumes and shows the state. **Record the HALTED time in DECISIONS.md, D-059.**
 
-**Record the measured number in DECISIONS.md.** A ≤10s requirement with no
-measured value attached is an aspiration.
+### 6. From the phone
 
-## 8. RUNBOOK
+Matthew sends `/status`, then `/halt`. The reply states the time taken. Then, at
+the Mac:
 
-`/halt` is already page 1 of `RUNBOOK.md`. Once the bot exists, add its name
-there so the person reaching for it at 2am does not have to remember which
-chat.
+```bash
+./ops/halt.py --status
+./ops/halt.py --resume
+./ops/verify_setup.py            # [11] Kill switch armed
+```
+
+There is **no `/resume` on the phone** (D-059). A hijacked phone can stop the
+system and can never restart it.
+
+Do the phone test with Matthew holding the phone: partly to measure it, mostly
+so he has done it once himself.
+
+### Rollback (7a)
+
+```bash
+launchctl bootout gui/$(id -u)/com.lms.haltbot
+rm ~/Library/LaunchAgents/com.lms.haltbot.plist
+```
+
+If a halt is in force, `./ops/halt.py --resume` first. Nothing in OpenClaw's
+config changed in 7a.
 
 ---
 
-## Rollback
+## 7b — Chat with the gateway
+
+**Not to be applied from guesses.** D-021 and D-056 both came from writing
+OpenClaw config from the spec and finding the keys did not exist. The Sept 8
+draft used `channels.telegram.token`; the docs say `botToken`. Its default DM
+policy is `pairing`, which lets *anyone* who messages the bot ask to pair. Read
+the schema first, then the patch gets written from what it says.
+
+### 1. Read the schema (read-only, changes nothing)
 
 ```bash
-cp ~/.openclaw/openclaw.json.pre-phase6 ~/.openclaw/openclaw.json
-openclaw plugins disable telegram
-openclaw gateway restart
+cp ~/.openclaw/openclaw.json ~/.openclaw/openclaw.json.pre-phase7
+openclaw --version
+openclaw config schema > /tmp/oc-schema.json
+python3 - <<'EOF'
+import json
+s = json.load(open("/tmp/oc-schema.json"))
+def find(node, want, path=""):
+    if isinstance(node, dict):
+        for k, v in node.items():
+            p = f"{path}.{k}" if path else k
+            if k in want:
+                print(f"==== {p}\n{json.dumps(v, indent=1)[:6000]}\n")
+            find(v, want, p)
+    elif isinstance(node, list):
+        for i, v in enumerate(node):
+            find(v, want, f"{path}[{i}]")
+find(s, {"telegram", "bindings", "ownerAllowFrom", "allowFrom"})
+EOF
+openclaw plugins list | grep -i telegram
 ```
 
-The Keychain item can stay — an unused secret costs nothing, and rotating it is
-a separate decision from rolling back the config.
+Send the whole output back. From it, `ops/phase7b.patch.json5` is written to:
+
+- read `botToken` through its **own** exec secrets provider. The `default`
+  provider has the gateway token's Keychain service hard-coded in its argument
+  list; pointing a Telegram SecretRef at it would hand Telegram the gateway's
+  token, silently, with no error.
+- set the DM policy to an allowlist of Matthew's numeric id only, and disable
+  groups.
+- **bind** Telegram to an `lms-*` agent (no tools), not `main`, which still
+  has `session_status` (D-056).
+- set `commands.ownerAllowFrom` to `["telegram:<id>"]`, which also clears the
+  `operator.read` audit warning.
+
+### 2. Create the second bot
+
+Same as 7a step 1: BotFather `/newbot`, `/setjoingroups` Disable, `/setprivacy`
+Enable, token at the prompt into `lms/telegram-bot-token`. Matthew messages it
+once; `./ops/capture_telegram_id.py --bot chat` should print the **same** id as
+the halt bot.
+
+### 3. Then (once the patch exists)
+
+Enable the plugin and raise `D015_PLUGINS` in `ops/verify_setup.py` **in the
+same commit**, dry-run, apply, restart, `./ops/agent_tools.py`, audit, doctor.
+Rollback is `openclaw.json.pre-phase7`. **Not** `.pre-phase6`: that would undo
+Phase 6.
+
+---
 
 ## What Phase 7 does NOT do
 
-- **No approval flows yet.** Draft approve/reject buttons are Day 5. Right now
-  the channel carries `/halt` and notifications only.
-- **No mailbox.** Day 3, and not before the D-017 rotation.
-- **No Tailscale exposure.** `gateway.tailscale.mode` stays `off`; Telegram
-  reaches the bot outbound. Phase 8 handles remote access, and the ordering
-  hazard there still stands — verify Screen Sharing over Tailscale from an
-  outside network *before* default-deny egress goes on.
+- **No approvals yet.** Approve/reject buttons are Day 5, through 7b.
+- **No delayed-send window to cancel.** Nothing sends yet. When something
+  does, `/halt` must cancel its queue: that is a requirement on that feature,
+  recorded in D-059.
+- **No Tailscale exposure.** Both bots reach Telegram outbound.

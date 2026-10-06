@@ -20,13 +20,19 @@ of exposure D-017 is about.
 
 Usage
 -----
-    1. Ask Matthew to send any message to the bot ("hello" is fine).
-    2. ./ops/capture_telegram_id.py
+    1. Ask Matthew to send any message to @MREOC18bot ("hello" is fine).
+    2. ./ops/capture_telegram_id.py            # shows the sender(s)
+    3. ./ops/capture_telegram_id.py --store    # saves the id for the kill switch
 
-Then set the value it prints:
+Run it BEFORE com.lms.haltbot is installed: getUpdates is destructive per
+offset, and a running bot consumes the message first.
 
-    openclaw config set commands.ownerAllowFrom '["telegram:<ID>"]'
-    openclaw gateway restart
+`--bot chat` reads the gateway's own bot instead (Phase 7b), whose id goes into
+`commands.ownerAllowFrom` and `channels.telegram.allowFrom`.
+
+The id is stored in the Keychain beside the token (lms/telegram-owner-id). It
+is not a secret, but it is identity, and like the EINs (D-057) it stays off
+git. --store refuses if more than one person has messaged the bot.
 """
 
 from __future__ import annotations
@@ -37,7 +43,12 @@ import sys
 import urllib.request
 
 KEYCHAIN_ACCOUNT = "lms"
-KEYCHAIN_SERVICE = "lms/telegram-bot-token"
+TOKEN_SERVICES = {
+    "halt": "lms/telegram-halt-token",     # @MREOC18bot, the kill switch (D-059)
+    "chat": "lms/telegram-bot-token",      # the gateway's bot (Phase 7b)
+}
+OWNER_SERVICE = "lms/telegram-owner-id"
+KEYCHAIN_SERVICE = TOKEN_SERVICES["halt"]
 API = "https://api.telegram.org/bot{token}/getUpdates"
 
 
@@ -77,7 +88,23 @@ def get_updates(token: str) -> list[dict]:
     return payload.get("result", [])
 
 
+def store_owner(uid: int) -> None:
+    """-U updates an existing item, so re-pairing is the same command."""
+    subprocess.run(
+        ["/usr/bin/security", "add-generic-password", "-U",
+         "-a", KEYCHAIN_ACCOUNT, "-s", OWNER_SERVICE, "-w", str(uid)],
+        check=True, capture_output=True)
+
+
 def main() -> int:
+    global KEYCHAIN_SERVICE
+    import argparse
+    p = argparse.ArgumentParser()
+    p.add_argument("--bot", choices=sorted(TOKEN_SERVICES), default="halt")
+    p.add_argument("--store", action="store_true",
+                   help="save the single sender's id as the owner")
+    args = p.parse_args()
+    KEYCHAIN_SERVICE = TOKEN_SERVICES[args.bot]
     token = read_token()
     updates = get_updates(token)
 
@@ -85,9 +112,9 @@ def main() -> int:
         print("No messages waiting.\n")
         print("Ask Matthew to send any message to the bot, then run this again.")
         print("\nTwo things that produce an empty result even when he HAS sent one:")
-        print("  * The gateway is running and already consumed the updates —")
-        print("    getUpdates is destructive per offset. Stop the gateway first:")
-        print("        openclaw gateway stop")
+        print("  * Something already consumed the updates (getUpdates is")
+        print("    destructive per offset): com.lms.haltbot for the halt bot,")
+        print("    the gateway for the chat bot. Stop it, ask for a new message.")
         print("  * A webhook is set, which disables getUpdates entirely.")
         return 1
 
@@ -117,7 +144,11 @@ def main() -> int:
         return 1
 
     uid = next(iter(senders))
-    print("Set it with:\n")
+    if args.store:
+        store_owner(uid)
+        print(f"Stored telegram:{uid} as the owner ({OWNER_SERVICE}).")
+        print("The kill switch obeys this id and nobody else.\n")
+    print("For the gateway (Phase 7b), set it with:\n")
     print(f"    openclaw config set commands.ownerAllowFrom '[\"telegram:{uid}\"]'")
     print("    openclaw gateway restart\n")
     print("Then confirm both of these clear:")

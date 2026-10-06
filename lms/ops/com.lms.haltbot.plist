@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The remote kill switch: /halt to @MREOC18bot from Matthew's phone (D-059).
+
+  Install (only after the token AND the owner id are in the Keychain, see
+  ops/PHASE7_APPLY.md):
+    cp ops/com.lms.haltbot.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.lms.haltbot.plist
+
+  This job is the one thing a halt never stops (ops/_halt.py SELF_LABEL), so
+  /status keeps answering while everything else is down.
+
+  KeepAlive, because a kill switch that is not running is not a kill switch.
+  If the token or owner id is missing it logs NOT ARMED and sleeps five
+  minutes before exiting, instead of restarting every ten seconds.
+
+  A LaunchAgent, not a LaunchDaemon: the token is in the user's Keychain, and
+  launchctl disable/bootout act on this user's gui domain, which is where every
+  job it stops lives.
+
+  NO CREDENTIAL APPEARS HERE. Both the token and the owner id are read from the
+  Keychain at run time.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.lms.haltbot</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/mleca/lms-repo/lms/.venv/bin/python</string>
+        <string>/Users/mleca/lms-repo/lms/ops/halt_bot.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/mleca/lms-repo/lms</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>TZ</key>
+        <string>America/New_York</string>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>/Users/mleca/LMS/logs/haltbot.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/mleca/LMS/logs/haltbot.err</string>
+
+    <!-- Interactive, not Background: this must not be throttled behind OCR
+         at the moment someone is trying to stop it. -->
+    <key>ProcessType</key>
+    <string>Interactive</string>
+</dict>
+</plist>

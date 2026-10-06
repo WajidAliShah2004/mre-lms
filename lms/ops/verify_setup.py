@@ -512,6 +512,43 @@ def check_backup_ready() -> None:
         ok(f"repo is on a different volume from the archive")
 
 
+def check_kill_switch() -> None:
+    """[11] /halt can actually be sent (D-059).
+
+    A kill switch that is not running looks exactly like one that is, until
+    the day it is needed. Each part below has a failure that is silent:
+    no owner id means every /halt is ignored as a stranger's; no token means
+    the bot sleeps and logs NOT ARMED where nobody reads it.
+    """
+    print("\n[11] Kill switch armed")
+    if sys.platform != "darwin":
+        warn(f"kill switch is not checkable on {sys.platform}")
+        return
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import _halt
+    import halt_bot
+
+    if halt_bot.keychain(halt_bot.TOKEN_SERVICE):
+        ok("halt bot token in Keychain")
+    else:
+        fail(f"no halt bot token ({halt_bot.TOKEN_SERVICE}); /halt cannot work")
+    owner = halt_bot.keychain(halt_bot.OWNER_SERVICE)
+    if owner and owner.isdigit():
+        ok("owner id in Keychain (numeric)")
+    else:
+        fail(f"no numeric owner id ({halt_bot.OWNER_SERVICE}); every /halt "
+             f"would be ignored. ./ops/capture_telegram_id.py --store")
+    pid = _halt.loaded().get(_halt.SELF_LABEL, "absent")
+    if isinstance(pid, int):
+        ok(f"{_halt.SELF_LABEL} running (pid {pid})")
+    else:
+        fail(f"{_halt.SELF_LABEL} not running ({pid}); see ~/LMS/logs/haltbot.log")
+    flag = _halt.read_flag()
+    if flag:
+        warn(f"the system is HALTED since {flag.get('ts')} (by {flag.get('by')}); "
+             f"./ops/halt.py --resume at the Mac")
+
+
 # ---------------------------------------------------------------------------
 
 def main() -> int:
@@ -534,6 +571,7 @@ def main() -> int:
         check_lmstudio_loopback()
         check_system_timezone()
         check_live_providers()
+        check_kill_switch()
 
     print("\n" + "=" * 60)
     if failures:

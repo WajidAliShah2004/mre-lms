@@ -1,90 +1,72 @@
 #!/usr/bin/env bash
 #
-# Measure how long the kill switch actually takes.
+# Measure the kill switch, the real one: every LMS and OpenClaw job stopped,
+# disabled so it survives a restart, inside 10 seconds (spec §8.9, A16).
 #
-# Phase 7 requires /halt to stop the gateway in <= 10 seconds. This measures
-# the LOCAL equivalent (`openclaw gateway stop`) rather than asserting the
-# requirement is met, because the number is what matters and nobody has ever
-# written it down.
+# The first version of this timed `openclaw gateway stop`. That passes while
+# mail, the watcher, the brief and the backup keep running, because none of
+# them go through the gateway (D-056, D-059). This runs ./ops/halt.py, the
+# same code /halt runs from the phone, then checks launchd's own view.
 #
-# What this does NOT test: the Telegram path. /halt from the phone adds
-# network latency, Telegram's own delivery, and the owner-allowlist check.
-# That has to be measured with the phone in hand, at acceptance, with Matthew
-# watching — which is the point of testing it in front of him.
-#
-# This measures the floor. If the local stop is already slow, the remote one
-# cannot be fast.
+# What this does NOT test: the phone. /halt from Telegram adds Telegram's
+# delivery time on top. That is measured at acceptance, with Matthew holding
+# the phone, so he has done it once himself.
 #
 # Usage:  ./ops/verify_halt.sh
-# Leaves the gateway RUNNING when it finishes.
+# Leaves the system RUNNING: it resumes at the end.
 
 set -uo pipefail
+cd "$(dirname "$0")/.."
+PY=.venv/bin/python
+[ -x "$PY" ] || PY=python3
+DOMAIN="gui/$(id -u)"
+result=0
 
-LIMIT=10
-LABEL="gui/$(id -u)/ai.openclaw.gateway"
-
-running() {
-  launchctl list 2>/dev/null | grep -q "ai.openclaw.gateway"
-}
-
-pid_of() {
-  launchctl list 2>/dev/null | awk '/ai.openclaw.gateway/{print $1}'
-}
-
-echo "==> Pre-flight"
-if ! running; then
-  echo "    gateway is not running; starting it so there is something to stop"
-  openclaw gateway restart >/dev/null 2>&1
-  sleep 5
+if [ -f "$HOME/LMS/HALTED.json" ]; then
+  echo "Already halted ($HOME/LMS/HALTED.json). Resume first if you mean it:"
+  echo "    ./ops/halt.py --resume"
+  exit 1
 fi
-before=$(pid_of)
-echo "    gateway pid: ${before:-none}"
+
+echo "==> Before"
+"$PY" ops/halt.py --status
 
 echo
-echo "==> Stopping, and timing it"
-start=$(python3 -c 'import time; print(time.time())')
+echo "==> Halting (same code path as /halt)"
+"$PY" ops/halt.py || result=1
 
-openclaw gateway stop >/dev/null 2>&1
-
-# Poll rather than trusting the command's own return. The question is when the
-# process is actually gone, not when the CLI decided to return.
-elapsed=0
-for _ in $(seq 1 200); do
-  if ! running; then break; fi
-  sleep 0.1
+echo
+echo "==> launchd's view"
+loaded=$(launchctl list | awk 'NR>1 && ($3 ~ /^com\.lms\./ || $3 ~ /^ai\.openclaw\./) && $3 != "com.lms.haltbot" {print $3}')
+if [ -n "$loaded" ]; then
+  echo "    FAIL: still loaded:"; echo "$loaded" | sed 's/^/      /'; result=1
+else
+  echo "    PASS: no LMS/OpenClaw job loaded (haltbot excepted)"
+fi
+not_disabled=0
+for plist in "$HOME"/Library/LaunchAgents/com.lms.*.plist "$HOME"/Library/LaunchAgents/ai.openclaw.*.plist; do
+  [ -e "$plist" ] || continue
+  label=$(basename "$plist" .plist)
+  [ "$label" = "com.lms.haltbot" ] && continue
+  if ! launchctl print-disabled "$DOMAIN" | grep -Eq "\"$label\" => (true|disabled)"; then
+    echo "    FAIL: $label is not disabled; it would start again at the next login"
+    not_disabled=1; result=1
+  fi
 done
-end=$(python3 -c 'import time; print(time.time())')
-elapsed=$(python3 -c "print(f'{$end - $start:.2f}')")
-
-echo "    stopped in ${elapsed}s"
-
-echo
-if running; then
-  echo "    RESULT: FAIL — still running after the poll window"
-  echo "    Escalation path: launchctl bootout $LABEL"
-  result=1
-elif (( $(python3 -c "print(1 if $elapsed <= $LIMIT else 0)") )); then
-  echo "    RESULT: PASS — ${elapsed}s, inside the ${LIMIT}s requirement"
-  result=0
+[ $not_disabled -eq 0 ] && echo "    PASS: every installed job is disabled (survives a restart)"
+if launchctl list | grep -q com.lms.haltbot; then
+  echo "    PASS: haltbot still running (it is never halted)"
 else
-  echo "    RESULT: FAIL — ${elapsed}s exceeds the ${LIMIT}s requirement"
-  result=1
+  echo "    WARN: haltbot not running; /halt from the phone would not work"
 fi
 
 echo
-echo "==> Restarting (this script leaves the system up)"
-openclaw gateway restart >/dev/null 2>&1
+echo "==> Resuming"
+"$PY" ops/halt.py --resume || result=1
 sleep 5
-if running; then
-  echo "    gateway pid: $(pid_of)"
-else
-  echo "    *** GATEWAY DID NOT COME BACK ***"
-  echo "    openclaw gateway restart"
-  echo "    openclaw doctor --allow-exec"
-  result=1
-fi
+"$PY" ops/halt.py --status
 
 echo
-echo "Record the measured time in DECISIONS.md. A requirement with no measured"
-echo "number attached is an aspiration."
+[ $result -eq 0 ] && echo "RESULT: PASS" || echo "RESULT: FAIL"
+echo "Record the HALTED time above in DECISIONS.md (D-059)."
 exit $result
