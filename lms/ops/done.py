@@ -7,6 +7,8 @@
     ./ops/done.py 9 --dismiss            # this should never have been a task
     ./ops/done.py 9 --reopen             # undo either
     ./ops/done.py --dismissed            # what the system got wrong
+    ./ops/done.py 12 --duplicate-of 7    # the same obligation, recorded twice
+    ./ops/done.py 7 --show               # sources, state and history of one task
 
 BY ID, NOT BY POSITION. `--list` and the brief both number by score, and the
 score moves — a task that is second this morning is first tomorrow because
@@ -17,6 +19,10 @@ DONE VERSUS DISMISS. Both close it. `--dismiss` additionally says the task
 should never have existed, which is the only signal that tells us whether the
 classifier invents work. Use it when the answer to "did you do this?" is "there
 was nothing to do".
+
+LEDGER V2 (D-066). Done is CLOSED with your word as the evidence; dismiss is
+CANCELED with outcome DISMISSED; reopen puts it back at TRIAGED. A duplicate
+moves its sources onto the task it duplicates, and is refused across entities.
 
 UNTIL TELEGRAM (C2) THIS IS THE ONLY WAY TO CLOSE A TASK, and it is a terminal
 on the Mac — so in practice it is the contractor's, not Matthew's. That is a
@@ -39,6 +45,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from _env import load_lms_env                              # noqa: E402
 from _reexec import ensure_venv                            # noqa: E402
 from core.db import database as db                         # noqa: E402
+from core.pipeline import ledger                           # noqa: E402
 from core.pipeline import tasks as task_ops                # noqa: E402
 from core.pipeline.registry import load_registry           # noqa: E402
 from core.reports import brief as reports                  # noqa: E402
@@ -93,6 +100,35 @@ def show_dismissed(conn) -> int:
     return 0
 
 
+def show_task(conn, task_id: int) -> int:
+    row = task_ops.get_task(conn, task_id)
+    print(f"#{row['id']}  {row['title']}")
+    for label, key in (("status", "status"), ("outcome", "final_outcome"),
+                       ("entity", "entity_id"), ("domain", "domain"),
+                       ("owner", "owner"), ("agent", "assigned_agent"),
+                       ("due", "due_date"), ("urgency", "urgency"),
+                       ("risk", "action_risk"), ("event key", "event_key"),
+                       ("duplicate of", "duplicate_of"),
+                       ("evidence", "verification_evidence")):
+        if row[key] not in (None, ""):
+            extra = ""
+            if key == "due_date":
+                extra = " (verified)" if row["due_date_verified"] else " (as detected)"
+            print(f"  {label:<13}{row[key]}{extra}")
+    srcs = ledger.sources(conn, task_id)
+    print(f"\n  sources ({len(srcs)}):")
+    for s in srcs:
+        print(f"    {(s['received_at'] or s['seen_at'])[:16]}  {s['source']:<10} "
+              f"{s['source_key']}")
+    print("\n  history:")
+    for e in ledger.history(conn, task_id):
+        move = (f"{e['from_status'] or ''} -> {e['to_status']}"
+                if e["to_status"] else e["event"])
+        print(f"    {e['ts'][:16]}  {e['actor']:<10} {move}"
+              f"{'  ' + e['detail'] if e['detail'] else ''}")
+    return 0
+
+
 def main() -> int:
     ensure_venv("LMS_DONE_REEXEC", script=__file__)
     load_lms_env()
@@ -107,6 +143,10 @@ def main() -> int:
     p.add_argument("--dismiss", action="store_true",
                    help="close it AND record that it was never a real task")
     p.add_argument("--reopen", action="store_true", help="undo a close")
+    p.add_argument("--duplicate-of", type=int, metavar="ID",
+                   help="this task is the same obligation as task ID")
+    p.add_argument("--show", action="store_true",
+                   help="one task: sources, state, history")
     p.add_argument("--note", default=None)
     args = p.parse_args()
 
@@ -117,6 +157,17 @@ def main() -> int:
         if args.list or args.task_id is None:
             return show_open(conn)
 
+        if args.show:
+            return show_task(conn, args.task_id)
+
+        if args.duplicate_of is not None:
+            r = task_ops.mark_duplicate(conn, args.task_id, args.duplicate_of)
+            if r.was_already:
+                print(f"#{r.task_id} was already a duplicate: {r.title}")
+            else:
+                print(f"#{r.task_id} folded into #{args.duplicate_of}: {r.title}")
+            return 0
+
         if args.reopen:
             r = task_ops.reopen_task(conn, args.task_id)
             if r.was_already:
@@ -125,8 +176,8 @@ def main() -> int:
                 print(f"Reopened #{r.task_id}: {r.title}")
             return 0
 
-        status = "DISMISSED" if args.dismiss else "DONE"
-        r = task_ops.close_task(conn, args.task_id, status=status,
+        outcome = "DISMISSED" if args.dismiss else "DONE"
+        r = task_ops.close_task(conn, args.task_id, outcome=outcome,
                                 note=args.note)
         if r.was_already:
             print(f"#{r.task_id} was already {r.was_already.lower()}: {r.title}")

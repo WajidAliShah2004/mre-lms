@@ -32,7 +32,7 @@ def conn(tmp_path):
 
 
 def task(conn, title, *, due=None, urgency="NORMAL", entity="B_MRE",
-         status="OPEN") -> int:
+         status="TRIAGED") -> int:
     tid = db.insert_task(conn, title=title, due_date=due, urgency=urgency,
                          entity_id=entity, status=status)
     return tid
@@ -118,7 +118,7 @@ def test_a_small_urgent_thing_beats_a_large_distant_one(conn):
     amounts = {small: 4_000, large: 5_000_000}
     monkeypatched = [reports.score_task(r, TODAY, amounts.get(r["id"]))
                      for r in conn.execute(
-                         "SELECT * FROM tasks WHERE status='OPEN'").fetchall()]
+                         "SELECT * FROM tasks WHERE status='TRIAGED'").fetchall()]
     monkeypatched.sort(key=lambda s: -s.score)
     assert monkeypatched[0].title == "licence renewal $40"
 
@@ -151,8 +151,25 @@ def test_the_order_is_stable_between_runs(conn):
 
 
 def test_done_tasks_are_not_in_the_list(conn):
-    task(conn, "finished", due="2026-09-01", status="DONE")
+    task(conn, "finished", due="2026-09-01", status="CLOSED")
+    task(conn, "never real", due="2026-09-01", status="CANCELED")
     assert reports.todo_list(conn, today=TODAY) == []
+
+
+def test_every_open_ledger_state_is_in_the_list(conn):
+    """Ledger v2 (D-066): "open" is every state but the three that end a task.
+    A BLOCKED or FAILED task needs him more than a TRIAGED one, not less."""
+    from core.pipeline import ledger
+    for s in ledger.STATES:
+        task(conn, s.lower(), due="2026-09-20", status=s) if s != "DUPLICATE" else None
+    shown = {t.title for t in reports.todo_list(conn, today=TODAY)}
+    assert shown == {s.lower() for s in ledger.ACTIVE}
+
+
+def test_a_stuck_task_says_why(conn):
+    task(conn, "waiting on the bank", due="2026-09-20", status="BLOCKED")
+    [t] = reports.todo_list(conn, today=TODAY)
+    assert "blocked" in t.reason
 
 
 def test_the_list_filters_by_entity(conn):

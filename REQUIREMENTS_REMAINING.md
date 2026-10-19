@@ -44,7 +44,7 @@ Where the addendum and the spec disagree, the **addendum wins** (it is later). I
 ### Tasks, briefs, delegation
 | # | Item | Source |
 |---|---|---|
-| R13 | Task ledger v2: the addendum's ~20 fields, 10 states + 5 exception states, unique event key, one task per obligation across sources | ADD §2 |
+| R13 | ~~Task ledger v2: the addendum's ~20 fields, 10 states + 5 exception states, unique event key, one task per obligation across sources~~ **Built Oct 19 (D-066)**; runs on the Mac once [LEDGER_V2_APPLY.md](lms/ops/LEDGER_V2_APPLY.md) is applied. Approval objects (R19) and the dashboard (R22) attach to its hooks | ADD §2 |
 | R14 | Apple Reminders mirror (one-way) | SPEC Q127 |
 | R15 | Daily digest (built; delivered to iCloud, Telegram now possible); escalate imminent obligations at once; weekly backlog review; TINs, health details and credentials redacted from digests | ADD §2, §5, SPEC Q152 |
 | R16 | Hourly refresh of active sources (WhatsApp, iMessage per D-065; email to confirm), every 3 h for the rest, evening communications sweep, daily reconciliation | ADD §6 |

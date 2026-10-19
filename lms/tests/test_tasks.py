@@ -8,6 +8,9 @@ after he had already served.
 
 Same shape as D-027 (an overrides block nothing read) and D-036 (hard stops
 held only by absence): the schema described a behaviour that did not exist.
+
+Ledger v2 (D-066): DONE and DISMISSED are outcomes now. The task's status
+becomes CLOSED or CANCELED and `final_outcome` keeps which one it was.
 """
 
 from datetime import date, timedelta
@@ -30,7 +33,7 @@ def a_task(conn, title="Jury duty summons — Nassau County Superior Court",
            due=None, urgency="HIGH"):
     return db.insert_task(conn, title=title, urgency=urgency,
                           due_date=due or date.today().isoformat(),
-                          entity_id="UNASSIGNED")
+                          entity_id="UNASSIGNED", status="TRIAGED")
 
 
 # ---------------------------------------------------------------------------
@@ -58,8 +61,10 @@ def test_the_row_is_kept_not_deleted(conn):
     task_ops.close_task(conn, tid)
 
     row = task_ops.get_task(conn, tid)
-    assert row["status"] == "DONE"
+    assert row["status"] == "CLOSED"
+    assert row["final_outcome"] == "DONE"
     assert row["completed_at"], "closed without recording when"
+    assert "attested by human" in row["verification_evidence"]
 
 
 def test_closing_is_in_the_audit_log(conn):
@@ -83,8 +88,8 @@ def test_dismissed_is_recorded_separately_from_done(conn):
     did = a_task(conn, title="Reply to newsletter")
     done = a_task(conn, title="Pay invoice 7010")
 
-    task_ops.close_task(conn, did, status="DISMISSED")
-    task_ops.close_task(conn, done, status="DONE")
+    task_ops.close_task(conn, did, outcome="DISMISSED")
+    task_ops.close_task(conn, done, outcome="DONE")
 
     dismissed = task_ops.dismissals(conn)
     assert [r["title"] for r in dismissed] == ["Reply to newsletter"]
@@ -93,16 +98,16 @@ def test_dismissed_is_recorded_separately_from_done(conn):
 def test_both_outcomes_remove_it_from_the_list(conn):
     a = a_task(conn, title="one")
     b = a_task(conn, title="two")
-    task_ops.close_task(conn, a, status="DONE")
-    task_ops.close_task(conn, b, status="DISMISSED")
+    task_ops.close_task(conn, a, outcome="DONE")
+    task_ops.close_task(conn, b, outcome="DISMISSED")
     assert reports.todo_list(conn) == []
 
 
 def test_an_invented_status_is_refused(conn):
     tid = a_task(conn)
-    with pytest.raises(task_ops.TaskError, match="status must be"):
-        task_ops.close_task(conn, tid, status="MAYBE")
-    assert task_ops.get_task(conn, tid)["status"] == "OPEN"
+    with pytest.raises(task_ops.TaskError, match="outcome must be"):
+        task_ops.close_task(conn, tid, outcome="MAYBE")
+    assert task_ops.get_task(conn, tid)["status"] == "TRIAGED"
 
 
 # ---------------------------------------------------------------------------
@@ -125,7 +130,7 @@ def test_the_id_is_stable_while_the_ranking_is_not(conn):
     ranked = reports.todo_list(conn)
     assert ranked[0].task_id == later, "the task now at position 1 changed"
     # ...and `later`'s id did not.
-    assert task_ops.get_task(conn, later)["status"] == "OPEN"
+    assert task_ops.get_task(conn, later)["status"] == "TRIAGED"
 
 
 def test_an_unknown_id_says_how_to_find_the_right_one(conn):
@@ -150,11 +155,11 @@ def test_closing_twice_does_not_move_the_completion_time(conn):
     tid = a_task(conn)
     first = task_ops.close_task(conn, tid)
     when = task_ops.get_task(conn, tid)["completed_at"]
-    task_ops.close_task(conn, tid, status="DISMISSED")
+    task_ops.close_task(conn, tid, outcome="DISMISSED")
     assert task_ops.get_task(conn, tid)["completed_at"] == when
-    assert task_ops.get_task(conn, tid)["status"] == "DONE", (
+    assert task_ops.get_task(conn, tid)["final_outcome"] == "DONE", (
         "a second close rewrote the first one's outcome")
-    assert first.status == "DONE"
+    assert first.outcome == "DONE"
 
 
 def test_reopening_puts_it_back(conn):
@@ -166,15 +171,16 @@ def test_reopening_puts_it_back(conn):
     task_ops.reopen_task(conn, tid)
 
     row = task_ops.get_task(conn, tid)
-    assert row["status"] == "OPEN"
+    assert row["status"] == "TRIAGED"
     assert row["completed_at"] is None
+    assert row["final_outcome"] is None
     assert [t.task_id for t in reports.todo_list(conn)] == [tid]
 
 
 def test_reopening_an_open_task_is_harmless(conn):
     tid = a_task(conn)
     r = task_ops.reopen_task(conn, tid)
-    assert r.was_already == "OPEN"
+    assert r.was_already == "TRIAGED"
 
 
 def test_reopening_is_in_the_audit_log(conn):
@@ -187,3 +193,34 @@ def test_reopening_is_in_the_audit_log(conn):
     actions = [r["action"] for r in conn.execute(
         "SELECT action FROM actions_log WHERE action LIKE 'TASK_%' ORDER BY id")]
     assert actions == ["TASK_DONE", "TASK_REOPENED"]
+
+
+def test_reopening_is_in_the_task_history_too(conn):
+    """The ledger's own trail (task_events) records the moves with who made them."""
+    tid = a_task(conn)
+    task_ops.close_task(conn, tid, note="served 10 Sep")
+    task_ops.reopen_task(conn, tid)
+    moves = [(e["from_status"], e["to_status"], e["actor"]) for e in
+             conn.execute("SELECT * FROM task_events WHERE task_id = ? "
+                          "AND event = 'TRANSITION' ORDER BY id", (tid,))]
+    assert moves == [("TRIAGED", "CLOSED", "human"), ("CLOSED", "TRIAGED", "human")]
+
+
+def test_a_human_can_close_from_any_open_state(conn):
+    """It is his list. "I paid it myself" closes a task that was waiting for
+    approval, without walking it through execution and verification."""
+    tid = a_task(conn)
+    conn.execute("UPDATE tasks SET status = 'AWAITING_APPROVAL' WHERE id = ?", (tid,))
+    r = task_ops.close_task(conn, tid, note="paid it myself")
+    assert r.status == "CLOSED"
+
+
+def test_marking_a_duplicate_folds_it_into_the_other(conn):
+    a = a_task(conn, title="Acme invoice 7010")
+    b = a_task(conn, title="Acme invoice 7010 (forwarded)")
+    r = task_ops.mark_duplicate(conn, b, a)
+    assert r.status == "DUPLICATE"
+    assert task_ops.get_task(conn, b)["duplicate_of"] == a
+    assert [t.task_id for t in reports.todo_list(conn)] == [a]
+    again = task_ops.mark_duplicate(conn, b, a)
+    assert again.was_already == "DUPLICATE"

@@ -273,8 +273,12 @@ def test_a_due_date_can_be_corrected(conn, roots, registry, tmp_path):
 
     assert out.changed
     assert not out.refiled, "a due date is not a filing field"
-    row = conn.execute("SELECT due_date FROM tasks WHERE id = ?", (tid,)).fetchone()
+    row = conn.execute("SELECT due_date, due_date_verified FROM tasks WHERE id = ?",
+                       (tid,)).fetchone()
     assert row["due_date"] == "2026-11-01"
+    # A person read it off the document: no longer the provisional, detected
+    # date (addendum §2, D-066).
+    assert row["due_date_verified"] == 1
 
 
 def test_correcting_a_due_date_with_no_task_is_refused(conn, roots, registry,

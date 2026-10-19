@@ -162,6 +162,49 @@ def test_sidecar_and_task_carry_what_the_filename_cannot(conn, roots, registry, 
     assert "Acme Supply" in row["title"]
 
 
+def test_the_email_and_its_invoice_make_one_task(conn, roots, registry, tmp_path):
+    """Ledger v2 (D-066), addendum §2: "a forwarded email, attached invoice and
+    bank transaction can be evidence for the same obligation rather than three
+    tasks". Two different documents, one obligation, one task with two sources.
+    """
+    from core.pipeline import ledger
+
+    body = doc(tmp_path, "email.txt", b"Please find our invoice attached, due 9/30")
+    pdf = doc(tmp_path, "invoice.pdf", b"ACME SUPPLY invoice total $1,245.00")
+    first = ingest_file(conn, roots, registry, classifier(registry, INVOICE), body,
+                        source="email", source_ref="msg-1",
+                        artifact=Artifact(recipient="matthew@mrecai.com",
+                                          body="invoice attached"), run_ocr=False)
+    second = ingest_file(conn, roots, registry, classifier(registry, INVOICE), pdf,
+                         source="attachment", source_ref="msg-1/invoice.pdf",
+                         artifact=Artifact(recipient="matthew@mrecai.com",
+                                           body="ACME SUPPLY invoice"), run_ocr=False)
+
+    assert first.status == second.status == "FILED"
+    assert first.task_id == second.task_id
+    assert conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 1
+    assert [s["source"] for s in ledger.sources(conn, first.task_id)] == [
+        "email", "attachment"]
+    task = ledger.get(conn, first.task_id)
+    assert task["status"] == "TRIAGED"
+    assert task["domain"] == "BUSINESS"
+    assert task["event_key"] == "v1|B_MRE|acme-supply|due=2026-09-30|amt=124500"
+
+
+def test_a_different_invoice_from_the_same_vendor_is_its_own_task(conn, roots,
+                                                                  registry, tmp_path):
+    a = ingest_file(conn, roots, registry, classifier(registry, INVOICE),
+                    doc(tmp_path, "sep.pdf", b"september"),
+                    artifact=Artifact(recipient="matthew@mrecai.com", body="sep"),
+                    run_ocr=False)
+    b = ingest_file(conn, roots, registry,
+                    classifier(registry, {**INVOICE, "due_date": "2026-10-31"}),
+                    doc(tmp_path, "oct.pdf", b"october"),
+                    artifact=Artifact(recipient="matthew@mrecai.com", body="oct"),
+                    run_ocr=False)
+    assert a.task_id != b.task_id
+
+
 # ---------------------------------------------------------------------------
 # D-024 — never classify a document nobody read
 #

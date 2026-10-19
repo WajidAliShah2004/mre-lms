@@ -53,7 +53,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..db import database as db
-from . import filing, naming
+from . import filing, ledger, naming
 from .registry import Registry, RegistryError
 
 # Distinguishes "leave this alone" from "set it to None". `subcategory=None`
@@ -173,8 +173,10 @@ def apply_correction(conn: sqlite3.Connection, roots: filing.StorageRoots,
     task_row = None
     if due_date is not UNSET:
         task_row = conn.execute(
+            # Its own task, or the task it was merged into as evidence (D-066).
             "SELECT id, due_date FROM tasks WHERE source_artifact = ? "
-            "ORDER BY id DESC LIMIT 1", (artifact_id,)).fetchone()
+            "OR id IN (SELECT task_id FROM task_sources WHERE artifact_id = ?) "
+            "ORDER BY id DESC LIMIT 1", (artifact_id, artifact_id)).fetchone()
         if task_row is None:
             raise CorrectionError(
                 f"artifact {artifact_id} has no task, so there is no due date "
@@ -242,8 +244,10 @@ def apply_correction(conn: sqlite3.Connection, roots: filing.StorageRoots,
         (after["entity_id"], after["category"], after["subcategory"], cls["id"]))
 
     if task_row is not None and any(c.field == "due_date" for c in changes):
-        conn.execute("UPDATE tasks SET due_date = ? WHERE id = ?",
-                     (due_date, task_row["id"]))
+        # A person read the date off the document: it is no longer the
+        # provisional, detected date the addendum warns about (§2).
+        ledger.update_fields(conn, int(task_row["id"]), by=source,
+                             due_date=due_date, due_date_verified=1)
 
     db.log_action(conn, "CORRECTED", artifact_id=artifact_id,
                   detail="; ".join(str(c) for c in changes)[:400],

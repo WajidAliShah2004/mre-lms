@@ -44,6 +44,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Any, Iterable
 
+from ..pipeline import ledger
 from ..pipeline.registry import Registry
 
 # Spec §Day-5.1. Not a hard truncation: see `top_tasks`.
@@ -165,6 +166,10 @@ def score_task(row: sqlite3.Row, today: date,
     score = pressure + URGENCY_POINTS.get(urgency, 5) + money_weight(amount_cents)
 
     bits = [when]
+    # The ledger's exception states are why a task is stuck; say which.
+    status = row["status"] if "status" in row.keys() else None
+    if status in ("NEEDS_CLARIFICATION", "BLOCKED", "FAILED"):
+        bits.append(status.replace("_", " ").lower())
     if urgency in ("CRITICAL", "HIGH"):
         bits.append(urgency)
     if amount_cents:
@@ -192,9 +197,13 @@ def _amounts_by_task(conn: sqlite3.Connection) -> dict[int, int]:
 def todo_list(conn: sqlite3.Connection, *, today: date | None = None,
               entity_id: str | None = None,
               person: str | None = None) -> list[ScoredTask]:
-    """Every open task, ranked. One list, filtered at read time (spec §Day-5.1)."""
+    """Every open task, ranked. One list, filtered at read time (spec §Day-5.1).
+
+    Open means every ledger state but the three that end a task — including
+    BLOCKED, FAILED and NEEDS_CLARIFICATION, which need him more than most.
+    """
     today = today or date.today()
-    sql = "SELECT * FROM tasks WHERE status = 'OPEN'"
+    sql = f"SELECT * FROM tasks WHERE {ledger.active_sql()}"
     args: list[Any] = []
     if entity_id:
         sql += " AND entity_id = ?"

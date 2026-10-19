@@ -35,7 +35,7 @@ import yaml
 
 from .. import addressing
 from ..db import database as db
-from . import filing, ocr
+from . import filing, ledger, ocr
 from .classify import Artifact, Classification, Classifier
 from .registry import Registry
 
@@ -356,18 +356,27 @@ def ingest_file(conn, roots: filing.StorageRoots, registry: Registry,
                              **classification.as_row())
 
     # --- task --------------------------------------------------------------
+    # One task per obligation (ledger v2, D-066): the covering email and the
+    # invoice attached to it produce the same event key, so the second one is
+    # recorded as evidence for the first one's task instead of a second task.
     task_id = None
     if classification.due_date or classification.urgency in {"CRITICAL", "HIGH"}:
-        title = _task_title(classification)
-        task_id = db.insert_task(
-            conn, title=title, due_date=classification.due_date,
-            entity_id=classification.entity_id,
-            urgency=classification.urgency,
-            source_artifact=filed.artifact_id,
+        recorded = ledger.record_event(
+            conn, source_key=f"artifact:{sha}", source=source,
+            source_link=source_ref, artifact_id=filed.artifact_id,
+            received_at=art.received_date, confidence=classification.confidence,
+            event_key=ledger.event_key(
+                entity_id=classification.entity_id,
+                counterparty=classification.counterparty,
+                due_date=classification.due_date,
+                amount_cents=classification.amount_cents,
+                descriptor=classification.descriptor),
+            title=_task_title(classification), status="TRIAGED", by="ingest",
+            due_date=classification.due_date, entity_id=classification.entity_id,
+            domain=classification.domain, urgency=classification.urgency,
             detail=classification.rationale,
         )
-        db.log_action(conn, "TASK_CREATED", artifact_id=filed.artifact_id,
-                      detail=title)
+        task_id = recorded.task_id
 
     return IngestResult(sha256=sha, status="FILED", path=filed.filed_path,
                         classification=classification, ocr_engine=engine,

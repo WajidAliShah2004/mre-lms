@@ -44,13 +44,18 @@ def connect(db_path: str | Path) -> sqlite3.Connection:
     """Open the database, applying the schema if it isn't there yet.
 
     Safe to call on every process start: schema.sql is entirely
-    CREATE ... IF NOT EXISTS.
+    CREATE ... IF NOT EXISTS, and an older database is migrated in place first
+    (core/db/migrate.py — schema.sql's new indexes would fail on the old
+    tables otherwise).
     """
+    from . import migrate
+
     db_path = Path(db_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
     conn = sqlite3.connect(db_path, isolation_level=None)
     conn.row_factory = sqlite3.Row
+    migrate.upgrade(conn, db_path)
     conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
 
     # executescript ends any implicit transaction; re-assert the pragmas that
@@ -181,7 +186,8 @@ def insert_task(conn: sqlite3.Connection, **fields: Any) -> int:
 
 def open_tasks(conn: sqlite3.Connection, entity_id: str | None = None,
                person: str | None = None) -> Iterable[sqlite3.Row]:
-    sql = "SELECT * FROM tasks WHERE status = 'OPEN'"
+    # "Open" is every state but the three that end a task (ledger.TERMINAL).
+    sql = "SELECT * FROM tasks WHERE status NOT IN ('CLOSED','CANCELED','DUPLICATE')"
     args: list[Any] = []
     if entity_id:
         sql += " AND entity_id = ?"
