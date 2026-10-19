@@ -42,7 +42,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from _env import load_lms_env                              # noqa: E402
+from _env import archive_volume_problem, load_lms_env      # noqa: E402
 from _reexec import ensure_venv                            # noqa: E402
 from core.db import database as db                         # noqa: E402
 from core.pipeline import ledger                           # noqa: E402
@@ -55,8 +55,13 @@ def connect():
     archive = os.environ.get("LMS_ARCHIVE_ROOT")
     if not archive:
         raise SystemExit("LMS_ARCHIVE_ROOT is not set — ops/lms.env not found")
-    return db.connect(os.environ.get(
-        "LMS_DB", str(Path(archive).parent / "lms.db")))
+    path = Path(os.environ.get("LMS_DB", str(Path(archive).parent / "lms.db")))
+    # Before db.connect, which would try to mkdir under a missing mount point
+    # and die with "Permission denied: '/Volumes/MacStudioHD'" (Oct 19).
+    problem = archive_volume_problem(str(path.parent))
+    if problem:
+        raise SystemExit(problem)
+    return db.connect(path)
 
 
 def show_open(conn) -> int:

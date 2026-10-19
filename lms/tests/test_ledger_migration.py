@@ -303,3 +303,15 @@ def test_old_code_half_applying_the_new_schema_does_not_break_the_migration(old)
     assert "tasks" in fk_targets and "tasks_v1" not in fk_targets
     r = ledger.record_event(conn, source_key="drive:x", source="drive", title="t")
     assert r.outcome == "created"
+
+
+@pytest.mark.parametrize("script", [done.connect, migrate_ledger.db_path])
+def test_a_missing_array_is_named_not_a_traceback(script, monkeypatch):
+    """Oct 19: the array was locked after a restart. done.py died in mkdir with
+    "Permission denied: '/Volumes/MacStudioHD'" and migrate_ledger.py said "no
+    database", which reads like data loss. Both now say what is wrong."""
+    monkeypatch.delenv("LMS_DB", raising=False)
+    monkeypatch.setenv("LMS_ARCHIVE_ROOT", "/Volumes/NoSuchArrayForTests/LMS/archive")
+    with pytest.raises(SystemExit) as exc:
+        script()
+    assert "is not mounted" in str(exc.value)

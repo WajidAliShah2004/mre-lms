@@ -885,7 +885,7 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 **302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
 
 ### D-066 — Task ledger v2: one task per obligation, fifteen states, migrated in place
-**Status:** Decided · Oct 19 2026 · developer · implements R13 (addendum §2); apply with [lms/ops/LEDGER_V2_APPLY.md](lms/ops/LEDGER_V2_APPLY.md)
+**Status:** Decided · Oct 19 2026 · developer · implements R13 (addendum §2) · **applied on the Mac Oct 19** ([lms/ops/LEDGER_V2_APPLY.md](lms/ops/LEDGER_V2_APPLY.md))
 
 The v1 `tasks` table had 13 columns and three states (OPEN/DONE/DISMISSED), and every document that met the task rule made its own task: a covering email and the invoice attached to it were two tasks for one bill. The addendum's §2 asks for one durable record per obligation, its field list, ten lifecycle states plus five exception states, a unique event key and idempotent re-runs. Built from §2's own lists, nothing added to them:
 
@@ -900,7 +900,9 @@ The v1 `tasks` table had 13 columns and three states (OPEN/DONE/DISMISSED), and 
 
 One hazard found while writing the apply note: the haltbot stays up through a halt, and its old `db.connect()` reads the *new* schema.sql from disk after `git pull`, half-applying it to the v1 table. A plain rename would then point the new tables' foreign keys at the dropped `tasks_v1`. The migration drops every index on the old table and renames with `legacy_alter_table` on; `test_old_code_half_applying_the_new_schema_does_not_break_the_migration` reproduces the case.
 
-**614 passed, 1 xfailed** on Windows (83 new, 531 before; `test_halt.py` needs `os.killpg` and runs on the Mac only). `test_brief.py` and `test_tasks.py` changed only where they used the v1 status words.
+**Applied on the Mac, Oct 19, while halted.** 33 tasks: 31 OPEN → TRIAGED, 2 DONE → CLOSED; 21 given an event key; `PASS: 33 tasks, integrity ok`; snapshot at `/Volumes/MacStudioHD/LMS/lms.db.pre-ledger-v2`. Three possible duplicates reported and left open: #9 and #10 look like #8 (LegalZoom NY compliance reminder, due 2026-12-04, $50), #33 looks like #32 (PSG Global tax returns, due 2026-10-15, $9,255). The first attempt found **the array locked again after a restart** (RUNBOOK "Array not mounted"): every job had been failing on `mkdir /Volumes/MacStudioHD` under the halt. Unlocked with `diskutil apfs unlockVolume`, which does not keep the passphrase, so the next restart locks it again until it is saved in the keychain. `done.py` and `migrate_ledger.py` now name that case instead of a traceback or "no database".
+
+**616 passed, 1 xfailed** on Windows (85 new, 531 before; `test_halt.py` needs `os.killpg` and runs on the Mac only). `test_brief.py` and `test_tasks.py` changed only where they used the v1 status words.
 
 ### D-065 — Matthew's answers of Oct 19 to the go-live message
 **Status:** Recorded · Oct 19 2026 · answers ADDENDUM_2026-09-28_GAP_ANALYSIS.md §4 items 1, 2, 5, 7, 8 (partly 6)
