@@ -884,6 +884,34 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 
 **302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
 
+### D-065 — Matthew's answers of Oct 19 to the go-live message
+**Status:** Recorded · Oct 19 2026 · answers ADDENDUM_2026-09-28_GAP_ANALYSIS.md §4 items 1, 2, 5, 7, 8 (partly 6)
+
+Reply to the "4 mailboxes and Telegram are live" message. His answers, in his words where it matters:
+
+| Question | Answer | Consequence |
+|---|---|---|
+| `/halt` to @MREOC18bot from his phone | "DONE" | Acceptance item in Phase 7 met **once verified on the Mac**: `~/LMS/HALTED.json` timestamp and the haltbot log showing his id. **The system is now halted** (mail, watcher, brief, backup, gateway) until `./ops/halt.py --resume` is run at the Mac. Token rotation for @MREOC18bot is still owed (R30) |
+| @MREOCbot can't change anything | "OKAY" | Acknowledged (D-060) |
+| Auto-payments / replies in trial mode; which bills, which bank | "YES LETS TALK ABOUT IT" | Shadow mode accepted **in principle** (gap analysis 2.1). Bills, bank and reply types still to be settled on a call. Hard stops `never_move_money` / `never_send_without_approval` stay until a per-class decision is recorded |
+| iCloud+ 2 TB with Advanced Data Protection; Apple ID on the iPhone | "ALREADY DONE AND ITS FOR MRECAITECHNOLOGY@GMAIL.COM" | **A seventh address, and not the Mac's Apple ID** (`mreconsultinginsurance@gmail.com`). The phone Shortcut writes to `mrecaitechnology`'s iCloud; the Mac's watcher and the brief (D-046) use `mreconsultinginsurance`'s. Until the Mac is signed in to the same Apple ID, the Shortcut's photos never reach the watcher and `iCloud Drive/OpenClaw` cannot be the managed root. With ADP on, signing the Mac in needs approval from his iPhone |
+| Which Dropbox / Drive folders | "LET IT READ EVERYTHIG" | Scope = everything, read-only (R5, R8). Still needed: which Dropbox account(s), and whether "Drive" means all Google accounts. Each needs its own read-only grant (`drive.readonly`, Dropbox read scope). Backfill runs in batches (R28) |
+| ChatGPT account; Sept 24 files | "I WILL RESEND THEM SHORTLY" | Files pending. **Which account** was not answered |
+| Messages checked hourly; iMessage? | "ALL WHATSAPP, IMESSAGE" | Hourly sources = WhatsApp and iMessage. **iMessage: all chats**, which closes C13's opt-in list as "all" by his choice (default had been none). **WhatsApp has no supported read path** (R7); to evaluate: WhatsApp's Mac app, read-only from its local database with Full Disk Access (unofficial, can break on update). Not answered: whether email is an hourly source; Google Voice |
+| Business mail to `mreconsultinginsurance@gmail.com` | "YES" | Add it as a polled mailbox, `gmail.readonly` through the personal-Gmail External app (D-061); needs one Google sign-in for that account |
+| Private GitHub repo under `Mleca18`, add the developer | "OKAY MIGHT NEED YOUR HELP ON THIS" | Steps sent (client/FOLLOWUP_2026-10-19.md). Then push the existing repo there (R35) |
+
+Still unanswered from §4: Atlase product names (3), `matthew@atlase.ai` (R1).
+
+### D-064 — The remaining work is only what Matthew's documents require
+**Status:** Decided · Oct 7 2026
+
+Every open item was traced to the Aug 5 meeting, the v3.0 spec, the Sept 28 addendum or his setup-form answers. The addendum wins where it and the spec disagree. The result is [REQUIREMENTS_REMAINING.md](REQUIREMENTS_REMAINING.md), now the list to work from.
+
+Removed as not required, or superseded by a later document of his: the four Google Shared Drives as filing destinations (C11; the addendum puts managed copies only in iCloud `OpenClaw`), Gmail `LMS/` labels and auto-archive (the addendum requires read-only source access), the separate 17:30 evening brief (superseded by the addendum's evening sweep), the Day-7 eight-test table (replaced by spec Part 10 and the addendum's tests), and the unused `openclaw` Google project review. C17 (vehicles) and C18 (sales mail) are closed as already answered by spec Q13 and Q36. **C.H. Shink is ignored for now**: the client has provided nothing for it and the addendum does not list it; `B_CHS` stays a placeholder and is no longer asked about.
+
+Not removed, recorded so it is not mistaken for optional: D-062 dropped FileVault key custody, the remaining C16 data and mailbox password rotation, and Matthew's documents require each of them (REQUIREMENTS_REMAINING.md §4).
+
 ### D-063 — Remote access stays on RustDesk; Phase 8 hardens around it
 **Status:** Decided · Oct 6 2026 · resolves D-010 as option (a)
 

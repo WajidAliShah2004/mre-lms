@@ -106,13 +106,19 @@ Today the system can show: (1) photographed receipt [via Shortcut, once installe
 ## 4. Questions for Matthew
 
 1. **Autonomous payments and replies (2.1):** accept shadow mode first, graduating per class? Which bills and which reply types are the first candidates? Which bank/rail would pay them?
+   *Oct 19 (D-065): yes in principle, "let's talk about it". Bills, bank and reply types to be set on a call.*
 2. **iCloud (2.2):** subscribe to iCloud+ and turn on Advanced Data Protection? Which Apple ID is on your iPhone?
+   *Oct 19 (D-065): already done, on `mrecaitechnology@gmail.com`. Not the Mac's Apple ID: the Mac must be signed in to it.*
 3. **Atlase products:** the list of product names that are separate entities.
-4. **C.H. Shink:** still an entity?
+4. ~~**C.H. Shink:** still an entity?~~ Ignored for now (Oct 7, D-064): nothing provided by the client.
 5. **Dropbox and Google Drive:** which accounts and which folders are in scope?
+   *Oct 19 (D-065): everything, read-only. Which accounts: still to confirm.*
 6. **ChatGPT:** which account holds the "master to-do list" project; share the Sept 24 seed files.
+   *Oct 19 (D-065): files to be resent; account not named.*
 7. **Communications:** which sources count as "active" (hourly); is iMessage in scope (needs the Phase 1 item 7 decision); Google Voice?
+   *Oct 19 (D-065): hourly = all WhatsApp and iMessage. Email and Google Voice not answered. WhatsApp has no supported path yet.*
 8. **mreconsultinginsurance@gmail.com:** does business mail go there?
+   *Oct 19 (D-065): yes. Add it as a polled mailbox.*
 
 ---
 
