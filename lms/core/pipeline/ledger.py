@@ -650,3 +650,19 @@ def counts_by_status(conn: sqlite3.Connection) -> dict[str, int]:
         "SELECT status, COUNT(*) AS n FROM tasks GROUP BY status")}
 
 
+def note(conn: sqlite3.Connection, task_id: int, event: str, *, by: str,
+         detail: str | None = None) -> None:
+    """Record something that happened to a task without moving or editing it.
+
+    The audit trail is more than state changes: the brief escalating a task
+    (R15, event ESCALATED) changes nothing about the task and is still part of
+    its history. Refuses the events this module writes itself, so a note can
+    never pass for a transition.
+    """
+    if event in ("CREATED", "TRANSITION", "EVIDENCE", "FIELD", "MERGED",
+                 "DEPENDENCY"):
+        raise LedgerError(f"{event} is written by the ledger itself, not noted")
+    get(conn, task_id)
+    _event(conn, task_id, by, event, detail=detail)
+
+

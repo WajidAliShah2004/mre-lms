@@ -127,3 +127,78 @@ def test_it_is_plain_text_not_markdown():
     One tap versus a download is the difference between read and unread."""
     assert deliver_brief.SUFFIX == ".txt"
     assert deliver_brief.LATEST.endswith(".txt")
+
+
+# ---------------------------------------------------------------------------
+# Escalation and redaction, through main() (R15)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def mac(tmp_path, monkeypatch):
+    """main() as the 06:30 job runs it, minus the venv re-exec and the volume
+    check, against a database in tmp_path. One overdue task with an EIN in its
+    title, never escalated."""
+    monkeypatch.setattr(deliver_brief, "ensure_venv", lambda *a, **k: None)
+    monkeypatch.setattr(deliver_brief, "load_lms_env", lambda *a, **k: {})
+    monkeypatch.setattr(deliver_brief, "archive_volume_problem", lambda *a: None)
+    monkeypatch.setenv("LMS_ARCHIVE_ROOT", str(tmp_path / "archive"))
+    monkeypatch.setenv("LMS_DB", str(tmp_path / "lms.db"))
+    monkeypatch.setenv("LMS_BRIEF_DIR", str(tmp_path / "briefs"))
+
+    conn = db.connect(tmp_path / "lms.db")
+    tid = db.insert_task(conn, title="EIN 93-4868827 penalty notice",
+                         due_date="2020-01-01", urgency="HIGH",
+                         entity_id="B_MRE", status="TRIAGED")
+    conn.close()
+    return tmp_path, tid
+
+
+def escalations(tmp_path, tid):
+    conn = db.connect(tmp_path / "lms.db")
+    try:
+        return conn.execute(
+            "SELECT COUNT(*) FROM task_events WHERE task_id = ? AND event = ?",
+            (tid, reports.ESCALATED)).fetchone()[0]
+    finally:
+        conn.close()
+
+
+def run(monkeypatch, *args):
+    monkeypatch.setattr(sys, "argv", ["deliver_brief.py", *args])
+    return deliver_brief.main()
+
+
+def test_a_delivered_brief_escalates_and_is_redacted(mac, monkeypatch):
+    tmp_path, tid = mac
+    assert run(monkeypatch) == 0
+
+    text = (tmp_path / "briefs" / deliver_brief.LATEST).read_text(encoding="utf-8")
+    assert text.index("ACT NOW") < text.index("penalty notice")
+    assert "4868827" not in text and "••-•••8827" in text
+    assert escalations(tmp_path, tid) == 1
+
+    # The next delivery does not escalate it again.
+    assert run(monkeypatch) == 0
+    assert escalations(tmp_path, tid) == 1
+    text = (tmp_path / "briefs" / deliver_brief.LATEST).read_text(encoding="utf-8")
+    assert "ACT NOW" not in text and "penalty notice" in text
+
+
+def test_a_failed_delivery_does_not_mark_an_escalation(mac, monkeypatch):
+    """Marked but never seen is worse than not escalated: it is never
+    escalated again, and the record says it was."""
+    tmp_path, tid = mac
+
+    def fail(path, text):
+        raise deliver_brief.DeliveryError("iCloud read back short")
+
+    monkeypatch.setattr(deliver_brief, "write_verified", fail)
+    assert run(monkeypatch) == 1
+    assert escalations(tmp_path, tid) == 0
+
+
+def test_a_dry_run_does_not_mark_an_escalation(mac, monkeypatch, capsys):
+    tmp_path, tid = mac
+    assert run(monkeypatch, "--dry-run") == 0
+    assert "ACT NOW" in capsys.readouterr().out
+    assert escalations(tmp_path, tid) == 0
