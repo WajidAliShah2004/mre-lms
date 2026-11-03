@@ -196,7 +196,18 @@ class StorageReport:
 def _location(source: str, source_ref: str | None, original_name: str | None) -> tuple[str, str]:
     """Where a copy was seen. The watcher records only a filename, so two
     drops of one name count as one location — which can only under-report a
-    saving, never invent one."""
+    saving, never invent one.
+
+    An attachment's location is its MESSAGE. Its source_ref is
+    `<message id>/<attachment id>`, and Gmail issues a new attachment id every
+    time the message is fetched, so on the Mac (Nov 3) each 12-hour re-poll
+    looked like a new location: 460 "extra locations" and 251 MB "saved", nearly
+    all of it one message read again. The same bytes in the same message are
+    one attachment; a message carrying two identical files counts once, which
+    under-reports, the safe direction.
+    """
+    if source == "attachment" and source_ref:
+        return (source, source_ref.split("/", 1)[0])
     return (source or "", source_ref or original_name or "")
 
 

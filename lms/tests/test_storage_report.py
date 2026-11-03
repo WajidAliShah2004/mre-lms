@@ -93,6 +93,25 @@ def test_exact_dedup_counts_new_locations_not_re_reads(world):
     assert d.groups[1].locations[0][:2] == ("dropbox", "/Dropbox/stmt.pdf")
 
 
+def test_a_re_poll_with_a_new_gmail_attachment_id_is_a_re_read(world):
+    """Gmail hands out a fresh attachment id on every fetch (Mac, Nov 3: one
+    message seen nine times under nine ids). Only a different MESSAGE is a
+    new location."""
+    conn, *_ = world
+    sha_c = db.sha256_bytes(C)
+    db.record_duplicate(conn, sha_c, "attachment", "m1/a7", "invoice.pdf")   # its own message
+    db.record_duplicate(conn, sha_c, "attachment", "m2/a10", "invoice.pdf")  # m2 again
+    db.record_duplicate(conn, sha_c, "attachment", "m3/a1", "invoice.pdf")   # a new message
+    d = storage.exact_dedup(conn)
+    assert d.extra_locations == 3
+    assert d.resightings == 3 + 2
+    c = next(g for g in d.groups if g.sha256 == sha_c)
+    assert c.canonical == ("attachment", "m1")
+    assert [ref for _, ref, _ in c.locations] == ["m2", "m3"]
+    text = storage.render_dedup(d, None)
+    assert "attachment:m2  (" in text and "a10" not in text
+
+
 def test_original_bytes_are_distinct_plus_saved(world):
     conn, roots, inbox, spool = world
     r = storage.build_report(conn, roots, inbox=inbox, spool=spool)
