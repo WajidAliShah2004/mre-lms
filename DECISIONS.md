@@ -884,6 +884,91 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 
 **302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
 
+### D-073 — The task dashboard: one static page beside the brief
+**Status:** Decided · Nov 3 2026 · developer · implements R22 (addendum §6) · not yet on the Mac, not scheduled
+
+§6 lists what the dashboard must show: business versus personal, separate entities, overdue and upcoming, blocked items, approval-ready proposals, delegated assistant, estimated human hours remaining, estimated AI hours saved, and proof of completion. It is built from those clauses and reads only the hooks D-066 and D-067 left for it.
+
+- **What it is:** `core/reports/dashboard.py` builds the data without writing anything and renders one self-contained HTML file. `ops/dashboard.py` writes it as `Dashboard.html` in the brief's iCloud folder (`deliver_brief.brief_dir()`, imported, not copied). It replaces the file atomically each run and reads it back afterwards. Options: `--out` and `--dry-run`. If the archive volume is missing, an alarm page replaces it, rather than yesterday's backlog staying up looking current.
+- **Sections:**
+  - **Stalled jobs** banner.
+  - **Approvals waiting:** the exact action and its expiry, with **Agreement only** shown where a hard stop means approving authorizes nothing.
+  - **Overdue, next 7 days, and 8–14 days**, ranked by the brief's `todo_list`, with "date unverified" where the due date was only detected.
+  - **Blocked, needs clarification and failed**, each with the reason from the event that paused it.
+  - **Business vs personal:** by the task's `domain`, else the entity's kind. UNASSIGNED and JUNK go under "not yet sorted"; they are never guessed into one side.
+  - **Per entity.**
+  - **Delegated assistant.**
+  - **Hours:** shown as "not estimated yet (R21)", never invented. The data shape is ready for R21.
+  - **Proof of completion:** VERIFIED or CLOSED in the last 14 days, with the evidence and who verified it.
+- **Nothing is fetched:** no scripts, fonts, images or stylesheets, and no JavaScript, with a CSP of `default-src 'none'`. It works at phone width, in light and dark mode.
+- **Hostile input:** titles are email subjects. Every string goes through one function, `_safe`, which runs the digest redactor (D-072) and then escapes the HTML. Merging the branches connected `_safe` to the shared redactor, so the page and the brief mask the same things.
+- **Private tasks** (sensitivity high or private) show as "Private item #id": counted, dated and ranked, so a deadline is never hidden, but with no title, detail, evidence, amount, or approval counterparty.
+- **Reads only:** an expired approval is left off the page with a count, not expired here. `expire_due` stays the brief job's write.
+
+Not done: no LaunchAgent yet. The proposal is `com.lms.dashboard` at 06:35, after the brief has expired stale approvals, and at 19:30, after the evening mail. It must be a LaunchAgent, because iCloud Drive only exists in a logged-in session. There is also no `WATCHED_JOBS` entry until it is scheduled.
+
+### D-072 — The digest is redacted at render time, reviews the backlog on Mondays, and leads with new escalations
+**Status:** Decided · Nov 3 2026 · developer · implements R15 (addendum §2, §5; spec Q152) · not yet on the Mac
+
+The brief leaves the Mac (iCloud, D-046; Telegram later, R10), and it is the thing most likely to be read over a shoulder. Addendum §5: "Redact taxpayer IDs, health details and credentials from routine digests." §2: "Escalate imminent obligations immediately; provide a daily digest and weekly backlog review."
+
+- **Redaction happens when the brief is rendered** (`core/reports/redact.py`). `render_text` runs everything it produces through `redact`, so a section added later is covered automatically. The database keeps the truth, and `done.py --show` shows it at the Mac. The redactor is deterministic and uses no model.
+  - **Taxpayer IDs** keep their last four digits, so he can still tell his entities apart: SSN/ITIN `•••-••-6789`, EIN `••-•••8827`, a bare nine-digit run `•••••8827`. They are found inside filename slugs too.
+  - **Card and account numbers** (12–19 digits) keep their last four.
+  - **Credentials are removed whole:** a labelled secret loses everything after its separator, and token-shaped strings become `[removed]`. On a line *about* a code (security, verification or login code, OTP, passcode, PIN), short runs of letters and digits that contain a digit are masked. A bare "code" doesn't count, so "zip code" and "tax code" are left alone. Titles that only mention a credential stay readable (`password-reset-email`).
+  - **The trade:** over-redaction is accepted; under-redaction is the defect. Dollar amounts, dates, phone numbers, `1099-NEC` and `2025 form 5498` are tested as left alone.
+- **Health is hidden by classification, not by pattern.** No regex can tell a cardiology follow-up from an errand. A task is private when its `sensitivity` is high or private, or when any document behind it is classified HEALTH. Ingest never sets `sensitivity`, so the HEALTH category check is what makes this work for existing tasks. A private task shows as `Private item #12 — open it at the Mac: ./ops/done.py 12 --show`. Since merging, an approval for a private task is listed without its recipient.
+- **Weekly backlog review** on Monday's morning brief (`BACKLOG_WEEKDAY = 0`), placed last: every open task, unranked, oldest first, grouped by entity, capped at 25 with a count of the rest. Since merging, it also says how many registered sources are not read at all (D-069), even on a brief that otherwise says nothing needs him.
+- **Escalation.** `escalations_due()` returns open tasks that are due on or before the date 24 hours from now and have never been escalated. They lead the brief under **ACT NOW**, just below the stalled-system section, and are taken out of WHAT NEEDS YOU. This happens once per task, ever; after that the task is ranked overdue with `!!` until it is closed. `mark_escalated()` records it in `task_events` (`ESCALATED`, via the new `ledger.note()`) and as `TASK_ESCALATED` in `actions_log`. It is called by `deliver_brief` only after the write has been verified, the same rule as `mark_brief_sent`.
+- **Order of the brief after merging:** THE SYSTEM NEEDS ATTENTION (stalled jobs and sources being read late, D-069) → ACT NOW → APPROVALS WAITING (D-067) → WHAT NEEDS YOU → filed since last brief → waiting on you → the Monday backlog.
+
+Until R10, "immediately" means "in the next brief", which can be up to a day late. R10 will send the same `escalations_due()` list. **The first brief on the Mac will be long:** every task that is already overdue gets escalated once (D-066 counted 31 open tasks).
+
+### D-071 — Off-site backup to B2, built inert
+**Status:** Decided · Nov 3 2026 · developer · implements R29 (spec §11.4, D-063, D-012) · not configured: waits on Matthew's bucket and key, and on D-012's written sign-off
+
+- **Shape:** `ops/offsite_backup.py` runs from `backup.py` only after a local snapshot has succeeded and `BACKUP_COMPLETED` has been written. It does a `restic copy` from the local repository to `b2:<bucket>:<path>`, then a `forget --prune`.
+  - It is not a second launchd job: that way the order is guaranteed by code and `/halt` covers it.
+  - The copy skips snapshots that are already off-site, so a missed night catches up the next night.
+  - Exit codes: 0 = local backup done, and the off-site copy done or not configured; 3 = local done, off-site failed.
+- **"Configured" is one fact:** whether the Keychain item `lms/offsite-repo` exists. The setup script stores it last.
+  - Item absent: inert. It writes `OFFSITE_NOT_CONFIGURED` once per unconfigured stretch, and `verify_setup` [8] warns.
+  - Half configured: `OFFSITE_COPY_FAILED`, and `verify_setup` fails.
+  - A denied or locked Keychain is an error, never "not configured".
+- **A separate off-site passphrase** (`lms/restic-offsite`). The local one is known to have been exposed (D-049). With two, each can be rotated on its own, and one leaking opens only one copy. It must be in Matthew's password manager: this is the copy that survives losing the Mac's Keychain.
+- **Secrets:**
+  - Both repository passwords reach restic as anonymous pipes (`/dev/fd/N`, as in D-049).
+  - The B2 key goes only into the restic child's environment, because restic accepts it no other way. A key restricted to one bucket is what makes that acceptable.
+  - Inherited `RESTIC_*` and `B2_*` variables are removed from that environment.
+  - Every line logged or printed has the secrets redacted.
+- **Retention:** `--group-by host --keep-daily 90 --keep-monthly 24 --keep-tag hold`.
+  - `--group-by host` is required, because every nightly snapshot has its own temporary path. Under restic's default grouping, each would be a group of one, and forget would keep everything while reporting success.
+  - 24 months is the "monthly long-terms" figure; the spec gives no number.
+  - `hold` is the litigation-hold override from §11.4.
+- **Setup:** `ops/set_offsite_backup.py` reads the key from the clipboard and clears it afterwards. It refuses the master key, and it checks with B2 that the key is restricted to this bucket, can list, read, write and delete files, cannot manage keys, and that the bucket is private. It runs `restic init --copy-chunker-params`, and it never replaces an existing passphrase.
+- **Watched by the brief** at 48 h (`OFFSITE_COPY_COMPLETED`). Nothing writes it while unconfigured, so there is no nag until the first copy. `restore_test.py --offsite` tests the off-site copy, run quarterly by a person. The steps are in [lms/ops/OFFSITE_APPLY.md](lms/ops/OFFSITE_APPLY.md).
+
+Not verified: every test uses a stand-in for restic and B2. The first real run on the Mac is the proof. **Found while building this:** `backup.py` never runs `forget` on the local repository, so it grows without limit. The 90-day policy is applied off-site only. That is a follow-up.
+
+### D-070 — Model health ping: reload what is missing, report what does not answer
+**Status:** Decided · Nov 3 2026 · developer · implements R34 (spec §4.6.5, addendum §5) · not yet on the Mac ([lms/ops/MODEL_HEALTH_APPLY.md](lms/ops/MODEL_HEALTH_APPLY.md))
+
+`com.lms.modelhealth` runs `ops/model_health.py` every 300 s and at login. It covers each tier the agents fragment marks `"resident": true` (TIER-L1 and TIER-L2), taking their ids from `TIER_MODELS` so there is no third copy of the names.
+
+- **It reads load state first, from `/api/v0/models`** (new `LMStudio.model_states()`, loopback-checked). `/v1/models` lists downloaded models too, so it can't tell a resident model from an evicted one. A model is probed only once it reads `loaded`; probing an unloaded one would load it at LM Studio's default context and idle timeout.
+- **Not loaded → `lms load <id> --context-length 32768`**, the command the developer ran by hand. There is no `--ttl`, so the model stays loaded ("keep-alive indefinite"). The command is found at `~/.lmstudio/bin/lms`, then on PATH; it has a 600 s timeout, and the state is read again afterwards. A test keeps 32768 equal to `contextWindow` in `phase6b.patch.json5`.
+- **Then a 16-token probe through the adapter**, 120 s timeout. **A loaded model that doesn't answer is reported, not reloaded:** a timeout behind a long request is a busy model, and unloading 70 GB in the middle of a request would kill a draft.
+- **Records:**
+  - `MODEL_RELOADED` on every reload.
+  - `MODEL_HEALTH_OK` or `MODEL_HEALTH_FAILED` when the result changes, and otherwise hourly, so 288 "fine" rows a day don't bury the events.
+  - It exits 1 on failure, so `launchctl list` shows it.
+- **The alert is the brief**, until R10. `WATCHED_JOBS` gains `MODEL_HEALTH_OK`, flagged after 3 h with no row. The new `JOB_FAILURES` prints `models: FAILED <ago>: <reason>` under THE SYSTEM NEEDS ATTENTION for as long as the failure is newer than the last OK.
+- **Halt:** `/halt` finds the job by its `com.lms.` prefix (D-059). Run by hand while halted, it does nothing.
+
+To check on the Mac (apply step 1): where the `lms` command lives, the `state` values in `/api/v0/models`, whether `lms load` behaves under launchd, and whether a 120 s probe is enough while the model is busy. Not done: starting LM Studio itself if it is down (that is reported as FAILED); OCR, ASR and embedding models, which are not resident on this machine.
+
+**After merging all of the above with D-069: 936 passed, 1 skipped (POSIX-only), 1 xfailed** on Windows.
+
 ### D-069 — The coverage register: every source listed, every check recorded, every gap disclosed
 **Status:** Decided · Nov 3 2026 · developer · implements R7 and the "log checks, disclose missed intervals" half of R16 (addendum §4, §6) · not yet on the Mac
 
