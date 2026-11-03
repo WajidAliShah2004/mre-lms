@@ -355,3 +355,51 @@ CREATE TABLE IF NOT EXISTS duplicate_refs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_dupe_sha ON duplicate_refs(sha256);
+
+-- ---------------------------------------------------------------------------
+-- backfill_windows / backfill_items — the inventory a historical mail
+-- backfill takes BEFORE it ingests anything (addendum §4, "Backfill safely":
+-- inventory first, record source IDs, then ingest in bounded batches).
+--
+-- One row per (mailbox, time window). `listed` is how many message ids Gmail
+-- returned for the window at inventory time; the planner splits a window until
+-- that is under the poll limit, so a window is never silently cut short the way
+-- the Sept 29 14-day catch-up was. `truncated` = 1 only when the window could
+-- not be split further and still hit the limit — a reported gap, never a quiet
+-- one.
+--
+-- ingested_at is NULL until ops/backfill_mail.py has run the window through
+-- the ordinary per-mailbox poll. Rows are upserted on re-inventory, never
+-- deleted: they are the record of what was looked at and when.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS backfill_windows (
+    id              INTEGER PRIMARY KEY,
+    mailbox         TEXT    NOT NULL,
+    window_start    TEXT    NOT NULL,          -- ISO8601, inclusive
+    window_end      TEXT    NOT NULL,          -- ISO8601, exclusive
+    query           TEXT    NOT NULL,          -- exactly what Gmail was asked
+    listed          INTEGER NOT NULL CHECK (listed >= 0),
+    list_limit      INTEGER NOT NULL,
+    truncated       INTEGER NOT NULL DEFAULT 0 CHECK (truncated IN (0,1)),
+    inventoried_at  TEXT    NOT NULL,
+    ingested_at     TEXT,
+    outcome         TEXT    CHECK (outcome IS NULL OR outcome IN ('OK','FAILED')),
+    UNIQUE (mailbox, window_start, window_end)
+);
+
+CREATE INDEX IF NOT EXISTS idx_backfill_windows_mailbox
+    ON backfill_windows(mailbox, window_start);
+
+-- The message ids themselves: the source IDs the addendum asks to be recorded.
+-- Sizes, dates and checksums are not knowable from a listing (Gmail returns
+-- ids only); they are recorded at ingest, in artifacts (byte_size, sha256,
+-- doc_date), keyed back to the message by artifacts.source_ref.
+CREATE TABLE IF NOT EXISTS backfill_items (
+    mailbox         TEXT    NOT NULL,
+    message_id      TEXT    NOT NULL,
+    window_id       INTEGER NOT NULL REFERENCES backfill_windows(id),
+    inventoried_at  TEXT    NOT NULL,
+    PRIMARY KEY (mailbox, message_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_backfill_items_window ON backfill_items(window_id);
