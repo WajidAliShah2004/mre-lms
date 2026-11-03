@@ -93,8 +93,8 @@ class Brief:
     withheld: int = 0                      # ranked below the cut
     new_by_entity: dict[str, int] = field(default_factory=dict)
     needs_decision: list[sqlite3.Row] = field(default_factory=list)
-    # Scheduled jobs that have not run when they should have. Empty is the
-    # normal state and prints nothing.
+    # Scheduled jobs that have not run when they should have, or that say
+    # they failed. Empty is the normal state and prints nothing.
     stalled: list[str] = field(default_factory=list)
     # Approval objects waiting on his answer (R19, D-067), unexpired.
     approvals: list[sqlite3.Row] = field(default_factory=list)
@@ -303,13 +303,33 @@ WATCHED_JOBS: dict[str, tuple[str, int]] = {
     "BRIEF_DELIVERED":  ("brief",  48),      # runs 06:30
     "BACKUP_COMPLETED": ("backup", 48),      # runs 02:30
     "AUDIT_COMPLETED":  ("audit", 16 * 24),  # runs Sundays 05:15 (Phase 8)
+    "MODEL_HEALTH_OK":  ("models",  3),      # every 5 min; row hourly (R34)
+}
+
+# Jobs that also record their own failure. While the failure row is newer than
+# the job's success row, the brief says it failed and why, which is more use
+# than "last ran 4h ago" and arrives before the silence would. A failure with
+# no success ever is reported too: unlike a job that has never run, it is a
+# fact, not an empty table.
+#
+#   failure action          success action it is cleared by
+JOB_FAILURES: dict[str, str] = {
+    "MODEL_HEALTH_FAILED": "MODEL_HEALTH_OK",
 }
 
 
-def stalled_jobs(conn: sqlite3.Connection, now: datetime) -> list[str]:
-    """Scheduled work that has silently stopped.
+def _ago(gap: timedelta) -> str:
+    if gap.days:
+        return f"{gap.days}d ago"
+    if gap >= timedelta(hours=1):
+        return f"{int(gap.total_seconds() // 3600)}h ago"
+    return f"{max(0, int(gap.total_seconds() // 60))}m ago"
 
-    Nothing else notices. Four launchd jobs run unattended on a machine in
+
+def stalled_jobs(conn: sqlite3.Connection, now: datetime) -> list[str]:
+    """Scheduled work that has silently stopped, or that says it failed.
+
+    Nothing else notices. The launchd jobs run unattended on a machine in
     Matthew's office, and if one dies — a bad plist, a revoked token, a full
     disk, a Mac sitting at a locked login screen after a power cut (C8, still
     unanswered) — the only symptom is that something stops arriving. Absence is
@@ -320,6 +340,9 @@ def stalled_jobs(conn: sqlite3.Connection, now: datetime) -> list[str]:
     that has never run at all is NOT reported: on a fresh machine that is every
     job, and an alarm that fires on day one is an alarm that gets ignored by
     day two. The first successful run arms it.
+
+    It is also, until Telegram push (R10), the only alert there is: a failed
+    model health check (R34) is told to him here and nowhere else.
     """
     # Every ts in actions_log carries an offset — now_iso() writes
     # "2026-09-10T08:31:40-04:00" — and `datetime.now()` is naive. Subtracting
@@ -329,11 +352,16 @@ def stalled_jobs(conn: sqlite3.Connection, now: datetime) -> list[str]:
     if now.tzinfo is None:
         now = now.astimezone()
 
+    failure_of = {ok: failed for failed, ok in JOB_FAILURES.items()}
+
     out = []
     for action, (name, hours) in sorted(WATCHED_JOBS.items()):
+        # The newest of the job's success and (if it records one) failure.
+        watched = (action, failure_of[action]) if action in failure_of else (action,)
         row = conn.execute(
-            "SELECT ts FROM actions_log WHERE action = ? "
-            "ORDER BY id DESC LIMIT 1", (action,)).fetchone()
+            f"SELECT action, ts, detail FROM actions_log "
+            f"WHERE action IN ({', '.join('?' * len(watched))}) "
+            f"ORDER BY id DESC LIMIT 1", watched).fetchone()
         if row is None:
             continue                       # never run; not yet armed
         try:
@@ -343,10 +371,15 @@ def stalled_jobs(conn: sqlite3.Connection, now: datetime) -> list[str]:
         if last.tzinfo is None:
             last = last.replace(tzinfo=now.tzinfo)
         gap = now - last
-        if gap > timedelta(hours=hours):
-            days = gap.days
-            ago = f"{days}d ago" if days else f"{int(gap.total_seconds() // 3600)}h ago"
-            out.append(f"{name}: last ran {ago} ({last.isoformat(timespec='minutes')})")
+        if row["action"] != action:
+            # Short enough for a phone; the full reason is in actions_log.
+            why = (row["detail"] or "no reason recorded").strip()
+            if len(why) > 120:
+                why = why[:117] + "..."
+            out.append(f"{name}: FAILED {_ago(gap)}: {why}")
+        elif gap > timedelta(hours=hours):
+            out.append(f"{name}: last ran {_ago(gap)} "
+                       f"({last.isoformat(timespec='minutes')})")
     return out
 
 

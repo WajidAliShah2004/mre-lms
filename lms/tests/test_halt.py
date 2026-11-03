@@ -86,11 +86,11 @@ def do_halt(fake, agents, flag):
 
 def test_targets_are_every_lms_and_openclaw_job_except_the_switch(env):
     fake, agents, _ = env
-    (agents / "com.lms.healthping.plist").write_text("<plist/>")   # installed, not loaded
+    (agents / "com.lms.modelhealth.plist").write_text("<plist/>")  # installed, not loaded
     t = _halt.discover_targets(fake, agents)
     assert "com.lms.haltbot" not in t, "a halt that stops the kill switch"
     assert "com.apple.unrelated" not in t
-    assert {"ai.openclaw.gateway", "com.lms.mail", "com.lms.healthping"} <= set(t)
+    assert {"ai.openclaw.gateway", "com.lms.mail", "com.lms.modelhealth"} <= set(t)
 
 
 def test_halt_stops_everything_and_survives_a_restart(env):

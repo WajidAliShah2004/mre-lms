@@ -257,8 +257,37 @@ class LMStudio:
 
         raise ModelError(f"exhausted retries: {last}")
 
+    def model_states(self) -> dict[str, str]:
+        """{model id: "loaded" | "not-loaded"} from LM Studio's own REST API.
+
+        Not /v1/models. That endpoint is the OpenAI-compatible listing, and
+        with just-in-time loading on it lists every DOWNLOADED model, loaded or
+        not, so "is it in the list" cannot tell a resident model from one that
+        was evicted an hour ago. /api/v0/models reports `state` per model; it
+        is what PHASE6B_APPLY.md step 1 reads by hand.
+
+        Same server, same port, outside the /v1 prefix, and loopback-checked
+        like everything else here.
+        """
+        root = self.base_url[:-3] if self.base_url.endswith("/v1") else self.base_url
+        assert_loopback(root)
+        try:
+            with urllib.request.urlopen(f"{root}/api/v0/models",
+                                        timeout=min(self.timeout, 30)) as r:
+                data = json.load(r).get("data", [])
+        except urllib.error.URLError as exc:
+            raise ModelError(f"cannot reach LM Studio at {root}: "
+                             f"{getattr(exc, 'reason', exc)}") from exc
+        except (OSError, ValueError) as exc:
+            raise ModelError(f"unreadable model list from LM Studio: {exc}") from exc
+        return {m["id"]: m.get("state", "?") for m in data if "id" in m}
+
     def health(self) -> tuple[bool, str]:
-        """Cheap liveness check for the 5-minute launchd ping (§4.6.5)."""
+        """Is every mapped tier listed by /v1/models.
+
+        NOT the 5-minute ping of §4.6.5: that is ops/model_health.py (R34),
+        which reads real load state through model_states() and reloads.
+        """
         try:
             loaded = self.models()
         except Exception as exc:
