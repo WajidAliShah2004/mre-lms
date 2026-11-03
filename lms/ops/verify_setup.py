@@ -555,7 +555,9 @@ def check_kill_switch() -> None:
     A kill switch that is not running looks exactly like one that is, until
     the day it is needed. Each part below has a failure that is silent:
     no owner id means every /halt is ignored as a stranger's; no token means
-    the bot sleeps and logs NOT ARMED where nobody reads it.
+    the bot sleeps and logs NOT ARMED where nobody reads it; a wrong or
+    revoked token keeps the bot running and polling into HTTP 404 forever,
+    which is what Nov 3's rotation left behind while this check passed.
     """
     print("\n[11] Kill switch armed")
     if sys.platform != "darwin":
@@ -565,10 +567,19 @@ def check_kill_switch() -> None:
     import _halt
     import halt_bot
 
-    if halt_bot.keychain(halt_bot.TOKEN_SERVICE):
-        ok("halt bot token in Keychain")
-    else:
+    token = halt_bot.keychain(halt_bot.TOKEN_SERVICE)
+    if not token:
         fail(f"no halt bot token ({halt_bot.TOKEN_SERVICE}); /halt cannot work")
+    else:
+        try:
+            me = halt_bot.Telegram(token).call("getMe")["result"]
+        except RuntimeError as exc:
+            fail(f"halt bot token in Keychain but Telegram refuses it ({exc}); "
+                 f"401/404 means the stored token is wrong or revoked. Re-store "
+                 f"it from BotFather (ops/PHASE7_APPLY.md), then "
+                 f"launchctl kickstart -k gui/$(id -u)/{_halt.SELF_LABEL}")
+        else:
+            ok(f"halt bot token accepted by Telegram (@{me.get('username')})")
     owner = halt_bot.keychain(halt_bot.OWNER_SERVICE)
     if owner and owner.isdigit():
         ok("owner id in Keychain (numeric)")

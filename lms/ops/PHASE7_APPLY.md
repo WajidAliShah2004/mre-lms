@@ -27,21 +27,22 @@ Work from `~/lms-repo/lms` throughout.
 
 The @MREOC18bot token was shared as a screenshot on Oct 6, so treat it as public.
 In Telegram, **@BotFather** → `/revoke` → `@MREOC18bot`. It replies with a new
-token. Do not screenshot it, paste it into chat, or type it on a command line:
+token. Do not screenshot it, paste it into chat, or type it by hand. Copy
+BotFather's message on the Mac, click into Terminal and run this **as one line**
+(the same extraction as the chat bot's, 7b step 2):
 
 ```bash
-security add-generic-password -a lms -s lms/telegram-halt-token -w
+T=$(pbpaste | grep -Eo '[0-9]{8,12}:[A-Za-z0-9_-]{30,}' | head -1); if [ -n "$T" ]; then security add-generic-password -U -a lms -s lms/telegram-halt-token -w "$T" && echo STORED; else echo "NO TOKEN ON CLIPBOARD"; fi; unset T
+pbcopy < /dev/null
+launchctl kickstart -k gui/$(id -u)/com.lms.haltbot
+./ops/halt_bot.py --check      # OK    @MREOC18bot reachable
 ```
 
-**No value after `-w`.** It prompts twice; paste at the prompt. The token never
-reaches shell history or the process table (D-016, D-017).
-
-Check that it is non-empty without printing it (an empty `-w` is accepted
-silently; this exact thing happened with the backup key, D-049):
-
-```bash
-security find-generic-password -a lms -s lms/telegram-halt-token -w | wc -c   # > 40
-```
+Not the hidden `-w` prompt: on Nov 3 it stored something that was not the token
+(paste into an invisible prompt over RustDesk, no way to see what went in), and
+`wc -c` cannot tell a wrong token from a right one. Only `--check` can, and
+verify_setup [11] now runs the same getMe. `-U` replaces the old item; without
+it, a second store fails with "already exists" and the revoked token stays.
 
 Also in BotFather, for @MREOC18bot: `/setjoingroups` → **Disable** (done Oct 6),
 and `/setprivacy` → **Enable**. The bot ignores everything outside a private chat
