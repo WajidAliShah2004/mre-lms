@@ -548,11 +548,24 @@ class GmailClient:
         must not lose mail, and Gmail's own dedupe is the message id, which
         `db.find_artifact_by_hash` already backs onto via content hashing.
         """
+        return [parse_message(self._t.get(mid))
+                for mid in self.message_ids(newer_than_days=newer_than_days,
+                                            limit=limit, query=query)]
+
+    def message_ids(self, *, newer_than_days: int = 1, limit: int = 100,
+                    query: str = "") -> list[str]:
+        """The ids `recent` would fetch, without fetching them.
+
+        One listing call per 500 ids instead of one `get` per message, which is
+        what lets ops/backfill_mail.py take an inventory of a year of mail
+        before deciding how to cut it into batches (addendum §4: inventory
+        first, then ingest in bounded batches). Same query as `recent`, built
+        in one place, so the inventory counts exactly what the ingest reads.
+        """
         q = f"newer_than:{int(newer_than_days)}d"
         if query:
             q = f"{q} {query}"
-        return [parse_message(self._t.get(mid))
-                for mid in self._t.list_ids(q, limit)]
+        return list(self._t.list_ids(q, limit))
 
     def fetch(self, message_id: str) -> Message:
         return parse_message(self._t.get(message_id))
