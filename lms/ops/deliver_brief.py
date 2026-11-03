@@ -30,7 +30,12 @@ because the window moves past them and nothing looks back.
 
 So the file is written, read back, and compared before anything is marked. On a
 sync volume that is not paranoia: iCloud can accept a write into a directory it
-has not materialised and produce a file that reads back short.
+has not materialised and produce a file that reads back short. The escalations
+the brief led with are marked at the same point and for the same reason (R15).
+
+What is written is already redacted — taxpayer IDs, credentials, and private
+(health) tasks by classification — by `render_text` itself (R15, addendum §5),
+so nothing here can write an unredacted brief by forgetting a step.
 """
 
 from __future__ import annotations
@@ -176,6 +181,11 @@ def main() -> int:
     # Only now. This moves the window for the next brief, and anything it
     # covered will never appear in one again.
     reports.mark_brief_sent(conn, kind)
+    # The same rule for escalations (R15): a task is recorded as escalated
+    # only once the brief that led with it is on disk, or a failed write would
+    # leave it marked and never escalated again. R10's push will call this
+    # the same way, after a send it can confirm.
+    reports.mark_escalated(conn, b.escalations, by="deliver_brief")
     db.log_action(conn, "BRIEF_DELIVERED", detail=str(target))
     conn.close()
 

@@ -10,6 +10,11 @@ so what is verified here is what will be sent.
     .venv/bin/python ops/brief.py --evening
     .venv/bin/python ops/brief.py --todo          # the full ranked list
     .venv/bin/python ops/brief.py --todo --entity B_MRE
+
+The brief is printed exactly as it is delivered: redacted (R15) and with the
+escalation list, which is shown here but NOT recorded — only a delivery marks
+a task escalated. `--todo` is the working list at the Mac and is printed in
+full, titles and all; it never leaves the machine.
 """
 
 from __future__ import annotations

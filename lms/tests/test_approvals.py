@@ -429,3 +429,13 @@ def test_the_brief_lists_live_approvals_only(conn):
     assert "agreement only" in text            # a payment, under never_move_money
     later = reports.build_brief(conn, now=NOW + timedelta(hours=49))
     assert later.approvals == []
+
+
+def test_the_brief_hides_the_recipient_of_a_private_tasks_approval(conn):
+    """R15: the counterparty of a health payment is itself a health detail."""
+    from core.reports import brief as reports
+    tid = a_task(conn, sensitivity="private", title="Dr. Example, cardiology bill")
+    ref = approvals.request(conn, tid, bill(recipient="Example Cardiology"),
+                            by="finance", policy=policy_with(), now=NOW)
+    text = reports.render_text(reports.build_brief(conn, now=NOW + timedelta(hours=1)))
+    assert ref in text and "Example Cardiology" not in text and "cardiology" not in text

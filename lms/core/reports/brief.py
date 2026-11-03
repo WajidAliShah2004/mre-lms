@@ -25,6 +25,27 @@ decides nearly every choice here:
     phone. That is D-030's lesson arriving somewhere new: silence is the one
     outcome that cannot be acted on.
 
+WHAT THE ADDENDUM ADDED (R15)
+-----------------------------
+§2: "Escalate imminent obligations immediately; provide a daily digest and
+weekly backlog review." §5: "Redact taxpayer IDs, health details and
+credentials from routine digests."
+
+  * Redaction. Every line `render_text` produces passes through
+    `redact.redact` (taxpayer IDs, card numbers, credentials — by pattern).
+    Health details cannot be found by pattern, so they go by classification: a
+    task that is `sensitivity` high/private, or has a HEALTH document behind
+    it, is printed as "Private item #12 — open it at the Mac" and its title
+    never reaches the renderer's output. Both happen at render time; the
+    database keeps the truth, and `done.py --show` at the Mac shows it.
+  * Weekly backlog. The Monday morning brief (BACKLOG_WEEKDAY) ends with every
+    open task, by entity, oldest first. The daily list is ranked and capped,
+    which is right for a twenty-second read and wrong for noticing the thing
+    that has sat at rank 12 since August.
+  * Escalation. Tasks that have become imminent (overdue, or due within 24 h)
+    and have not been escalated before lead the brief under their own heading,
+    and are recorded as escalated only once the brief is delivered.
+
 WHAT IS NOT HERE
 ----------------
 Delivery. The brief goes to Telegram (spec §Day-5.3) and Telegram is blocked
@@ -34,18 +55,25 @@ worth keeping anyway: it means the brief can be read, diffed and tested
 without a network, and the scheduled job is a thin wrapper rather than the
 place the logic lives.
 
+Which includes escalation. "Immediately" needs a push channel, and push is
+R10. Until then the escalation list rides in the next brief — at worst a day
+late, which is the gap R10 closes by sending the same `escalations_due` list
+the moment it is non-empty, and calling `mark_escalated` when it has.
+
 The ~3 interrupt/day cap is also delivery-side and belongs with the pusher.
 """
 
 from __future__ import annotations
 
 import sqlite3
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Any, Iterable
 
 from ..pipeline import ledger
 from ..pipeline.registry import Registry
+from .redact import redact
 
 # Spec §Day-5.1. Not a hard truncation: see `top_tasks`.
 SURFACE_LIMIT = 7
@@ -56,6 +84,28 @@ SURFACE_LIMIT = 7
 # emergent property of four similar weights.
 URGENCY_POINTS = {"CRITICAL": 40, "HIGH": 20, "NORMAL": 5, "LOW": 1, "NONE": 0}
 
+# Spec §5.6's values that keep a title out of the digest (R15).
+PRIVATE_SENSITIVITY = frozenset({"high", "private"})
+# Taxonomy categories whose documents make the task behind them private, for
+# tasks whose `sensitivity` was never set — which today is all of them: ingest
+# does not set it. Derived at read time, so a document re-filed into HEALTH
+# hides its task from the next brief without anything being rewritten.
+PRIVATE_CATEGORIES = frozenset({"HEALTH"})
+
+# The weekly backlog review (addendum §2) rides on this day's MORNING brief.
+# datetime.weekday(): Monday is 0. Monday because the review is for planning a
+# week, and Friday's version arrives when nothing can be done about it.
+BACKLOG_WEEKDAY = 0
+# Lines, not tasks hidden: every entity's open count is printed regardless,
+# and the rest are counted. Past this it is a list to work through at the Mac,
+# not one to read on a phone.
+BACKLOG_LIMIT = 25
+
+# "Imminent" (addendum §2: "escalate imminent obligations immediately").
+ESCALATE_WITHIN = timedelta(hours=24)
+# The task_events event that says it was escalated (see `mark_escalated`).
+ESCALATED = "ESCALATED"
+
 
 @dataclass(frozen=True)
 class ScoredTask:
@@ -63,6 +113,8 @@ class ScoredTask:
     score: float
     due_in_days: int | None
     reason: str            # why it ranked here, in words, for the brief
+    # Health or otherwise sensitive (R15): rendered without its title.
+    private: bool = False
 
     @property
     def task_id(self) -> int:
@@ -84,6 +136,48 @@ class ScoredTask:
     def overdue(self) -> bool:
         return self.due_in_days is not None and self.due_in_days < 0
 
+    @property
+    def shown_title(self) -> str:
+        """The title as the digest may show it."""
+        return private_line(self.task_id) if self.private else self.title
+
+    @property
+    def shown_reason(self) -> str:
+        """Due, state and urgency stay — they are why it ranked here and say
+        nothing about him. The amount goes: on a private item it is a medical
+        bill's size, which is exactly the detail §5 means."""
+        if not self.private:
+            return self.reason
+        return " · ".join(b for b in self.reason.split(" · ")
+                          if not b.startswith("$"))
+
+
+def private_line(task_id: int) -> str:
+    """What a private task is called in a digest. Says where the rest is."""
+    return f"Private item #{task_id} — open it at the Mac: ./ops/done.py {task_id} --show"
+
+
+@dataclass(frozen=True)
+class BacklogItem:
+    task_id: int
+    entity_id: str | None
+    title: str
+    status: str
+    age_days: int
+    private: bool = False
+
+
+@dataclass
+class Backlog:
+    """Every open task, for the weekly review. `by_entity` is never capped."""
+    total: int
+    by_entity: dict[str | None, int]
+    items: list[BacklogItem]              # oldest first, at most BACKLOG_LIMIT
+
+    @property
+    def not_listed(self) -> int:
+        return self.total - len(self.items)
+
 
 @dataclass
 class Brief:
@@ -97,12 +191,18 @@ class Brief:
     # they failed. Empty is the normal state and prints nothing.
     stalled: list[str] = field(default_factory=list)
     # Approval objects waiting on his answer (R19, D-067), unexpired.
-    approvals: list[sqlite3.Row] = field(default_factory=list)
+    approvals: list[dict] = field(default_factory=list)
+    # Imminent and never escalated before (R15). Shown first, and NOT also in
+    # `tasks`: the same item twice in a twenty-second read is the D-034
+    # follow-on's mistake. Recorded as escalated only on delivery.
+    escalations: list[ScoredTask] = field(default_factory=list)
+    # The weekly review; None on every brief but the Monday morning one.
+    backlog: Backlog | None = None
 
     @property
     def is_empty(self) -> bool:
         return not (self.tasks or self.new_by_entity or self.needs_decision
-                    or self.stalled or self.approvals)
+                    or self.stalled or self.escalations or self.approvals)
 
 
 # ---------------------------------------------------------------------------
@@ -160,7 +260,8 @@ def money_weight(amount_cents: int | None) -> float:
 
 
 def score_task(row: sqlite3.Row, today: date,
-               amount_cents: int | None = None) -> ScoredTask:
+               amount_cents: int | None = None,
+               private: bool = False) -> ScoredTask:
     due = _parse_date(row["due_date"])
     pressure, days, when = due_pressure(due, today)
     urgency = (row["urgency"] or "NORMAL").upper()
@@ -177,7 +278,7 @@ def score_task(row: sqlite3.Row, today: date,
     if amount_cents:
         bits.append(f"${amount_cents / 100:,.2f}")
     return ScoredTask(row=row, score=score, due_in_days=days,
-                      reason=" · ".join(bits))
+                      reason=" · ".join(bits), private=private)
 
 
 def _amounts_by_task(conn: sqlite3.Connection) -> dict[int, int]:
@@ -194,6 +295,32 @@ def _amounts_by_task(conn: sqlite3.Connection) -> dict[int, int]:
          WHERE t.source_artifact IS NOT NULL
     """).fetchall()
     return {r["task_id"]: r["amount"] for r in rows if r["amount"]}
+
+
+def private_task_ids(conn: sqlite3.Connection) -> set[int]:
+    """Tasks the digest must not name (addendum §5, health details).
+
+    By classification, never by pattern: no regex can tell "Dr. Patel
+    follow-up" from an errand. A task is private when it says so
+    (`sensitivity`, spec §5.6) or when any document behind it — the first
+    source or any later evidence (task_sources) — was filed as HEALTH. Any one
+    is enough; erring private costs a trip to the Mac, erring public cannot be
+    undone.
+    """
+    cats = ", ".join(repr(c) for c in sorted(PRIVATE_CATEGORIES))
+    sens = ", ".join(repr(s) for s in sorted(PRIVATE_SENSITIVITY))
+    rows = conn.execute(f"""
+        SELECT id AS task_id FROM tasks WHERE sensitivity IN ({sens})
+        UNION
+        SELECT t.id FROM tasks t
+          JOIN classifications c ON c.artifact_id = t.source_artifact
+         WHERE c.category IN ({cats})
+        UNION
+        SELECT s.task_id FROM task_sources s
+          JOIN classifications c ON c.artifact_id = s.artifact_id
+         WHERE c.category IN ({cats})
+    """).fetchall()
+    return {int(r["task_id"]) for r in rows}
 
 
 def todo_list(conn: sqlite3.Connection, *, today: date | None = None,
@@ -215,7 +342,8 @@ def todo_list(conn: sqlite3.Connection, *, today: date | None = None,
         args.append(person)
 
     amounts = _amounts_by_task(conn)
-    scored = [score_task(r, today, amounts.get(r["id"]))
+    private = private_task_ids(conn)
+    scored = [score_task(r, today, amounts.get(r["id"]), r["id"] in private)
               for r in conn.execute(sql, tuple(args)).fetchall()]
     # Ties broken by id so the order is stable between runs. A list that
     # reshuffles overnight teaches people not to trust the order.
@@ -389,17 +517,138 @@ def stalled_jobs(conn: sqlite3.Connection, now: datetime) -> list[str]:
     return out
 
 
-def _approvals_waiting(conn: sqlite3.Connection, now: datetime) -> list[sqlite3.Row]:
+def _approvals_waiting(conn: sqlite3.Connection, now: datetime) -> list[dict]:
     """Read-only: an expired one is not shown, and is not expired here either
-    (approvals.expire_due does that, from a job that writes)."""
-    return [a for a in conn.execute(
-                "SELECT * FROM approvals WHERE status = 'PENDING' ORDER BY expires_at")
-            if datetime.fromisoformat(a["expires_at"]) > _aware(now)]
+    (approvals.expire_due does that, from a job that writes).
+
+    An approval for a private task (R15) is listed without its recipient:
+    the counterparty of a health payment is itself a health detail."""
+    private = private_task_ids(conn)
+    out = []
+    for a in conn.execute(
+            "SELECT * FROM approvals WHERE status = 'PENDING' ORDER BY expires_at"):
+        if datetime.fromisoformat(a["expires_at"]) <= _aware(now):
+            continue
+        row = dict(a)
+        row["private"] = int(a["task_id"]) in private
+        out.append(row)
+    return out
 
 
 def _aware(now: datetime) -> datetime:
     from ..db import database as db
     return now if now.tzinfo else now.replace(tzinfo=db.TZ)
+
+
+# ---------------------------------------------------------------------------
+# Escalation (R15; addendum §2: "escalate imminent obligations immediately")
+# ---------------------------------------------------------------------------
+
+def is_imminent(task: ScoredTask, now: datetime) -> bool:
+    """Overdue, or due within ESCALATE_WITHIN — by the brief's own due date.
+
+    Due dates are dates, not times, so "within 24 hours" is read the careful
+    way: a task is imminent if its date falls on or before the date 24 hours
+    from now. At 06:30 that includes tomorrow, because a date with no time
+    could fall due at tomorrow's midnight, seventeen and a half hours away.
+    Erring early costs one line at the top of a brief; erring late is the
+    deadline passing unseen.
+    """
+    due = _parse_date(task.row["due_date"])
+    return due is not None and due <= (now + ESCALATE_WITHIN).date()
+
+
+def escalated_ids(conn: sqlite3.Connection) -> set[int]:
+    return {int(r["task_id"]) for r in conn.execute(
+        "SELECT DISTINCT task_id FROM task_events WHERE event = ?", (ESCALATED,))}
+
+
+def escalations_due(conn: sqlite3.Connection, now: datetime,
+                    scored: list[ScoredTask] | None = None) -> list[ScoredTask]:
+    """Open tasks that have become imminent and have never been escalated.
+
+    Read-only. Recording happens in `mark_escalated`, called by whatever
+    delivers — for the same reason `mark_brief_sent` is: a task marked
+    escalated by a brief that never arrived is never escalated again, which is
+    worse than not escalating it at all, because it looks handled.
+
+    Once per task, ever. A task that was escalated as "due tomorrow" and is
+    now overdue is not escalated twice; it stays at the top of WHAT NEEDS YOU,
+    marked !!, every day until it is closed (overdue always outranks, D-034).
+    Escalation is the interrupt, not the reminder.
+
+    R10's push channel sends exactly this list, the moment it is non-empty.
+    """
+    if scored is None:
+        scored = todo_list(conn, today=now.date())
+    done = escalated_ids(conn)
+    return [s for s in scored if is_imminent(s, now) and s.task_id not in done]
+
+
+def mark_escalated(conn: sqlite3.Connection, tasks: Iterable[ScoredTask], *,
+                   by: str = "brief") -> list[int]:
+    """Record that these tasks were escalated. Idempotent; returns those newly marked.
+
+    Recorded in task_events, the task's own audit trail (addendum §2), not in
+    actions_log alone: "has this task been escalated" is then a lookup by
+    task_id on an indexed column, where actions_log has no task column and
+    the answer would be a LIKE over prose. A `TASK_ESCALATED` row also goes to
+    actions_log, as `record_event` writes TASK_CREATED beside CREATED, so the
+    system-wide log of what it did stays complete.
+    """
+    from ..db import database as db
+    done = escalated_ids(conn)
+    marked: list[int] = []
+    for t in tasks:
+        if t.task_id in done:
+            continue
+        ledger.note(conn, t.task_id, ESCALATED, by=by, detail=t.shown_reason)
+        db.log_action(conn, "TASK_ESCALATED",
+                      artifact_id=t.row["source_artifact"],
+                      detail=f"#{t.task_id} {t.shown_reason}"[:400])
+        done.add(t.task_id)
+        marked.append(t.task_id)
+    return marked
+
+
+# ---------------------------------------------------------------------------
+# The weekly backlog review (R15; addendum §2)
+# ---------------------------------------------------------------------------
+
+def _age_days(row: sqlite3.Row, today: date) -> int:
+    """Days since the obligation reached the system. `received_at` first (when
+    the source event arrived), `created_at` if that is missing or is not an
+    ISO date (a mail header date, for instance)."""
+    keys = row.keys()
+    for col in ("received_at", "created_at"):
+        d = _parse_date(row[col]) if col in keys else None
+        if d is not None:
+            return max(0, (today - d).days)
+    return 0
+
+
+def backlog_review(conn: sqlite3.Connection, today: date) -> Backlog:
+    """Every open task (ledger.ACTIVE), oldest first.
+
+    Not ranked. The daily list answers "what now"; this answers "what has been
+    sitting there", and a ranked list is precisely what hides the answer — a
+    task at rank 12 in August is at rank 12 in October and never seen.
+    """
+    private = private_task_ids(conn)
+    rows = conn.execute(
+        f"SELECT * FROM tasks WHERE {ledger.active_sql()}").fetchall()
+    items = [BacklogItem(task_id=int(r["id"]), entity_id=r["entity_id"],
+                         title=r["title"], status=r["status"],
+                         age_days=_age_days(r, today),
+                         private=int(r["id"]) in private) for r in rows]
+    items.sort(key=lambda i: (-i.age_days, i.task_id))
+    by_entity = Counter(i.entity_id for i in items)
+    return Backlog(total=len(items), by_entity=dict(by_entity),
+                   items=items[:BACKLOG_LIMIT])
+
+
+def is_backlog_day(kind: str, now: datetime) -> bool:
+    return kind == "morning" and now.weekday() == BACKLOG_WEEKDAY
 
 
 def build_brief(conn: sqlite3.Connection, *, kind: str = "morning",
@@ -426,7 +675,9 @@ def build_brief(conn: sqlite3.Connection, *, kind: str = "morning",
         since = (now - timedelta(hours=window_hours)).isoformat(timespec="seconds")
 
     scored = todo_list(conn, today=now.date())
-    shown, withheld = top_tasks(scored)
+    escalate = escalations_due(conn, now, scored)
+    lead = {e.task_id for e in escalate}
+    shown, withheld = top_tasks([s for s in scored if s.task_id not in lead])
 
     return Brief(
         kind=kind,
@@ -437,6 +688,9 @@ def build_brief(conn: sqlite3.Connection, *, kind: str = "morning",
         needs_decision=_needs_decision(conn),
         stalled=stalled_jobs(conn, now),
         approvals=_approvals_waiting(conn, now),
+        escalations=escalate,
+        backlog=(backlog_review(conn, now.date())
+                 if is_backlog_day(kind, now) else None),
     )
 
 
@@ -444,12 +698,29 @@ def build_brief(conn: sqlite3.Connection, *, kind: str = "morning",
 # Rendering
 # ---------------------------------------------------------------------------
 
+# Telegram reflows anything wider into ribbons; the backlog truncates to it.
+LINE_WIDTH = 78
+
+
+def _fit(line: str, width: int = LINE_WIDTH) -> str:
+    return line if len(line) <= width else line[:width - 1].rstrip() + "…"
+
+
 def render_text(brief: Brief, registry: Registry | None = None) -> str:
     """Plain text, phone-shaped. No markdown tables, no columns.
 
     Telegram reflows anything wide into unreadable ribbons, and this is read
     one-handed. Short lines, one idea each.
+
+    Redacted (R15): every line goes through `redact` on the way out, whatever
+    section it came from, and private tasks are rendered by `shown_title`, so
+    their titles never enter the text at all. What is returned here is what
+    leaves the Mac.
     """
+    return redact(_render(brief, registry))
+
+
+def _render(brief: Brief, registry: Registry | None) -> str:
     def label(entity_id: str) -> str:
         if registry is None:
             return entity_id
@@ -480,13 +751,25 @@ def render_text(brief: Brief, registry: Registry | None = None) -> str:
                    "nothing waiting on a decision.")
         return "\n".join(out)
 
+    # Second only to a stalled system: things that became imminent since the
+    # last brief. Listed by id, because these are the ones he acts on today.
+    if brief.escalations:
+        out.append(f"ACT NOW — OVERDUE OR DUE WITHIN 24 HOURS "
+                   f"({len(brief.escalations)})")
+        for t in brief.escalations:
+            # A private line already carries its id.
+            out.append(f"!! {t.shown_title}" if t.private
+                       else f"!! #{t.task_id} {t.title}")
+            out.append(f"       {t.shown_reason}")
+        out.append("")
+
     if brief.approvals:
         out.append(f"APPROVALS WAITING ({len(brief.approvals)})")
         for a in brief.approvals:
             amount = (f" · ${a['amount_cents'] / 100:,.2f}"
                       if a["amount_cents"] is not None else "")
             out.append(f"   {a['ref']} · {a['kind'].replace('_', ' ')} · "
-                       f"{a['recipient'] or ''}{amount}")
+                       f"{'' if a['private'] else a['recipient'] or ''}{amount}")
             out.append(f"       task #{a['task_id']}, expires "
                        f"{a['expires_at'][5:16].replace('T', ' ')}"
                        + (" · approving records agreement only"
@@ -498,13 +781,14 @@ def render_text(brief: Brief, registry: Registry | None = None) -> str:
         out.append(f"WHAT NEEDS YOU ({len(brief.tasks)})")
         for i, t in enumerate(brief.tasks, 1):
             mark = "!!" if t.overdue else "  "
-            out.append(f"{mark} {i}. {t.title}")
-            out.append(f"       {t.reason}")
+            out.append(f"{mark} {i}. {t.shown_title}")
+            out.append(f"       {t.shown_reason}")
         if brief.withheld:
             out.append(f"   (+{brief.withheld} more, lower priority)")
         out.append("")
     else:
-        out.append("WHAT NEEDS YOU — nothing open.")
+        out.append("WHAT NEEDS YOU — nothing else open." if brief.escalations
+                   else "WHAT NEEDS YOU — nothing open.")
         out.append("")
 
     if brief.new_by_entity:
@@ -521,5 +805,45 @@ def render_text(brief: Brief, registry: Registry | None = None) -> str:
             out.append(f"   - {r['original_name']} ({r['status'].lower()})")
         if len(brief.needs_decision) > 5:
             out.append(f"   - …and {len(brief.needs_decision) - 5} more")
+        out.append("")
+
+    # Last: the weekly review is the long section, and the twenty-second read
+    # above it must not have to scroll past it.
+    if brief.backlog is not None:
+        out.extend(_render_backlog(brief.backlog, label))
 
     return "\n".join(out).rstrip()
+
+
+def _render_backlog(backlog: Backlog, label) -> list[str]:
+    out = [f"WEEKLY BACKLOG REVIEW — {backlog.total} open, oldest first"]
+    if not backlog.total:
+        out.append("   Nothing open.")
+        return out
+
+    # Entities in the order of their oldest listed task; any whose tasks are
+    # all past the cap still get their header and count, so no entity's open
+    # work is ever missing from the review entirely.
+    order: list[str | None] = []
+    for item in backlog.items:
+        if item.entity_id not in order:
+            order.append(item.entity_id)
+    order += sorted((e for e in backlog.by_entity if e not in order),
+                    key=lambda e: (-backlog.by_entity[e], e or ""))
+
+    for eid in order:
+        out.append(f"{label(eid) if eid else 'Unassigned'} · "
+                   f"{backlog.by_entity[eid]} open")
+        for item in backlog.items:
+            if item.entity_id != eid:
+                continue
+            # Redacted BEFORE it is cut to width: truncating first could
+            # leave half an SSN that no pattern recognises any more.
+            title = (f"Private — ./ops/done.py {item.task_id} --show"
+                     if item.private else redact(item.title))
+            state = item.status.replace("_", " ").lower()
+            out.append(_fit(f"   {item.age_days}d · {state} · #{item.task_id} {title}"))
+    if backlog.not_listed:
+        out.append(f"   (+{backlog.not_listed} more not listed — "
+                   f"./ops/done.py --list at the Mac)")
+    return out

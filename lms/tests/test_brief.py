@@ -239,8 +239,18 @@ def test_the_brief_leads_with_what_needs_him(conn, registry):
     text = reports.render_text(
         reports.build_brief(conn, now=datetime(2026, 9, 8, 6, 30)), registry)
 
-    assert text.index("WHAT NEEDS YOU") < text.index("renew the licence") + 1
+    # Overdue and never escalated, so it leads under ACT NOW (R15) — still
+    # before anything else in the brief, which is the property.
+    assert text.index("ACT NOW") < text.index("renew the licence")
+    assert text.index("renew the licence") < text.index("WHAT NEEDS YOU")
     assert "OVERDUE" in text
+
+    # Once escalated, the next brief ranks it in WHAT NEEDS YOU as before.
+    reports.mark_escalated(conn, reports.build_brief(
+        conn, now=datetime(2026, 9, 8, 6, 30)).escalations)
+    text = reports.render_text(
+        reports.build_brief(conn, now=datetime(2026, 9, 8, 6, 30)), registry)
+    assert text.index("WHAT NEEDS YOU") < text.index("renew the licence")
 
 
 def test_overdue_items_are_marked_in_the_text(conn, registry):
@@ -337,3 +347,228 @@ def test_the_window_excludes_older_documents(conn, registry):
     filed(conn)                                   # arrived just now
     b = reports.build_brief(conn, kind="morning", now=datetime.now())
     assert b.new_by_entity == {"B_MRE": 1}, "today's document was not counted"
+
+
+# ---------------------------------------------------------------------------
+# Escalation (R15; addendum §2: "escalate imminent obligations immediately")
+# ---------------------------------------------------------------------------
+
+AT = datetime(2026, 9, 8, 6, 30)             # Tuesday, brief time
+
+
+def escalated_rows(conn, tid):
+    return conn.execute(
+        "SELECT * FROM task_events WHERE task_id = ? AND event = ?",
+        (tid, reports.ESCALATED)).fetchall()
+
+
+def test_an_overdue_task_is_escalated_and_leads(conn, registry):
+    tid = task(conn, "lapsed licence", due="2026-09-01")
+    task(conn, "routine", due="2026-10-01")
+    b = reports.build_brief(conn, now=AT)
+
+    assert [e.task_id for e in b.escalations] == [tid]
+    assert tid not in [t.task_id for t in b.tasks], \
+        "the same item twice in a twenty-second read"
+    text = reports.render_text(b, registry)
+    assert text.index("ACT NOW") < text.index("WHAT NEEDS YOU")
+    assert f"#{tid} lapsed licence" in text
+
+
+@pytest.mark.parametrize("due, imminent", [
+    ("2026-09-01", True),        # overdue
+    ("2026-09-08", True),        # today
+    # tomorrow: a date with no time can fall due at midnight, 17.5 h away
+    ("2026-09-09", True),
+    ("2026-09-10", False),       # two days
+    (None, False),               # undated: unknown risk, not imminent risk
+])
+def test_imminent_means_overdue_or_within_24_hours(conn, due, imminent):
+    task(conn, "x", due=due)
+    assert bool(reports.build_brief(conn, now=AT).escalations) is imminent
+
+
+def test_the_24_hours_are_counted_from_now(conn):
+    """From 23:00 on the 8th, 24 hours reaches the 9th, not the 10th; half an
+    hour later it does."""
+    task(conn, "x", due="2026-09-10")
+    assert not reports.build_brief(conn, now=datetime(2026, 9, 8, 23, 0)).escalations
+    assert reports.build_brief(conn, now=datetime(2026, 9, 9, 0, 30)).escalations
+
+
+def test_an_ended_task_is_never_escalated(conn):
+    task(conn, "done", due="2026-09-01", status="CLOSED")
+    task(conn, "dropped", due="2026-09-01", status="CANCELED")
+    assert reports.build_brief(conn, now=AT).escalations == []
+
+
+def test_a_blocked_task_is_escalated_too(conn):
+    """Open is every ledger state but the three that end a task (D-066)."""
+    task(conn, "waiting on the bank", due="2026-09-01", status="BLOCKED")
+    assert reports.build_brief(conn, now=AT).escalations
+
+
+def test_building_a_brief_does_not_record_an_escalation(conn):
+    """Recording at build time would mark a task escalated by a brief that
+    was rendered to a terminal and read by nobody — and it would never be
+    escalated again."""
+    tid = task(conn, "lapsed", due="2026-09-01")
+    reports.render_text(reports.build_brief(conn, now=AT))
+    assert escalated_rows(conn, tid) == []
+    assert reports.build_brief(conn, now=AT).escalations
+
+
+def test_escalation_happens_once_per_task(conn):
+    tid = task(conn, "lapsed", due="2026-09-01")
+    b = reports.build_brief(conn, now=AT)
+    assert reports.mark_escalated(conn, b.escalations) == [tid]
+
+    later = reports.build_brief(conn, now=AT + timedelta(days=1))
+    assert later.escalations == []
+    # Not forgotten: ranked, overdue, every day until it is closed.
+    assert [t.task_id for t in later.tasks] == [tid]
+    assert later.tasks[0].overdue
+
+
+def test_marking_twice_records_once(conn):
+    tid = task(conn, "lapsed", due="2026-09-01")
+    b = reports.build_brief(conn, now=AT)
+    reports.mark_escalated(conn, b.escalations)
+    assert reports.mark_escalated(conn, b.escalations) == []
+
+    assert len(escalated_rows(conn, tid)) == 1
+    logged = conn.execute(
+        "SELECT detail FROM actions_log WHERE action = 'TASK_ESCALATED'").fetchall()
+    assert len(logged) == 1 and logged[0]["detail"].startswith(f"#{tid} ")
+
+
+def test_escalation_is_in_the_tasks_own_history(conn):
+    from core.pipeline import ledger
+    tid = task(conn, "lapsed", due="2026-09-01")
+    reports.mark_escalated(conn, reports.build_brief(conn, now=AT).escalations,
+                           by="deliver_brief")
+    [ev] = [e for e in ledger.history(conn, tid) if e["event"] == "ESCALATED"]
+    assert ev["actor"] == "deliver_brief"
+    assert ev["from_status"] is None, "a note is not a transition"
+    assert ledger.get(conn, tid)["status"] == "TRIAGED"
+
+
+def test_a_note_cannot_pass_for_a_transition(conn):
+    from core.pipeline import ledger
+    tid = task(conn, "x")
+    with pytest.raises(ledger.LedgerError):
+        ledger.note(conn, tid, "TRANSITION", by="brief")
+
+
+def test_an_escalation_alone_does_not_say_nothing_is_open(conn, registry):
+    task(conn, "lapsed", due="2026-09-01")
+    text = reports.render_text(reports.build_brief(conn, now=AT), registry)
+    assert "nothing open" not in text
+    assert "Nothing needs you" not in text
+
+
+# ---------------------------------------------------------------------------
+# The weekly backlog review (R15; addendum §2)
+# ---------------------------------------------------------------------------
+
+def backlog_day(hour=6) -> datetime:
+    """The configured weekday in the week of AT, whichever day that is."""
+    shift = (reports.BACKLOG_WEEKDAY - AT.weekday()) % 7
+    return datetime(2026, 9, 8, hour, 30) + timedelta(days=shift)
+
+
+def aged(conn, title, days_old, *, entity="B_MRE", status="TRIAGED",
+         due="2026-12-01", **extra) -> int:
+    when = backlog_day() - timedelta(days=days_old)
+    return db.insert_task(conn, title=title, due_date=due, urgency="NORMAL",
+                          entity_id=entity, status=status,
+                          created_at=when.isoformat(timespec="seconds"), **extra)
+
+
+def test_the_backlog_is_on_the_configured_morning_only(conn, registry):
+    aged(conn, "something", 10)
+    day = backlog_day()
+    assert day.weekday() == reports.BACKLOG_WEEKDAY
+
+    def text(kind, now):
+        return reports.render_text(reports.build_brief(conn, kind=kind, now=now),
+                                   registry)
+
+    assert "WEEKLY BACKLOG REVIEW" in text("morning", day)
+    assert "WEEKLY BACKLOG REVIEW" not in text("evening", day)
+    for other in range(1, 7):
+        assert "WEEKLY BACKLOG REVIEW" not in text(
+            "morning", day + timedelta(days=other))
+
+
+def test_monday_is_the_backlog_day():
+    """Planning a week happens at its start; a Friday review arrives when
+    nothing can be done about it until Monday anyway."""
+    assert reports.BACKLOG_WEEKDAY == 0
+
+
+def test_the_backlog_is_every_open_task_oldest_first(conn):
+    """Not ranked: a task stuck at rank 12 since August is what this is for."""
+    old = aged(conn, "ancient and minor", 60, due=None)
+    mid = aged(conn, "middling", 20, status="BLOCKED")
+    new = aged(conn, "urgent but new", 1, due="2026-09-01")
+    aged(conn, "finished", 90, status="CLOSED")
+
+    b = reports.backlog_review(conn, backlog_day().date())
+    assert [i.task_id for i in b.items] == [old, mid, new]
+    assert b.total == 3
+    assert [i.age_days for i in b.items] == [60, 20, 1]
+
+
+def test_the_backlog_is_grouped_by_entity_with_age_and_state(conn, registry):
+    aged(conn, "mrecai old", 30, entity="B_MRE")
+    aged(conn, "atlase thing", 40, entity="B_ATL", status="NEEDS_CLARIFICATION")
+    aged(conn, "mrecai new", 5, entity="B_MRE")
+
+    text = reports.render_text(
+        reports.build_brief(conn, now=backlog_day()), registry)
+    review = text[text.index("WEEKLY BACKLOG REVIEW"):]
+
+    assert "3 open" in review.splitlines()[0]
+    assert review.index("· 1 open") < review.index("· 2 open"), \
+        "the entity with the oldest task comes first"
+    assert "40d · needs clarification · #" in review
+    assert review.index("mrecai old") < review.index("mrecai new")
+    assert "B_MRE" not in review, "entity names, not ids"
+
+
+def test_the_backlog_is_capped_and_counts_the_rest(conn, registry):
+    n = reports.BACKLOG_LIMIT + 5
+    for i in range(n - 1):
+        aged(conn, f"routine {i:02d}", 100 - i, entity="B_MRE")
+    aged(conn, "the only atlase one", 1, entity="B_ATL")   # past the cap
+
+    b = reports.backlog_review(conn, backlog_day().date())
+    assert len(b.items) == reports.BACKLOG_LIMIT and b.not_listed == 5
+
+    text = reports.render_text(
+        reports.build_brief(conn, now=backlog_day()), registry)
+    review = text[text.index("WEEKLY BACKLOG REVIEW"):]
+    assert "(+5 more not listed" in review
+    # Its task is past the cap; its existence is not.
+    assert "· 1 open" in review
+    assert f"· {n - 1} open" in review
+
+
+def test_backlog_lines_fit_a_phone_and_are_redacted(conn, registry):
+    aged(conn, "a very long descriptive title that goes on " * 3, 10)
+    aged(conn, "W-2 for 123-45-6789 at the very end of a long long title", 9)
+    aged(conn, "Cardiology", 8, sensitivity="private")
+
+    text = reports.render_text(
+        reports.build_brief(conn, now=backlog_day()), registry)
+    review = text[text.index("WEEKLY BACKLOG REVIEW"):]
+    assert not [l for l in review.splitlines() if len(l) > 78]
+    assert "123-45" not in review
+    assert "Cardiology" not in review and "Private" in review
+
+
+def test_an_empty_backlog_day_still_says_nothing_needs_him(conn, registry):
+    text = reports.render_text(
+        reports.build_brief(conn, now=backlog_day()), registry)
+    assert "Nothing needs you" in text
