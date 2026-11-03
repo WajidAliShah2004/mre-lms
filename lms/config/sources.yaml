@@ -216,8 +216,10 @@ sources:
     status: blocked
     requirement: R5
     blocked_on: >-
-      D-065: his iPhone and iCloud+ are on mrecaitechnology@gmail.com, the
-      Mac on mreconsultinginsurance@gmail.com. Switch the Mac first.
+      D-065: his iPhone and iCloud+ reported on mrecaitechnology@gmail.com,
+      which may not exist (D-076); the Mac is on
+      mreconsultinginsurance@gmail.com. Confirm the phone's Apple ID, then
+      switch the Mac.
     gaps: Nothing in his iCloud Drive is read.
 
   - id: storage:google-drive
@@ -259,7 +261,7 @@ sources:
   - id: capture:phone-shortcut
     label: Phone photo Shortcut
     kind: capture
-    account: his iPhone (mrecaitechnology@gmail.com)
+    account: his iPhone (Apple ID unconfirmed, D-076)
     method: iOS Shortcut saves to iCloud Drive, picked up by the watch folder
     permissions: the Shortcut's iCloud folder
     cadence_hours: null

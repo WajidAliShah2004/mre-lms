@@ -108,7 +108,7 @@ Today the system can show: (1) photographed receipt [via Shortcut, once installe
 1. **Autonomous payments and replies (2.1):** accept shadow mode first, graduating per class? Which bills and which reply types are the first candidates? Which bank/rail would pay them?
    *Oct 19 (D-065): yes in principle, "let's talk about it". Bills, bank and reply types to be set on a call.*
 2. **iCloud (2.2):** subscribe to iCloud+ and turn on Advanced Data Protection? Which Apple ID is on your iPhone?
-   *Oct 19 (D-065): already done, on `mrecaitechnology@gmail.com`. Not the Mac's Apple ID: the Mac must be signed in to it.*
+   *Oct 19 (D-065): already done, on `mrecaitechnology@gmail.com`. Not the Mac's Apple ID: the Mac must be signed in to it.* **Nov 3: that address is reported not to exist; ask again (D-076).**
 3. **Atlase products:** the list of product names that are separate entities.
 4. ~~**C.H. Shink:** still an entity?~~ Ignored for now (Oct 7, D-064): nothing provided by the client.
 5. **Dropbox and Google Drive:** which accounts and which folders are in scope?

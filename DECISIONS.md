@@ -1080,7 +1080,7 @@ Reply to the "4 mailboxes and Telegram are live" message. His answers, in his wo
 | `/halt` to @MREOC18bot from his phone | "DONE" | Acceptance item in Phase 7 met **once verified on the Mac**: `~/LMS/HALTED.json` timestamp and the haltbot log showing his id. **The system is now halted** (mail, watcher, brief, backup, gateway) until `./ops/halt.py --resume` is run at the Mac. Token rotation for @MREOC18bot is still owed (R30) |
 | @MREOCbot can't change anything | "OKAY" | Acknowledged (D-060) |
 | Auto-payments / replies in trial mode; which bills, which bank | "YES LETS TALK ABOUT IT" | Shadow mode accepted **in principle** (gap analysis 2.1). Bills, bank and reply types still to be settled on a call. Hard stops `never_move_money` / `never_send_without_approval` stay until a per-class decision is recorded |
-| iCloud+ 2 TB with Advanced Data Protection; Apple ID on the iPhone | "ALREADY DONE AND ITS FOR MRECAITECHNOLOGY@GMAIL.COM" | **A seventh address, and not the Mac's Apple ID** (`mreconsultinginsurance@gmail.com`). The phone Shortcut writes to `mrecaitechnology`'s iCloud; the Mac's watcher and the brief (D-046) use `mreconsultinginsurance`'s. Until the Mac is signed in to the same Apple ID, the Shortcut's photos never reach the watcher and `iCloud Drive/OpenClaw` cannot be the managed root. With ADP on, signing the Mac in needs approval from his iPhone |
+| iCloud+ 2 TB with Advanced Data Protection; Apple ID on the iPhone | "ALREADY DONE AND ITS FOR MRECAITECHNOLOGY@GMAIL.COM" | **Unconfirmed: reported Nov 3 not to exist (D-076).** **A seventh address, and not the Mac's Apple ID** (`mreconsultinginsurance@gmail.com`). The phone Shortcut writes to `mrecaitechnology`'s iCloud; the Mac's watcher and the brief (D-046) use `mreconsultinginsurance`'s. Until the Mac is signed in to the same Apple ID, the Shortcut's photos never reach the watcher and `iCloud Drive/OpenClaw` cannot be the managed root. With ADP on, signing the Mac in needs approval from his iPhone |
 | Which Dropbox / Drive folders | "LET IT READ EVERYTHIG" | Scope = everything, read-only (R5, R8). Still needed: which Dropbox account(s), and whether "Drive" means all Google accounts. Each needs its own read-only grant (`drive.readonly`, Dropbox read scope). Backfill runs in batches (R28) |
 | ChatGPT account; Sept 24 files | "I WILL RESEND THEM SHORTLY" | Files pending. **Which account** was not answered |
 | Messages checked hourly; iMessage? | "ALL WHATSAPP, IMESSAGE" | Hourly sources = WhatsApp and iMessage. **iMessage: all chats**, which closes C13's opt-in list as "all" by his choice (default had been none). **WhatsApp has no supported read path** (R7); to evaluate: WhatsApp's Mac app, read-only from its local database with Full Disk Access (unofficial, can break on update). Not answered: whether email is an hourly source; Google Voice |
@@ -1633,6 +1633,18 @@ Email + photographed mail + the to-do list are the visible value. Day 4's call-t
 
 ## Open — these block work
 
+### D-076 — Matthew's iPhone Apple ID is unconfirmed
+**Status:** OPEN · blocks the Mac's Apple ID move (C12, X2), R4 (photo Shortcut), R24 (managed iCloud root); bears on D-068 · raised Nov 3 2026
+
+D-065 recorded the iPhone's Apple ID as `mrecaitechnology@gmail.com`, from Matthew's reply of Oct 19 ("ALREADY DONE AND ITS FOR MRECAITECHNOLOGY@GMAIL.COM"). On Nov 3 the developer reported that no such mailbox exists. Either the reply has a typo, or the Apple ID is an address with no Gmail inbox behind it (an Apple ID keeps working after its email is gone). Until he confirms it, every mention of that address in this repo is a reported value, not a known one, and nothing may be signed in to it.
+
+What decides it, on his iPhone:
+- **Settings → his name at the top**: the email under the name is the iCloud Apple ID.
+- **Settings → Messages → Send & Receive**: the iMessage Apple ID (D-068), which can differ.
+
+> **Answer (record here):**
+> **Date:**
+
 ### D-068 — Which Apple ID carries Matthew's iMessage
 **Status:** OPEN · blocks R2 (iMessage, hourly, all chats per D-065) · found Nov 3 2026 in the Mac terminal log of Oct 6
 
@@ -1643,12 +1655,12 @@ The Mac's account database (`~/Library/Accounts/Accounts4.sqlite`, read Oct 6) s
 | Apple ID, IDMS (iCloud) | `mreconsultinginsurance@gmail.com` |
 | **Messages**, iTunes Store, Game Center | **`mattyeps@gmail.com`** |
 
-The iPhone's Apple ID is `mrecaitechnology@gmail.com` (D-065), and R2 assumed Messages on the Mac would be signed in to that. It is signed in to `mattyeps@gmail.com`. The R2 reader works by reading `~/Library/Messages/chat.db` (D-009). That file only holds conversations for the iMessage account the Mac's Messages is signed in to, and the iCloud account plays no part. So whether the hourly check sees his texts depends on one fact: which Apple ID **his iPhone's iMessage** uses. That can differ from the phone's iCloud Apple ID. SMS (green bubbles) also reaches the Mac only if Text Message Forwarding is turned on for this Mac on his iPhone.
+The iPhone's Apple ID was reported as `mrecaitechnology@gmail.com` (D-065; unconfirmed, D-076), and R2 assumed Messages on the Mac would be signed in to that. It is signed in to `mattyeps@gmail.com`. The R2 reader works by reading `~/Library/Messages/chat.db` (D-009). That file only holds conversations for the iMessage account the Mac's Messages is signed in to, and the iCloud account plays no part. So whether the hourly check sees his texts depends on one fact: which Apple ID **his iPhone's iMessage** uses. That can differ from the phone's iCloud Apple ID. SMS (green bubbles) also reaches the Mac only if Text Message Forwarding is turned on for this Mac on his iPhone.
 
 What decides it:
 - iPhone, **Settings → Messages → Send & Receive**: the Apple ID shown at the bottom, and the addresses ticked under "You can be reached by".
 - If it is `mattyeps@gmail.com`, the Mac is already right; only Full Disk Access and Text Message Forwarding remain.
-- If it is `mrecaitechnology@gmail.com`, the Mac's Messages must be signed in to that account. That is a separate sign-in from the iCloud switch already proposed (D-065), and it needs approval on his iPhone.
+- If it is `mrecaitechnology@gmail.com` (unconfirmed, D-076), the Mac's Messages must be signed in to that account. That is a separate sign-in from the iCloud switch already proposed (D-065), and it needs approval on his iPhone.
 
 Do not sign Messages in or out without his answer: signing out of iMessage on the Mac takes its conversation history off this machine until it syncs again.
 

@@ -23,9 +23,9 @@ Where the addendum and the spec disagree, the **addendum wins** (it is later). I
 | # | Item | Source | Blocked on |
 |---|---|---|---|
 | R1 | 5th mailbox `matthew@atlase.ai` (separate mailbox or alias?) | MTG "all my emails", SETUP | Matthew: which it is |
-| R2 | iMessage / texts, read-only | MTG, SPEC Phase 10, ADD §6 | Full Disk Access; Matthew: which Apple ID his iPhone's iMessage uses — the Mac's Messages is on `mattyeps@gmail.com`, not `mrecaitechnology@gmail.com` (D-068); Text Message Forwarding for SMS. Scope: **all chats, hourly** (D-065) |
+| R2 | iMessage / texts, read-only | MTG, SPEC Phase 10, ADD §6 | Full Disk Access; Matthew: which Apple ID his iPhone's iMessage uses — the Mac's Messages is on `mattyeps@gmail.com`, not `mrecaitechnology@gmail.com` (D-068; that address unconfirmed, D-076); Text Message Forwarding for SMS. Scope: **all chats, hourly** (D-065) |
 | R3 | Call transcripts, voicemail, Google Voice, phone logs | MTG, SPEC DEC-5, ADD §6 | Matthew: where transcripts come from (C15) |
-| R4 | Photo Shortcut installed and used on his phone | MTG, SPEC Phase 5, ADD §0 | Matthew: install + first run. Phone = `mrecaitechnology@gmail.com` (D-065); the Mac must be signed in to the same Apple ID |
+| R4 | Photo Shortcut installed and used on his phone | MTG, SPEC Phase 5, ADD §0 | Matthew: install + first run. Phone's Apple ID unconfirmed: reported as `mrecaitechnology@gmail.com` (D-065), which may not exist (D-076); the Mac must be signed in to the same Apple ID |
 | R5 | Google Drive, Dropbox, whole iCloud Drive, approved Mac folders — **read-only** | ADD §4, SPEC Q68 (Dropbox) | Scope = everything (D-065). Matthew: which Dropbox and Google accounts; one read-only grant each |
 | R6 | Calendar invitations and notes as a source | ADD §1, §6, SPEC §7.6 | — |
 | R7 | ~~Coverage register: every source, its method, permissions, last checkpoint, gaps (WhatsApp listed as "no supported path")~~ **Built Nov 3 (D-069)**: `config/sources.yaml` (18 sources), `source_checks`, `ops/coverage.py`; mail records every pass. Shown in the brief since the merge (D-072) | ADD §4, §6 | — |
@@ -90,7 +90,7 @@ Where the addendum and the spec disagree, the **addendum wins** (it is later). I
 | # | Spec says | Addendum says | Recommendation |
 |---|---|---|---|
 | X1 | Hard stops: never move money, never send without approval | Level C: pay verified recurring bills, send routine replies, inside a mandate | Shadow mode per action class first; lift a hard stop only by a recorded decision per class. No payment rail exists yet. **Oct 19: accepted in principle; bills and bank on a call (D-065)** |
-| X2 | DEC-8: business documents to Google Shared Drives per entity | Managed copies **only** in `iCloud Drive/OpenClaw` | Follow the addendum. **Oct 19: iCloud+ and ADP done on `mrecaitechnology@gmail.com` (D-065)**; the Mac must be moved to that Apple ID |
+| X2 | DEC-8: business documents to Google Shared Drives per entity | Managed copies **only** in `iCloud Drive/OpenClaw` | Follow the addendum. **Oct 19: iCloud+ and ADP done on `mrecaitechnology@gmail.com` (D-065)**; the Mac must be moved to that Apple ID, **once confirmed (D-076)** |
 | X3 | Entities: no Atlase products | Atlase products are entities | Ask: the product names |
 | X4 | Tailscale-only remote access (spec S3) | — | D-063 chose RustDesk; R38's port scan cannot pass "outside Tailscale" until that is reversed |
 
