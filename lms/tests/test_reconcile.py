@@ -864,3 +864,41 @@ def test_the_cli_runs_lists_and_acknowledges(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr("sys.argv", ["reconcile.py", "--list"])
     assert cli.main() == 0
     assert "nothing to look at" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# In the brief
+# ---------------------------------------------------------------------------
+
+def _finding(conn, key, kind, summary, task_id=None):
+    conn.execute(
+        "INSERT INTO recon_findings (finding_key, kind, task_id, summary, "
+        "first_seen_at, last_seen_at) VALUES (?,?,?,?,?,?)",
+        (key, kind, task_id, summary, "2026-11-03T06:00:00-05:00",
+         "2026-11-03T06:00:00-05:00"))
+
+
+def test_open_findings_lead_the_brief_as_check_before_paying(tmp_path):
+    from datetime import datetime
+    from core.db import database as db
+    from core.reports import brief as reports
+    conn = db.connect(tmp_path / "lms.db")
+    _finding(conn, "k1", "RECEIVED_AGAIN", "PSG invoice INV-17 received again after it was paid")
+    text = reports.render_text(reports.build_brief(
+        conn, now=datetime(2026, 11, 3, 6, 30, tzinfo=db.TZ)))
+    assert "CHECK BEFORE PAYING" in text and "INV-17 received again" in text
+    assert text.index("CHECK BEFORE PAYING") < text.index("WHAT NEEDS YOU")
+
+
+def test_a_private_tasks_finding_does_not_name_the_counterparty(tmp_path):
+    from datetime import datetime
+    from core.db import database as db
+    from core.reports import brief as reports
+    conn = db.connect(tmp_path / "lms.db")
+    tid = db.insert_task(conn, title="Dr. Example invoice", status="TRIAGED",
+                         sensitivity="private")
+    _finding(conn, "k2", "DUPLICATE_INVOICE", "Dr. Example Cardiology billed twice", tid)
+    text = reports.render_text(reports.build_brief(
+        conn, now=datetime(2026, 11, 3, 6, 30, tzinfo=db.TZ)))
+    assert f"duplicate invoice on private item #{tid}" in text
+    assert "Cardiology" not in text and "Example" not in text

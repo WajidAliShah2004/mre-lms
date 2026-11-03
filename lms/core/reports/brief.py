@@ -204,12 +204,15 @@ class Brief:
     coverage: list[str] = field(default_factory=list)
     # How many registered sources are not connected at all; Monday only.
     sources_unread: int = 0
+    # Open reconciliation findings (R26): a bill received again, a duplicate
+    # invoice, amounts that disagree, a missing statement.
+    reconcile: list[str] = field(default_factory=list)
 
     @property
     def is_empty(self) -> bool:
         return not (self.tasks or self.new_by_entity or self.needs_decision
                     or self.stalled or self.escalations or self.approvals
-                    or self.coverage)
+                    or self.coverage or self.reconcile)
 
 
 # ---------------------------------------------------------------------------
@@ -699,7 +702,33 @@ def build_brief(conn: sqlite3.Connection, *, kind: str = "morning",
         backlog=(backlog_review(conn, now.date())
                  if is_backlog_day(kind, now) else None),
         **_coverage_view(conn, now, monday=is_backlog_day(kind, now)),
+        reconcile=_reconcile_lines(conn),
     )
+
+
+RECONCILE_LIMIT = 5
+
+
+def _reconcile_lines(conn: sqlite3.Connection) -> list[str]:
+    """Open reconciliation findings, most expensive first (R26).
+
+    reconcile.brief_lines would print each finding's summary, which names the
+    counterparty. For a private task (R15) that name is itself the detail, so
+    those findings say only what kind they are and which item.
+    """
+    from ..pipeline import reconcile
+    private = private_task_ids(conn)
+    rows = reconcile.open_findings(conn)
+    lines = []
+    for r in rows[:RECONCILE_LIMIT]:
+        if r["task_id"] is not None and int(r["task_id"]) in private:
+            lines.append(f"[{r['id']}] {r['kind'].replace('_', ' ').lower()} "
+                         f"on private item #{r['task_id']}")
+        else:
+            lines.append(f"[{r['id']}] {r['summary']}")
+    if len(rows) > RECONCILE_LIMIT:
+        lines.append(f"+{len(rows) - RECONCILE_LIMIT} more: ./ops/reconcile.py --list")
+    return lines
 
 
 def _coverage_view(conn: sqlite3.Connection, now: datetime, *,
@@ -802,6 +831,15 @@ def _render(brief: Brief, registry: Registry | None) -> str:
                        + (" · approving records agreement only"
                           if a["policy_verdict"] == "REFUSED" else ""))
         out.append("   Answer approve, revise or deny with the AP number.")
+        out.append("")
+
+    # Before the list of things to pay: a bill that may already be paid, or
+    # billed twice, is worth knowing before acting on it (R26).
+    if brief.reconcile:
+        out.append("CHECK BEFORE PAYING")
+        for line in brief.reconcile:
+            out.append(f"   {line}")
+        out.append("   ./ops/reconcile.py --ack <id> once you have looked.")
         out.append("")
 
     if brief.tasks:

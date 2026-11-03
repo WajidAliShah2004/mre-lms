@@ -884,6 +884,30 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 
 **302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
 
+### D-075 — Reconciliation: findings and candidate links, never edits
+**Status:** Decided · Nov 3 2026 · developer · implements R26 (addendum §4 "Reconcile and surface action"; §7 scenarios 4 and 6) · not yet run on the Mac, not scheduled
+
+`core/pipeline/reconcile.py` reads the whole index and reports what the documents say about each other. `ops/reconcile.py` runs it and lists the results: `--list`, `--links`, `--ack`, `--confirm-link`, `--reject-link`.
+
+- **Findings, never edits.** No document, classification or task is changed. A finding names the command a person would run (`./ops/done.py 15 --duplicate-of 12`). The one write to the ledger: a renewal date found in a document becomes a DETECTED task through `ledger.record_event`, under the document's own source key, so a re-run, or a document ingest already turned into a task, creates nothing. Due-date tasks remain ingest's.
+- **Facts the classifier doesn't store** (invoice number, account ending, period, document type) are read by regex: first from the descriptor, subject and attachment name, then from the archived text or its OCR sidecar. The document type is taken from the headline only, because every invoice footer says "thank you for your payment". A bare year, a date, the filed name's `USD550-00` or a decimal amount is never taken as an invoice number.
+- **One obligation, decided from the documents:** the same invoice number from compatible counterparties, the same message, or the same task. Never across entities. The PSG email and its PDF attachment are one obligation and produce no finding.
+- **Findings:**
+  - RECEIVED_AGAIN (scenario 4): four routes, including the ledger's after-close evidence (D-066) and an identical copy in a different message.
+  - DUPLICATE_INVOICE: one invoice on two open tasks.
+  - DOUBLE_BILLING: two invoice numbers, same counterparty, amount and month.
+  - MERGED_INVOICES: two invoice numbers on one task, the expensive wrong merge from D-066.
+  - AMOUNT_MISMATCH: reported, not resolved, since OCR is not authoritative (§4).
+  - MISSING_STATEMENT: a series counts as monthly after two consecutive months; 10 days' grace; split by account ending; considered dormant after 3 missed months. Two similar statements in consecutive months (scenario 6) produce nothing.
+- **Links** (`recon_links`): bill to payment, and bill or payment to statement line. A link needs the exact amount, the same entity, a compatible counterparty and a date window; an invoice number raises the confidence. Confidence is always < 1.0 (enforced by the schema). Links stay CANDIDATE until a human confirms them, and re-runs never overwrite his answer.
+- **Findings get a table** (`recon_findings`), because a nightly run must report a problem once. Each has a stable key and a state: OPEN; RESOLVED when a later run no longer finds it; ACKNOWLEDGED by a human, which it stays. Every change of state is also a row in `actions_log`, and every run writes `RECON_COMPLETED`.
+- **In the brief (wired when merging):** **CHECK BEFORE PAYING**, placed above WHAT NEEDS YOU: up to 5 open findings, most expensive first. A finding on a private task (D-072) says only its kind and the item number, because a counterparty's name can itself be the health detail.
+- **Unanswered mail waits on a source.** `ReplyIndex` is the interface, and nothing implements it yet: thread ids and sent mail are not recorded. Until they are, the run says how many messages it could not check.
+
+Not done: a launchd job, and a `WATCHED_JOBS` entry for `RECON_COMPLETED` once there is one. Statement transaction links only work for statements whose text has transaction lines; the "statement ready" alerts link to nothing, by design. Adding these fields to the classifier would do better than the regexes.
+
+**All of D-069 to D-075 merged: 1023 passed, 1 skipped (POSIX-only), 1 xfailed** on Windows.
+
 ### D-074 — Near-duplicate candidates, storage and dedup reports, batched mail backfill
 **Status:** Decided · Nov 3 2026 · developer · implements R25, R28 (addendum §4, §7 Phase 5) · not yet on the Mac
 
