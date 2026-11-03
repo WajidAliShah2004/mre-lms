@@ -1485,6 +1485,28 @@ Email + photographed mail + the to-do list are the visible value. Day 4's call-t
 
 ## Open — these block work
 
+### D-068 — Which Apple ID carries Matthew's iMessage
+**Status:** OPEN · blocks R2 (iMessage, hourly, all chats per D-065) · found Nov 3 2026 in the Mac terminal log of Oct 6
+
+The Mac's account database (`~/Library/Accounts/Accounts4.sqlite`, read Oct 6) shows three identities, not one:
+
+| Service | Account |
+|---|---|
+| Apple ID, IDMS (iCloud) | `mreconsultinginsurance@gmail.com` |
+| **Messages**, iTunes Store, Game Center | **`mattyeps@gmail.com`** |
+
+The iPhone's Apple ID is `mrecaitechnology@gmail.com` (D-065), and R2 assumed Messages on the Mac would be signed in to that. It is signed in to `mattyeps@gmail.com`. The R2 reader works by reading `~/Library/Messages/chat.db` (D-009). That file only holds conversations for the iMessage account the Mac's Messages is signed in to, and the iCloud account plays no part. So whether the hourly check sees his texts depends on one fact: which Apple ID **his iPhone's iMessage** uses. That can differ from the phone's iCloud Apple ID. SMS (green bubbles) also reaches the Mac only if Text Message Forwarding is turned on for this Mac on his iPhone.
+
+What decides it:
+- iPhone, **Settings → Messages → Send & Receive**: the Apple ID shown at the bottom, and the addresses ticked under "You can be reached by".
+- If it is `mattyeps@gmail.com`, the Mac is already right; only Full Disk Access and Text Message Forwarding remain.
+- If it is `mrecaitechnology@gmail.com`, the Mac's Messages must be signed in to that account. That is a separate sign-in from the iCloud switch already proposed (D-065), and it needs approval on his iPhone.
+
+Do not sign Messages in or out without his answer: signing out of iMessage on the Mac takes its conversation history off this machine until it syncs again.
+
+> **Answer (record here):**
+> **Date:**
+
 ### D-008 — Credential and MFA posture
 **Status:** OPEN · blocks Day 3 · client item **C9**
 The Aug 5 meeting agreed to shared email passwords with 2FA disabled. Written recommendation to the contrary sent as [client/CREDENTIALS_RECOMMENDATION.md](client/CREDENTIALS_RECOMMENDATION.md): keep 2FA on, use Google app passwords or an internal Workspace OAuth app.

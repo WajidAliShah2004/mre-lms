@@ -23,7 +23,7 @@ Where the addendum and the spec disagree, the **addendum wins** (it is later). I
 | # | Item | Source | Blocked on |
 |---|---|---|---|
 | R1 | 5th mailbox `matthew@atlase.ai` (separate mailbox or alias?) | MTG "all my emails", SETUP | Matthew: which it is |
-| R2 | iMessage / texts, read-only | MTG, SPEC Phase 10, ADD §6 | Full Disk Access; Messages signed in to `mrecaitechnology@gmail.com`. Scope: **all chats, hourly** (D-065) |
+| R2 | iMessage / texts, read-only | MTG, SPEC Phase 10, ADD §6 | Full Disk Access; Matthew: which Apple ID his iPhone's iMessage uses — the Mac's Messages is on `mattyeps@gmail.com`, not `mrecaitechnology@gmail.com` (D-068); Text Message Forwarding for SMS. Scope: **all chats, hourly** (D-065) |
 | R3 | Call transcripts, voicemail, Google Voice, phone logs | MTG, SPEC DEC-5, ADD §6 | Matthew: where transcripts come from (C15) |
 | R4 | Photo Shortcut installed and used on his phone | MTG, SPEC Phase 5, ADD §0 | Matthew: install + first run. Phone = `mrecaitechnology@gmail.com` (D-065); the Mac must be signed in to the same Apple ID |
 | R5 | Google Drive, Dropbox, whole iCloud Drive, approved Mac folders — **read-only** | ADD §4, SPEC Q68 (Dropbox) | Scope = everything (D-065). Matthew: which Dropbox and Google accounts; one read-only grant each |
