@@ -304,6 +304,12 @@ WATCHED_JOBS: dict[str, tuple[str, int]] = {
     "BACKUP_COMPLETED": ("backup", 48),      # runs 02:30
     "AUDIT_COMPLETED":  ("audit", 16 * 24),  # runs Sundays 05:15 (Phase 8)
     "MODEL_HEALTH_OK":  ("models",  3),      # every 5 min; row hourly (R34)
+    # After each 02:30 backup (R29). Nothing writes this until the off-site
+    # repository is configured and has copied once, so an unconfigured machine
+    # is never nagged here — verify_setup [8] says "not configured" instead.
+    # Once armed, a configured copy that stops (failing nightly, or the
+    # Keychain items gone) is reported like any other stalled job.
+    "OFFSITE_COPY_COMPLETED": ("off-site backup", 48),
 }
 
 # Jobs that also record their own failure. While the failure row is newer than
