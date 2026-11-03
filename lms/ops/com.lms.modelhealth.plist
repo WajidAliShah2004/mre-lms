@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Model health ping, every 5 minutes. Spec §4.6.5, R34. ops/model_health.py
+  says what it checks and why.
+
+  Install (ops/MODEL_HEALTH_APPLY.md):
+    cp ops/com.lms.modelhealth.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.lms.modelhealth.plist
+  Run once now:
+    launchctl kickstart -p gui/$(id -u)/com.lms.modelhealth
+  Stop:
+    launchctl bootout gui/$(id -u)/com.lms.modelhealth
+
+  StartInterval, NOT StartCalendarInterval, the opposite of the backup and for
+  the opposite reason. A missed backup must still run when the Mac wakes; a
+  missed ping is worth nothing once the next one is due, and launchd does not
+  queue up the intervals it slept through.
+
+  RunAtLoad: after a restart the first check runs at login, so a model that did
+  not come back with LM Studio is reloaded then, not five minutes later.
+
+  launchd never starts a second copy while one is running, so a reload of the
+  122B that takes several minutes delays the next ping rather than racing it.
+
+  A LaunchAgent, not a daemon: LM Studio and its CLI belong to the login
+  session. The CLI is found at ~/.lmstudio/bin by the script itself, so PATH
+  below needs nothing added. A halt (D-059) disables this job with the rest,
+  and run by hand while halted the script does nothing.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.lms.modelhealth</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/mleca/lms-repo/lms/.venv/bin/python</string>
+        <string>/Users/mleca/lms-repo/lms/ops/model_health.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/mleca/lms-repo/lms</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>TZ</key>
+        <string>America/New_York</string>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <key>StartInterval</key>
+    <integer>300</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/mleca/LMS/logs/modelhealth.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/mleca/LMS/logs/modelhealth.err</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>Nice</key>
+    <integer>10</integer>
+</dict>
+</plist>

@@ -96,7 +96,13 @@ launchctl list | grep -i openclaw          # gateway
 lsof -nP -iTCP:1234 -sTCP:LISTEN           # LM Studio, must be 127.0.0.1
 sysctl iogpu.wired_limit_mb                # must still print 245760
 cd ~/lms-repo/lms && ./ops/verify_setup.py
+tail -2 ~/LMS/logs/modelhealth.log         # both models OK (R34)
 ```
+
+`com.lms.modelhealth` runs at login and every 5 minutes after: a resident
+model that did not come back with LM Studio is reloaded by it, and one it
+cannot reload is in the next brief under THE SYSTEM NEEDS ATTENTION
+(`ops/MODEL_HEALTH_APPLY.md`).
 
 If `iogpu.wired_limit_mb` is not 245760, the `com.lms.wiredlimit` LaunchDaemon
 did not load. Inference will still work but will quietly degrade as the model
