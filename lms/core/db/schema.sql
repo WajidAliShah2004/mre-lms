@@ -283,3 +283,73 @@ CREATE TABLE IF NOT EXISTS duplicate_refs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_dupe_sha ON duplicate_refs(sha256);
+
+-- ---------------------------------------------------------------------------
+-- recon_links — reconciliation's candidate links (R26, addendum §4): this bill
+-- and this payment receipt, or this statement line, are evidence of the same
+-- money. core/pipeline/reconcile.py.
+--
+-- Not task_sources. A task_sources row says "this source IS evidence for this
+-- obligation" and the ledger acts on it; its source_key is unique, so one
+-- document belongs to one task. A link is weaker and wider: inferred from
+-- amounts and names a model or OCR read, so it is a candidate until a human
+-- confirms it (§4: "flag discrepancies rather than treating OCR as
+-- authoritative"), and one statement can link to many bills.
+--
+-- confidence < 1.0: an inferred link is never certain, and the schema says so.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS recon_links (
+    id              INTEGER PRIMARY KEY,
+    link_key        TEXT    NOT NULL UNIQUE,   -- kind|from|to; re-runs update, never add
+    kind            TEXT    NOT NULL,          -- BILL_PAYMENT | BILL_STATEMENT | PAYMENT_STATEMENT
+    from_artifact   INTEGER NOT NULL REFERENCES artifacts(id),
+    to_artifact     INTEGER NOT NULL REFERENCES artifacts(id),
+    task_id         INTEGER REFERENCES tasks(id),
+    amount_cents    INTEGER,
+    confidence      REAL    NOT NULL CHECK (confidence >= 0.0 AND confidence < 1.0),
+    basis           TEXT    NOT NULL,          -- which facts matched, in words
+    status          TEXT    NOT NULL DEFAULT 'CANDIDATE'
+                    CHECK (status IN ('CANDIDATE','CONFIRMED','REJECTED')),
+    decided_by      TEXT,                      -- the human who confirmed or rejected
+    decided_at      TEXT,
+    first_seen_at   TEXT    NOT NULL,
+    last_seen_at    TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_recon_links_from ON recon_links(from_artifact);
+CREATE INDEX IF NOT EXISTS idx_recon_links_to   ON recon_links(to_artifact);
+
+-- ---------------------------------------------------------------------------
+-- recon_findings — what reconciliation found that a human should look at: a
+-- paid bill received again, one invoice on two tasks, a missing statement.
+--
+-- A table, not only actions_log: a nightly run must report a problem once,
+-- not every night, so findings need a stable key to deduplicate on and a
+-- state the brief can filter (OPEN), that a later run can clear (RESOLVED,
+-- the statement arrived) and a human can answer (ACKNOWLEDGED). actions_log
+-- has neither, by design. Every change of state is also logged there
+-- (RECON_FINDING, _RESOLVED, _REOPENED, _ACKNOWLEDGED), so the audit trail is
+-- still append-only. `kind` is not CHECKed: a new kind of finding should not
+-- need the table rebuilt (D-066's migration is what that costs).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS recon_findings (
+    id              INTEGER PRIMARY KEY,
+    finding_key     TEXT    NOT NULL UNIQUE,
+    kind            TEXT    NOT NULL,          -- reconcile.KINDS
+    entity_id       TEXT,
+    task_id         INTEGER REFERENCES tasks(id),
+    artifact_ids    TEXT    NOT NULL DEFAULT '[]',   -- JSON array, the evidence
+    summary         TEXT    NOT NULL,
+    detail          TEXT,
+    confidence      REAL    CHECK (confidence IS NULL OR
+                                   (confidence >= 0.0 AND confidence < 1.0)),
+    status          TEXT    NOT NULL DEFAULT 'OPEN'
+                    CHECK (status IN ('OPEN','RESOLVED','ACKNOWLEDGED')),
+    first_seen_at   TEXT    NOT NULL,
+    last_seen_at    TEXT    NOT NULL,
+    status_changed_at TEXT,
+    acknowledged_by TEXT,
+    note            TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_recon_findings_status ON recon_findings(status);
