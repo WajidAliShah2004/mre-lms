@@ -252,3 +252,14 @@ def test_the_monday_brief_counts_the_sources_not_read(conn):
     unread = sum(1 for s in coverage.load_register() if s.status != "active")
     assert b.sources_unread == unread > 0
     assert f"NOT READ AT ALL: {unread} source(s)" in reports.render_text(b)
+
+
+def test_a_backfill_pass_is_not_a_check_of_the_mailbox(conn, tmp_path, monkeypatch):
+    """An old window re-read must not make a stopped daily poll look current."""
+    pm = _poll_mail()
+    monkeypatch.setattr(pm, "build_client",
+                        lambda a: SimpleNamespace(recent=lambda **kw: []))
+    args = SimpleNamespace(days=400, limit=500, query="after:1 before:2")
+    pm.poll_mailbox(conn, "a@x.com", args, None, None, None, tmp_path,
+                    checks_source=False)
+    assert _results(conn) == []

@@ -221,7 +221,8 @@ def test_backfill_inventories_first_and_ingests_through_poll_mailbox(conn, tmp_p
         _window_from(query), limit))
     calls = []
 
-    def poll_mailbox(c, address, args, registry, classifier, roots, spool):
+    def poll_mailbox(c, address, args, registry, classifier, roots, spool, **kw):
+        assert kw == {"checks_source": False}, "a backfill is not a check of the mailbox"
         assert c.execute("SELECT COUNT(*) FROM backfill_items").fetchone()[0] == 80
         calls.append(args)
         return 0

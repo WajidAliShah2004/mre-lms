@@ -60,10 +60,10 @@ Where the addendum and the spec disagree, the **addendum wins** (it is later). I
 | # | Item | Source |
 |---|---|---|
 | R24 | Managed root `iCloud Drive/OpenClaw` with the addendum's folders | ADD §0, §4 — blocked on §2.2 |
-| R25 | Near-duplicate candidates (text/visual); exact dedup already built | ADD §4 |
+| R25 | ~~Near-duplicate candidates (text/visual); exact dedup already built~~ **Text built Nov 3 (D-074)**; visual comparison is a hook, to calibrate on the Mac | ADD §4 |
 | R26 | Reconcile bill ↔ statement ↔ proof of payment; missing statements; duplicate invoices; tasks for renewals and unanswered mail | ADD §4 |
 | R27 | Undo for reversible managed-folder changes; a retention policy | ADD §5 |
-| R28 | Backfill in batches, dedup report, storage report (original bytes, copied, saved, reclaimable) | ADD §4, §7 |
+| R28 | ~~Backfill in batches, dedup report, storage report (original bytes, copied, saved, reclaimable)~~ **Built Nov 3 (D-074)** for mail; other sources' backfill waits on R5 | ADD §4, §7 |
 
 ### Security, backup, handover
 | # | Item | Source |

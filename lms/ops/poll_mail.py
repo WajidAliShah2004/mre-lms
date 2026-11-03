@@ -216,7 +216,8 @@ def main() -> int:
     return 1 if bad else 0
 
 
-def poll_mailbox(conn, address, args, registry, classifier, roots, spool) -> int:
+def poll_mailbox(conn, address, args, registry, classifier, roots, spool, *,
+                 checks_source: bool = True) -> int:
     """One mailbox. Returns 1 if it or any of its messages failed, else 0.
 
     A revoked or expired grant on one mailbox must not stop the others —
@@ -224,7 +225,9 @@ def poll_mailbox(conn, address, args, registry, classifier, roots, spool) -> int
 
     Every pass is also a check of the source `email:<address>` in the
     coverage register (R7, D-069): OK, PARTIAL (truncated, or a message
-    failed) or FAILED.
+    failed) or FAILED. Not when `checks_source` is False: a backfill of an
+    old window (ops/backfill_mail.py) is not a check of the mailbox now,
+    and recording it as one would hide a scheduled poll that had stopped.
     """
     source_id = f"email:{address}"
     started = db.now_iso()
@@ -236,8 +239,9 @@ def poll_mailbox(conn, address, args, registry, classifier, roots, spool) -> int
         detail = f"{address}: {type(exc).__name__}: {exc}"
         print(f"[MAILBOX FAILED] {detail}", file=sys.stderr, flush=True)
         db.log_action(conn, "MAIL_MAILBOX_FAILED", detail=detail[:400])
-        coverage.record_check(conn, source_id, coverage.FAILED,
-                              started_at=started, detail=detail)
+        if checks_source:
+            coverage.record_check(conn, source_id, coverage.FAILED,
+                                  started_at=started, detail=detail)
         return 1
 
     truncated = len(messages) >= args.limit
@@ -274,10 +278,11 @@ def poll_mailbox(conn, address, args, registry, classifier, roots, spool) -> int
             result = coverage.PARTIAL
         else:
             result = coverage.OK
-        coverage.record_check(conn, source_id, result, started_at=started,
-                              items=len(messages),
-                              detail=summary + (" — truncated by --limit"
-                                                if truncated else ""))
+        if checks_source:
+            coverage.record_check(conn, source_id, result, started_at=started,
+                                  items=len(messages),
+                                  detail=summary + (" — truncated by --limit"
+                                                    if truncated else ""))
 
     print(f"\n{address}: {_summary(len(messages), counts)}", flush=True)
     return 1 if counts.get("failed") else 0

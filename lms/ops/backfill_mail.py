@@ -386,8 +386,10 @@ def backfill(conn, address, windows, args, roots, now) -> int:
         poll_args = SimpleNamespace(days=w.newer_than_days(now), limit=args.limit,
                                     query=f"{w.query()} {args.query}".strip())
         print(f"\n--- {w.label()} ---", flush=True)
+        # Not a check of the mailbox now (coverage register, D-069).
         return poll_mail.poll_mailbox(conn, address, poll_args, registry,
-                                      classifier, roots, spool)
+                                      classifier, roots, spool,
+                                      checks_source=False)
 
     todo = pending(conn, address, listed, retry_failed=args.retry_failed)
     done = ingest_windows(conn, address, todo[:args.batch], ingest_one)

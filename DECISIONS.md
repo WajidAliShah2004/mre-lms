@@ -884,6 +884,30 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 
 **302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
 
+### D-074 — Near-duplicate candidates, storage and dedup reports, batched mail backfill
+**Status:** Decided · Nov 3 2026 · developer · implements R25, R28 (addendum §4, §7 Phase 5) · not yet on the Mac
+
+- **Near duplicates are candidates, never actions** (`core/pipeline/neardup.py`). It compares the text that filing already wrote: the document itself if it is text (D-025), otherwise its `.txt` sidecar, with an email's header block stripped. Pairs are scored by Jaccard similarity and containment over 3-word shingles, and candidate pairs are found by prefix filtering, which provably misses no pair at containment ≥ 0.50. MinHash/LSH was rejected: the archive is thousands of documents, not millions, and a report that says "no near duplicates" must mean none. It uses the standard library only, is deterministic, and has no write path (a test checks).
+  - **Thresholds:** Jaccard ≥ 0.80 or containment ≥ 0.90. Texts shorter than 25 shingles are not compared.
+- **Similar text is not the same document.** A pair over the bar is checked for facts that disagree: the statement period, other dates, amounts, account endings, invoice numbers, signed vs unsigned, signers, and version markers (amended, corrected, revised). Any disagreement makes it a RELATED_VERSION, keep both. Two monthly statements from one bank (Jaccard 0.82) come out as different periods (scenario 6). An email that quotes the whole statement stays a candidate (scenario 5). The checks lean toward "related", because an OCR misread should cost a review line, never a statement.
+- **Visual comparison is a hook only:** there is no portable backend, and the tests run on Windows. `find_candidates(visual=…)` accepts one, and its thresholds are to be calibrated on the Mac with Vision feature prints. Until then, documents with no text are listed as NOT COMPARED.
+- **Storage report** (`core/reports/storage.py`, `ops/storage_report.py`, which opens the database read-only). It answers §4's four questions:
+  - **Original bytes by source:** from `artifacts` plus exact copies seen at a new location.
+  - **Copied in:** measured on disk and cross-checked against the database. A mismatch or a missing filed document is reported as a finding.
+  - **Saved by dedup:** one managed copy avoided per additional source location. Re-reads of the same location don't count as savings, because the poll window re-reads by design.
+  - **Reclaimable:** files in the inbox `_done/` whose sha256 matches a filed artifact, verified by hashing. LMS working copies are listed separately.
+  - Anything unmeasurable says NOT MEASURED and why: Gmail's stored size (read-only grant, D-039) and sources not connected yet. It is a report only: deleting is level D and hard-stopped (D-067).
+  - `--verify N` is Phase 5's "sample hash matches": it re-hashes N random filed artifacts in the archive and in `_originals`.
+- **Batched backfill** (`ops/backfill_mail.py`, tables `backfill_windows` and `backfill_items`). The Sept 29 catch-up stopped at 100 messages with no error. The fix is to cut the range, not to widen the limit.
+  - Windows sit on a fixed Monday grid, so an interrupted run resumes instead of re-planning.
+  - Each window is listed (ids only) before anything is ingested, and is halved until it lists under `--limit`, down to one hour. A window still full at one hour is reported as a gap.
+  - Windows are then ingested oldest first, in `--batch`es, through the unchanged `poll_mail.poll_mailbox`, using epoch-second `after:`/`before:` queries (Gmail reads dates as Pacific midnight).
+  - A failed window is recorded FAILED and is not retried without `--retry-failed`.
+  - **Changed when merging:** a backfill pass is not recorded as a check of the mailbox (`checks_source=False`). Otherwise re-reading last March would make a stopped daily poll look current in the coverage register (D-069).
+  - `GmailClient.message_ids()` lists ids without fetching the messages. `recent()` uses it, and its query is unchanged.
+
+To try on the Mac: `./ops/storage_report.py --verify 20`, `--dedup --limit 50` to judge the thresholds on real documents, and `./ops/backfill_mail.py <address> --days 365 --plan` before anything is ingested. Not run against a live mailbox or the real archive. Ingest still dedupes on sha256 alone; the addendum's "same file size" is checked after the fact by `--verify`.
+
 ### D-073 — The task dashboard: one static page beside the brief
 **Status:** Decided · Nov 3 2026 · developer · implements R22 (addendum §6) · not yet on the Mac, not scheduled
 
