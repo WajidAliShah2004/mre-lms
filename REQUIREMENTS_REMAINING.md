@@ -28,7 +28,7 @@ Where the addendum and the spec disagree, the **addendum wins** (it is later). I
 | R4 | Photo Shortcut installed and used on his phone | MTG, SPEC Phase 5, ADD §0 | Matthew: install + first run. Phone = `mrecaitechnology@gmail.com` (D-065); the Mac must be signed in to the same Apple ID |
 | R5 | Google Drive, Dropbox, whole iCloud Drive, approved Mac folders — **read-only** | ADD §4, SPEC Q68 (Dropbox) | Scope = everything (D-065). Matthew: which Dropbox and Google accounts; one read-only grant each |
 | R6 | Calendar invitations and notes as a source | ADD §1, §6, SPEC §7.6 | — |
-| R7 | Coverage register: every source, its method, permissions, last checkpoint, gaps (WhatsApp listed as "no supported path") | ADD §4, §6 | — |
+| R7 | ~~Coverage register: every source, its method, permissions, last checkpoint, gaps (WhatsApp listed as "no supported path")~~ **Built Nov 3 (D-069)**: `config/sources.yaml` (18 sources), `source_checks`, `ops/coverage.py`; mail records every pass. Brief section pending | ADD §4, §6 | — |
 | R8 | Strict read-only mode for every new source (no move, no rename) | ADD §0 | — |
 | R39 | Poll `mreconsultinginsurance@gmail.com` (business mail goes there) | Matthew, Oct 19 (D-065) | Matthew: one Google sign-in for `gmail.readonly` (D-061 External app) |
 | R40 | WhatsApp, hourly, read-only | Matthew, Oct 19 (D-065) | No supported path; Matthew: OK to try the unofficial Mac-app route |
@@ -47,7 +47,7 @@ Where the addendum and the spec disagree, the **addendum wins** (it is later). I
 | R13 | ~~Task ledger v2: the addendum's ~20 fields, 10 states + 5 exception states, unique event key, one task per obligation across sources~~ **Built and applied on the Mac Oct 19 (D-066)**: 33 tasks migrated, 3 possible duplicates for review. Approval objects (R19) and the dashboard (R22) attach to its hooks | ADD §2 |
 | R14 | Apple Reminders mirror (one-way) | SPEC Q127 |
 | R15 | Daily digest (built; delivered to iCloud, Telegram now possible); escalate imminent obligations at once; weekly backlog review; TINs, health details and credentials redacted from digests | ADD §2, §5, SPEC Q152 |
-| R16 | Hourly refresh of active sources (WhatsApp, iMessage per D-065; email to confirm), every 3 h for the rest, evening communications sweep, daily reconciliation | ADD §6 |
+| R16 | Hourly refresh of active sources (WhatsApp, iMessage per D-065; email to confirm), every 3 h for the rest, evening communications sweep, daily reconciliation. **Missed checks are now counted and disclosed (D-069)**; schedules, sweep and reconciliation remain | ADD §6 |
 | R17 | Focused questions to Matthew, answers stored as scoped rules with provenance | ADD §2 |
 | R18 | Coordinator + specialists (Communications, Documents, Finance, Calendar, Business ops, Reviewer), least-privilege, read-only enforced by filesystem permissions and separate credentials | ADD §1, §5 |
 | R19 | ~~Approval matrix A–D, routine-action mandate, policy engine outside the model, approval objects that expire~~ **Built Nov 3 (D-067)**: `policy.py`, `approvals.py`, `ops/approve.py`; trial mode under the hard stops. `config/mandates.yaml` is empty until Matthew's call (X1). No executor exists yet | ADD §3 |
@@ -70,7 +70,7 @@ Where the addendum and the spec disagree, the **addendum wins** (it is later). I
 |---|---|---|
 | R29 | Off-site backup to Backblaze (private bucket, bucket-only key) | SETUP, SPEC §11.4 |
 | R30 | Rotate the @MREOC18bot token (shared as a screenshot) | ADD §5 (credential revocation) |
-| R31 | `gateway.auth.token` into the Keychain | ADD §5, SPEC §8.4 |
+| R31 | ~~`gateway.auth.token` into the Keychain~~ **Already done Aug 7 (D-016)**: exec SecretRef to `/usr/bin/security`, token rotated. Confirmed on the Mac Oct 3: `secrets audit` plaintext=1, and that one is the LM Studio `apiKey` placeholder, not the gateway token. Listed here in error on Oct 7 | ADD §5, SPEC §8.4 |
 | R32 | Weekly `security audit --deep` job (built, not installed) | SPEC Q216 |
 | R33 | Outbound egress allowlist — deferred to handover (D-063) | SPEC §4.1 principle 8 |
 | R34 | Model health ping (5 min) with reload and alert | SPEC §4.6.5, ADD §5 |

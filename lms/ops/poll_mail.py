@@ -44,7 +44,7 @@ from _env import archive_volume_problem, load_lms_env    # noqa: E402
 from _reexec import ensure_venv                            # noqa: E402
 from core.adapters import gmail                            # noqa: E402
 from core.db import database as db                         # noqa: E402
-from core.pipeline import filing, mail                     # noqa: E402
+from core.pipeline import coverage, filing, mail           # noqa: E402
 from core.pipeline.classify import Classifier              # noqa: E402
 from core.pipeline.registry import load_registry           # noqa: E402
 
@@ -221,7 +221,13 @@ def poll_mailbox(conn, address, args, registry, classifier, roots, spool) -> int
 
     A revoked or expired grant on one mailbox must not stop the others —
     the same reasoning as file_messages, one level up.
+
+    Every pass is also a check of the source `email:<address>` in the
+    coverage register (R7, D-069): OK, PARTIAL (truncated, or a message
+    failed) or FAILED.
     """
+    source_id = f"email:{address}"
+    started = db.now_iso()
     try:
         client = build_client(address)
         messages = client.recent(newer_than_days=args.days, limit=args.limit,
@@ -230,6 +236,8 @@ def poll_mailbox(conn, address, args, registry, classifier, roots, spool) -> int
         detail = f"{address}: {type(exc).__name__}: {exc}"
         print(f"[MAILBOX FAILED] {detail}", file=sys.stderr, flush=True)
         db.log_action(conn, "MAIL_MAILBOX_FAILED", detail=detail[:400])
+        coverage.record_check(conn, source_id, coverage.FAILED,
+                              started_at=started, detail=detail)
         return 1
 
     truncated = len(messages) >= args.limit
@@ -250,14 +258,26 @@ def poll_mailbox(conn, address, args, registry, classifier, roots, spool) -> int
                              f"newer_than:{args.days}d")
 
     counts = {}
+    completed = False
     try:
         counts = file_messages(
             conn, messages,
             lambda msg: mail.ingest_message(conn, roots, registry, classifier,
                                             client, msg, spool=spool))
+        completed = True
     finally:
-        db.log_action(conn, "MAIL_POLL_STOP",
-                      detail=f"{address}: {_summary(len(messages), counts)}")
+        summary = _summary(len(messages), counts)
+        db.log_action(conn, "MAIL_POLL_STOP", detail=f"{address}: {summary}")
+        if not completed:
+            result = coverage.FAILED
+        elif truncated or counts.get("failed"):
+            result = coverage.PARTIAL
+        else:
+            result = coverage.OK
+        coverage.record_check(conn, source_id, result, started_at=started,
+                              items=len(messages),
+                              detail=summary + (" — truncated by --limit"
+                                                if truncated else ""))
 
     print(f"\n{address}: {_summary(len(messages), counts)}", flush=True)
     return 1 if counts.get("failed") else 0

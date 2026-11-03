@@ -1,0 +1,287 @@
+# The coverage register — R7, addendum §4 and §6, D-069.
+#
+# "Maintain an explicit coverage register for each authorized personal and
+#  business email account; iPhone and Mac texts or iMessage; Google Voice
+#  messages, voicemail and available call transcripts; phone logs; WhatsApp or
+#  other work chats; calendar invitations and notes; and any additional
+#  communication app Matthew approves. For each source, document its supported
+#  API, export, sync, share-sheet or capture method, permissions, last
+#  successful checkpoint, failures and gaps."  (addendum §6)
+#
+# This file is the documented half. The other half — last successful
+# checkpoint, failures, missed intervals — is measured, not written here: each
+# reader records every pass in the `source_checks` table, and
+# core/pipeline/coverage.py joins the two (./ops/coverage.py prints it).
+#
+# A source is listed whether or not it works. "Never report the day as fully
+# reviewed unless every registered source completed or its gap is explicitly
+# disclosed" (§6) only means something if the sources that do not work yet are
+# on the list too.
+#
+# Fields
+#   id             stable; readers record checks under it (email:<address>)
+#   label          what the brief calls it
+#   kind           email | messages | calls | chat | calendar | storage |
+#                  capture | planning
+#   account        the account or device it is read from, if one is known
+#   method         how it is read: the API, export, sync or capture route
+#   permissions    exactly what access is held, or would be needed
+#   cadence_hours  how often it must be checked; null = pushed to us, or not
+#                  read yet. The addendum asks hourly for active sources and
+#                  every 3 h for the rest (§6); see each entry for where the
+#                  schedule stands
+#   status         active | pending | blocked | unsupported
+#   requirement    REQUIREMENTS_REMAINING.md item
+#   blocked_on     for anything not active: the decision or answer it waits on
+#   gaps           what this source does NOT cover, even when it works
+
+version: 1
+
+sources:
+  # -------------------------------------------------------------------------
+  # Email — gmail.readonly, one OAuth grant per mailbox (D-039, D-061).
+  # Polled by com.lms.mail at 07:00 and 19:00, so cadence 12 h today. Whether
+  # email is an hourly source is unanswered (D-065).
+  # -------------------------------------------------------------------------
+  - id: email:matthew@mrecai.com
+    label: MRECAI mail
+    kind: email
+    account: matthew@mrecai.com
+    method: Gmail API, read-only poll of a rolling window (ops/poll_mail.py)
+    permissions: gmail.readonly via the MRECAI Workspace internal app (D-061)
+    cadence_hours: 12
+    status: active
+    requirement: R16
+    gaps: >-
+      Calendar attachments (.ics) are not read, only the email around them
+      (R6). Mail in Spam is read like any other; nothing is moved.
+
+  - id: email:matthew@mleca.com
+    label: MLECA mail
+    kind: email
+    account: matthew@mleca.com
+    method: Gmail API, read-only poll of a rolling window (ops/poll_mail.py)
+    permissions: gmail.readonly via the MLECA Workspace internal app (D-061)
+    cadence_hours: 12
+    status: active
+    requirement: R16
+    gaps: Calendar attachments (.ics) are not read (R6).
+
+  - id: email:mre@atlase.ai
+    label: Atlase mail (mre@)
+    kind: email
+    account: mre@atlase.ai
+    method: Gmail API, read-only poll of a rolling window (ops/poll_mail.py)
+    permissions: gmail.readonly via the Atlase Workspace internal app (D-061)
+    cadence_hours: 12
+    status: active
+    requirement: R16
+    gaps: Calendar attachments (.ics) are not read (R6).
+
+  - id: email:mattyeps@gmail.com
+    label: Personal Gmail
+    kind: email
+    account: mattyeps@gmail.com
+    method: Gmail API, read-only poll of a rolling window (ops/poll_mail.py)
+    permissions: gmail.readonly via the published External app (D-061)
+    cadence_hours: 12
+    status: active
+    requirement: R16
+    gaps: >-
+      Some mail reaches it forwarded through iCloud (3 in 3 days on Oct 6);
+      the forwarder is not identified. Calendar attachments are not read (R6).
+
+  - id: email:matthew@atlase.ai
+    label: Atlase mail (matthew@)
+    kind: email
+    account: matthew@atlase.ai
+    method: Gmail API, once authorised (ops/authorise_gmail.py)
+    permissions: none held; needs gmail.readonly via the Atlase app
+    cadence_hours: 12
+    status: pending
+    requirement: R1
+    blocked_on: >-
+      Matthew: is it its own mailbox or an alias of mre@atlase.ai? If its own,
+      one sign-in in a private window (the Oct 6 attempt signed in as mre@).
+    gaps: Nothing sent only to this address is read.
+
+  - id: email:mreconsultinginsurance@gmail.com
+    label: Business Gmail (mreconsultinginsurance)
+    kind: email
+    account: mreconsultinginsurance@gmail.com
+    method: Gmail API, once authorised (ops/authorise_gmail.py)
+    permissions: none held; needs gmail.readonly via the External app (D-061)
+    cadence_hours: 12
+    status: pending
+    requirement: R39
+    blocked_on: >-
+      Matthew said yes on Oct 19 (D-065); needs one Google sign-in from him,
+      and the address added to entities.yaml.
+    gaps: Business mail that goes to this address is not read.
+
+  # -------------------------------------------------------------------------
+  # Texts and calls
+  # -------------------------------------------------------------------------
+  - id: messages:imessage
+    label: iMessage
+    kind: messages
+    account: unknown; the Mac's Messages is signed in as mattyeps@gmail.com
+    method: read-only reads of ~/Library/Messages/chat.db on the Mac (D-009)
+    permissions: Full Disk Access for the reader, not yet granted
+    cadence_hours: 1
+    status: blocked
+    requirement: R2
+    blocked_on: >-
+      D-068: which Apple ID his iPhone's iMessage uses. Then Full Disk Access.
+      Scope is all chats, hourly (D-065).
+    gaps: No texts are read.
+
+  - id: messages:sms
+    label: Text messages (SMS)
+    kind: messages
+    account: his iPhone, forwarded to the Mac
+    method: the same chat.db, once Text Message Forwarding is on
+    permissions: Text Message Forwarding on the iPhone; Full Disk Access
+    cadence_hours: 1
+    status: blocked
+    requirement: R2
+    blocked_on: D-068, and Matthew turning on Text Message Forwarding.
+    gaps: No SMS is read.
+
+  - id: calls:google-voice
+    label: Google Voice, voicemail, call transcripts
+    kind: calls
+    method: >-
+      none yet. Google Voice notification emails already arrive in MRECAI
+      mail and are filed, which proves contact, not content.
+    permissions: unknown until the source is named
+    cadence_hours: null
+    status: pending
+    requirement: R3
+    blocked_on: "Matthew: where call transcripts come from (C15); does he use Google Voice."
+    gaps: >-
+      A call without a transcript proves contact occurred, not what was
+      promised (§6). Nothing promised on a call is captured.
+
+  - id: calls:phone-log
+    label: iPhone call log
+    kind: calls
+    method: no supported read path from the Mac
+    permissions: n/a
+    cadence_hours: null
+    status: unsupported
+    requirement: R3
+    blocked_on: "No route identified; listed so the gap stays visible."
+    gaps: Who called and when is not known to the system.
+
+  - id: chat:whatsapp
+    label: WhatsApp
+    kind: chat
+    method: >-
+      no supported path. The candidate is reading the WhatsApp Mac app's
+      local database read-only (unofficial; can break on any update)
+    permissions: would need Full Disk Access and the WhatsApp Mac app linked
+    cadence_hours: 1
+    status: unsupported
+    requirement: R40
+    blocked_on: "Matthew: OK to try the unofficial Mac-app route (follow-up of Oct 19)."
+    gaps: No WhatsApp message is read.
+
+  # -------------------------------------------------------------------------
+  # Calendar
+  # -------------------------------------------------------------------------
+  - id: calendar:invitations
+    label: Calendar invitations and notes
+    kind: calendar
+    method: >-
+      none directly. Invitations arrive as email and the email is filed; the
+      .ics attachment is skipped
+    permissions: would need calendar.readonly per Google account
+    cadence_hours: 3
+    status: pending
+    requirement: R6
+    blocked_on: Not built.
+    gaps: Times, attendees and notes inside invitations are not read.
+
+  # -------------------------------------------------------------------------
+  # Storage — read-only sources (R5, R8)
+  # -------------------------------------------------------------------------
+  - id: storage:icloud-drive
+    label: iCloud Drive
+    kind: storage
+    account: the Mac's iCloud (mreconsultinginsurance@gmail.com today)
+    method: the synced folder on the Mac, read-only
+    permissions: read access under Matthew's macOS user (D-009)
+    cadence_hours: 3
+    status: blocked
+    requirement: R5
+    blocked_on: >-
+      D-065: his iPhone and iCloud+ are on mrecaitechnology@gmail.com, the
+      Mac on mreconsultinginsurance@gmail.com. Switch the Mac first.
+    gaps: Nothing in his iCloud Drive is read.
+
+  - id: storage:google-drive
+    label: Google Drive
+    kind: storage
+    method: Drive API, read-only
+    permissions: drive.readonly per Google account, not yet granted
+    cadence_hours: 3
+    status: pending
+    requirement: R5
+    blocked_on: "Matthew: which Google accounts (scope is everything, D-065); one Allow each."
+    gaps: No Drive file is read.
+
+  - id: storage:dropbox
+    label: Dropbox
+    kind: storage
+    method: Dropbox API, read-only
+    permissions: Dropbox read scope, not yet granted
+    cadence_hours: 3
+    status: pending
+    requirement: R5
+    blocked_on: "Matthew: which Dropbox account (scope is everything, D-065); one Allow."
+    gaps: No Dropbox file is read.
+
+  # -------------------------------------------------------------------------
+  # Capture — pushed to us, so there is no interval to miss
+  # -------------------------------------------------------------------------
+  - id: capture:mac-inbox
+    label: Mac watch folder
+    kind: capture
+    account: Matthew's macOS user
+    method: com.lms.watchfolder, files dropped into the inbox folder
+    permissions: the inbox folder only
+    cadence_hours: null
+    status: active
+    requirement: R4
+    gaps: Only what someone puts in the folder.
+
+  - id: capture:phone-shortcut
+    label: Phone photo Shortcut
+    kind: capture
+    account: his iPhone (mrecaitechnology@gmail.com)
+    method: iOS Shortcut saves to iCloud Drive, picked up by the watch folder
+    permissions: the Shortcut's iCloud folder
+    cadence_hours: null
+    status: blocked
+    requirement: R4
+    blocked_on: >-
+      Matthew installs the Shortcut; and the Mac must be on the same Apple ID
+      as the phone (D-065), or its photos never reach the watcher.
+    gaps: No phone capture arrives.
+
+  # -------------------------------------------------------------------------
+  # Planning
+  # -------------------------------------------------------------------------
+  - id: planning:chatgpt-todo
+    label: ChatGPT master to-do project
+    kind: planning
+    method: >-
+      no API reads project chat history (§6). Seed from the Sept 24 files,
+      then a canonical tracker file shared with the project
+    permissions: none
+    cadence_hours: null
+    status: pending
+    requirement: R23
+    blocked_on: "Matthew: resend the Sept 24 files; name the ChatGPT account (D-065)."
+    gaps: Nothing in the project is reconciled with the ledger.

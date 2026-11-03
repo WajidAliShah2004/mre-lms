@@ -218,6 +218,36 @@ BEGIN
 END;
 
 -- ---------------------------------------------------------------------------
+-- source_checks — every pass of every reader over every source (R7, D-069).
+-- The measured half of the coverage register (config/sources.yaml): last
+-- successful checkpoint, failures, and from them, missed intervals.
+-- Append-only, for the same reason as actions_log.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS source_checks (
+    id              INTEGER PRIMARY KEY,
+    source_id       TEXT    NOT NULL,          -- sources.yaml id, e.g. email:<address>
+    started_at      TEXT,
+    finished_at     TEXT    NOT NULL,
+    result          TEXT    NOT NULL CHECK (result IN ('OK','PARTIAL','FAILED')),
+    items           INTEGER,                   -- messages / files seen in the pass
+    detail          TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_source_checks_source ON source_checks(source_id, id);
+
+CREATE TRIGGER IF NOT EXISTS source_checks_no_update
+BEFORE UPDATE ON source_checks
+BEGIN
+    SELECT RAISE(ABORT, 'source_checks is append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS source_checks_no_delete
+BEFORE DELETE ON source_checks
+BEGIN
+    SELECT RAISE(ABORT, 'source_checks is append-only');
+END;
+
+-- ---------------------------------------------------------------------------
 -- approvals — the addendum's approval object (§3, R19, D-067), and the record
 -- of every execution above level B. basis HUMAN: Matthew answered it; basis
 -- MANDATE: a live mandate covered it, written already CONSUMED.

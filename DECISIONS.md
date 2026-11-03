@@ -884,6 +884,21 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 
 **302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
 
+### D-069 — The coverage register: every source listed, every check recorded, every gap disclosed
+**Status:** Decided · Nov 3 2026 · developer · implements R7 and the "log checks, disclose missed intervals" half of R16 (addendum §4, §6) · not yet on the Mac
+
+§6 asks for an explicit register of every communication source, "its supported API, export, sync, share-sheet or capture method, permissions, last successful checkpoint, failures and gaps". It also says the day may never be called fully reviewed "unless every registered source completed or its gap is explicitly disclosed". That clause only means something if the sources that don't work yet are on the list too. So the register is split into two halves:
+
+- **The documented half, `config/sources.yaml`:** 18 sources. Six mailboxes: four active, plus `matthew@atlase.ai` (R1) and `mreconsultinginsurance@gmail.com` (R39) pending. Then iMessage and SMS (blocked, D-068), Google Voice/voicemail/transcripts (pending, R3), the iPhone call log (unsupported), WhatsApp (unsupported, R40), calendar invitations (R6; the .ics is skipped today), iCloud Drive (blocked on the Apple ID, D-065), Google Drive and Dropbox (pending, R5), the Mac watch folder, the phone Shortcut (R4) and the ChatGPT to-do project (R23). Each entry gives its method, the permissions held or needed, the cadence it must be checked at, its status and requirement, what it waits on, and what it doesn't cover even when it works. The loader refuses an entry that isn't active and doesn't say what it is blocked on, and refuses unknown keys.
+- **The measured half, the `source_checks` table:** append-only by trigger, like `actions_log`. Every reader records every pass as OK, PARTIAL or FAILED. `poll_mail.py` now records each mailbox pass under `email:<address>`. A pass that hit `--limit` or had a failed message counts as PARTIAL, because a truncated pass is a missed-mail event, not a quiet success (Sept 29). A mailbox whose grant failed counts as FAILED.
+- **`core/pipeline/coverage.py`** joins the two halves: the last good check, the last result, and the number of scheduled checks missed since. A 25% grace (at least 15 minutes) stops a 07:04 run counting as late. `disclosures()` gives the lines the daily reconciliation must show, worst first: failed, never checked, missed, partial, then not read along with what it waits on. It also flags a source that some reader checks but the register doesn't list. `fully_reviewed()` is true only when that list is empty. It is false today, correctly: 13 of 18 sources wait on Matthew or are unsupported.
+- **`ops/coverage.py`** prints the register with each source's last checkpoint. `--gaps` prints the disclosures and exits 1 while there are any.
+- **Cadence as it stands:** mail is polled at 07:00 and 19:00, so the register says 12 h. The addendum's hourly cadence for active sources depends on Matthew saying whether email counts as active (D-065, unanswered), so the register states the real schedule rather than the one wanted. iMessage, SMS and WhatsApp are listed at 1 h, as he asked; they are not read yet.
+
+Not done yet: the brief does not show the disclosures. That waits for the brief changes being made in parallel (R15), so `brief.py` is edited once.
+
+**685 passed, 1 xfailed** on Windows (23 new in `test_coverage.py`).
+
 ### D-067 — The policy engine: approval objects, mandates, and trial mode under the hard stops
 **Status:** Decided · Nov 3 2026 · developer · implements R19 (addendum §3) · not yet on the Mac
 
