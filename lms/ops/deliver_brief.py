@@ -47,6 +47,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from _env import archive_volume_problem, load_lms_env    # noqa: E402
 from _reexec import ensure_venv                          # noqa: E402
 from core.db import database as db                       # noqa: E402
+from core.pipeline import approvals                      # noqa: E402
 from core.pipeline.registry import load_registry         # noqa: E402
 from core.reports import brief as reports                # noqa: E402
 
@@ -142,6 +143,11 @@ def main() -> int:
     conn = db.connect(os.environ.get(
         "LMS_DB", str(Path(archive).parent / "lms.db")))
     registry = load_registry()
+
+    if not args.dry_run:
+        # Before reporting what waits on him: an approval past its time is
+        # expired and its task returned for revision, never shown as live (R19).
+        approvals.expire_due(conn)
 
     now = datetime.now()
     b = reports.build_brief(conn, kind=kind, now=now)

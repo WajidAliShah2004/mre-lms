@@ -50,7 +50,7 @@ Where the addendum and the spec disagree, the **addendum wins** (it is later). I
 | R16 | Hourly refresh of active sources (WhatsApp, iMessage per D-065; email to confirm), every 3 h for the rest, evening communications sweep, daily reconciliation | ADD §6 |
 | R17 | Focused questions to Matthew, answers stored as scoped rules with provenance | ADD §2 |
 | R18 | Coordinator + specialists (Communications, Documents, Finance, Calendar, Business ops, Reviewer), least-privilege, read-only enforced by filesystem permissions and separate credentials | ADD §1, §5 |
-| R19 | Approval matrix A–D, routine-action mandate, policy engine outside the model, approval objects that expire | ADD §3 |
+| R19 | ~~Approval matrix A–D, routine-action mandate, policy engine outside the model, approval objects that expire~~ **Built Nov 3 (D-067)**: `policy.py`, `approvals.py`, `ops/approve.py`; trial mode under the hard stops. `config/mandates.yaml` is empty until Matthew's call (X1). No executor exists yet | ADD §3 |
 | R20 | Execution-ready proposals: ≤3 options, code only for the recommended one | ADD §3 |
 | R21 | Capability estimate per task (OpenClaw / ChatGPT / Claude %, human residual) | ADD §6 |
 | R22 | Dashboard (business vs personal, entities, overdue, blocked, approvals, hours) | ADD §6 |

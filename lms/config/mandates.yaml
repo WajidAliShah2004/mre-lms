@@ -1,0 +1,49 @@
+# Routine-action mandates — addendum §3, R19, D-067.
+#
+# "At setup, create a bounded routine-action mandate: permitted source
+#  accounts, payees or correspondents, payment rails, categories, amount ranges
+#  or payee-specific ceilings, permitted reply classes, frequency, daily
+#  aggregate exposure, effective period and revocation."
+#
+# Read by core/pipeline/policy.py, in code, at execution time. Nothing a model
+# writes reaches this file. An unknown key is an error, not ignored: a misspelt
+# ceiling would be a ceiling that silently does not apply.
+#
+# EMPTY UNTIL MATTHEW DECIDES. He accepted trial mode in principle on Oct 19
+# (D-065); which bills, which bank and which reply types are for the call.
+# Each mandate cites the DECISIONS.md entry that records his answer.
+#
+# mode: shadow  — evaluated on every approval and recorded ("would have paid"),
+#                 executes nothing. Start every mandate here.
+# mode: live    — executes inside its limits without asking. Payments and sends
+#                 still cannot while rules.yaml's never_move_money and
+#                 never_send_without_approval stand; lifting those is its own
+#                 recorded decision per class (gap analysis X1).
+#
+# Shape (an example, not a mandate):
+#
+#   - id: M-001
+#     decided_in: D-0xx
+#     mode: shadow
+#     kinds: [pay_bill]                 # level C kinds only
+#     entity: P_MRE                     # entities.yaml id
+#     source_accounts: [chase-checking-1234]
+#     rails: [chase-billpay]
+#     categories: [utilities]
+#     counterparties:
+#       Con Edison:
+#         destination: "acct ending 6789"   # the verified destination
+#         max_cents: 40000
+#     frequency: {count: 1, per: month}  # per counterparty
+#     daily_aggregate_cents: 100000
+#     effective_from: 2026-11-15
+#     effective_until: 2027-02-15
+#     revoked: null                      # a date revokes it from that day
+
+version: 1
+
+# An approval not answered — or answered and not executed — within this many
+# hours expires, and the task goes back for revision.
+approval_ttl_hours: 48
+
+mandates: []

@@ -76,10 +76,10 @@ Rules the addendum states, enforced here rather than hoped for:
 
   * "A denial returns the task for revision or closes it; it never becomes an
     implicit approval": AWAITING_APPROVAL -> IN_PROGRESS or CANCELED.
-  * Execution needs an approval reference unless the action is level A or B.
-    Level C needs a mandate, and mandates are R19; until they exist C goes
-    through AWAITING_APPROVAL like D. `default_gate` is that rule, and the
-    hook R19's policy engine replaces.
+  * Execution of anything above level B states the exact action and passes
+    the policy engine (R19, D-067: core/pipeline/policy.py and approvals.py):
+    a consumed approval of that exact action, or a live mandate that covers
+    it. The gate is code, outside the model.
   * "Independently verified": VERIFIED needs evidence, and an actor other than
     the one that executed.
   * "Conflict check before execution": every move names the state it expects
@@ -168,6 +168,10 @@ class IllegalTransition(LedgerError):
 
 class TaskConflict(LedgerError):
     """The task moved since the caller looked at it. Re-read; do not retry blind."""
+
+
+class ExecutionRefused(IllegalTransition):
+    """The execution gate said no. Recorded on the task, then raised."""
 
 
 def is_human(actor: str) -> bool:
@@ -415,26 +419,17 @@ def _add_source(conn, task_id, source_key, source, source_link, artifact_id,
 # Moving a task
 # ---------------------------------------------------------------------------
 
-# The execution gate: (conn, task row, approval_ref, actor) -> None, raising
-# IllegalTransition to refuse. R19's policy engine replaces `default_gate`; it
+# The execution gate: (conn, task row, approval_ref, actor, action) -> the ref
+# that authorized it (or None for level A/B), raising ExecutionRefused to
+# refuse. The default is the policy engine, approvals.gate (R19, D-067); it
 # must stay code, outside the model (addendum §3).
-ExecutionGate = Callable[[sqlite3.Connection, sqlite3.Row, "str | None", str], None]
+ExecutionGate = Callable[[sqlite3.Connection, sqlite3.Row, "str | None", str, Any],
+                         "str | None"]
 
 
-def default_gate(conn: sqlite3.Connection, task: sqlite3.Row,
-                 approval_ref: str | None, actor: str) -> None:
-    """Until mandates exist, only levels A and B execute without an approval."""
-    if task["status"] == "AWAITING_APPROVAL":
-        if not approval_ref:
-            raise IllegalTransition(
-                f"task {task['id']} is awaiting approval; executing it needs the "
-                f"approval's reference. A missing approval is not an approval.")
-        return
-    if (task["action_risk"] or "D") not in ("A", "B"):
-        raise IllegalTransition(
-            f"task {task['id']} is level {task['action_risk'] or 'unassessed'}; "
-            f"it goes through AWAITING_APPROVAL. Level C needs a mandate (R19), "
-            f"and none exists yet.")
+def _policy_gate(conn, task, approval_ref, actor, action):
+    from . import approvals                  # approvals imports this module
+    return approvals.gate(conn, task, approval_ref, actor, action)
 
 
 def _paused_from(conn: sqlite3.Connection, task_id: int, status: str) -> str | None:
@@ -473,19 +468,50 @@ def transition(conn: sqlite3.Connection, task_id: int, to: str, *, by: str,
                evidence: str | None = None, outcome: str | None = None,
                approval_ref: str | None = None, doc_version: str | None = None,
                destination: str | None = None, recipient: str | None = None,
-               amount_cents: int | None = None,
-               gate: ExecutionGate = default_gate) -> Moved:
+               amount_cents: int | None = None, action: Any = None,
+               gate: ExecutionGate | None = None) -> Moved:
     """Move one task one step. Refuses anything not in the table.
 
     `expect` is the state the caller last saw. If the task has moved since,
     this raises TaskConflict instead of acting on a stale view — the addendum's
     "conflict check before execution", applied to every move.
+
+    `action` (a policy.Action) is the exact action, for EXECUTED; its
+    document version, destination, recipient and amount are what the event
+    records. A refusal by the gate is itself recorded (EXECUTION_REFUSED).
     """
     if to not in STATES:
         raise IllegalTransition(f"{to!r} is not a state")
     if to == "DUPLICATE":
         raise IllegalTransition("use mark_duplicate(): a duplicate must say of what")
+    if action is not None:
+        stated = dict(doc_version=doc_version, destination=destination,
+                      recipient=recipient, amount_cents=amount_cents)
+        for k, v in stated.items():
+            if v is not None and v != getattr(action, k):
+                raise IllegalTransition(f"{k} {v!r} is not the action's "
+                                        f"{getattr(action, k)!r}")
+        doc_version, destination = action.doc_version, action.destination
+        recipient, amount_cents = action.recipient, action.amount_cents
+    try:
+        return _transition(conn, task_id, to, by=by, expect=expect, detail=detail,
+                           evidence=evidence, outcome=outcome,
+                           approval_ref=approval_ref, doc_version=doc_version,
+                           destination=destination, recipient=recipient,
+                           amount_cents=amount_cents, action=action,
+                           gate=gate or _policy_gate)
+    except ExecutionRefused as exc:
+        # Outside the rolled-back savepoint: declining to act leaves a trace.
+        _event(conn, task_id, by, "EXECUTION_REFUSED", detail=str(exc),
+               doc_version=doc_version, destination=destination,
+               recipient=recipient, amount_cents=amount_cents,
+               approval_ref=approval_ref)
+        raise
 
+
+def _transition(conn, task_id, to, *, by, expect, detail, evidence, outcome,
+                approval_ref, doc_version, destination, recipient, amount_cents,
+                action, gate) -> Moved:
     with _atomic(conn, "transition"):
         task = get(conn, task_id)
         current = task["status"]
@@ -499,7 +525,7 @@ def transition(conn: sqlite3.Connection, task_id: int, to: str, *, by: str,
         sets: dict[str, Any] = {"status": to, "status_changed_at": db.now_iso()}
 
         if to == "EXECUTED":
-            gate(conn, task, approval_ref, by)
+            approval_ref = gate(conn, task, approval_ref, by, action) or approval_ref
             waiting = [d["id"] for d in dependencies(conn, task_id)
                        if d["status"] not in ("VERIFIED", "CLOSED")]
             if waiting:

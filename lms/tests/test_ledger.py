@@ -10,7 +10,8 @@ import sqlite3
 import pytest
 
 from core.db import database as db
-from core.pipeline import ledger
+from core.pipeline import approvals, ledger
+from core.pipeline.policy import Action
 from core.reports import brief as reports
 
 
@@ -94,11 +95,14 @@ def test_the_whole_happy_path(conn):
     """detected → classified → triaged → delegated → in progress → prepared →
     awaiting approval → executed → independently verified → closed."""
     tid = a_task(conn, status="DETECTED")
-    walk(conn, tid, "CLASSIFIED", "TRIAGED", "DELEGATED", "IN_PROGRESS",
-         "PREPARED", "AWAITING_APPROVAL")
-    ledger.transition(conn, tid, "EXECUTED", by="finance", approval_ref="appr-1",
-                      doc_version="ab" * 32, recipient="Acme Corp",
-                      amount_cents=12500)
+    walk(conn, tid, "CLASSIFIED", "TRIAGED", "DELEGATED", "IN_PROGRESS", "PREPARED")
+    reply = Action("send_reply", doc_version="ab" * 32, recipient="Acme Corp",
+                   destination="ap@acme.example", reply_class="acknowledge_receipt",
+                   draft_sha256="cd" * 32)
+    ref = approvals.request(conn, tid, reply, by="communications")
+    approvals.decide(conn, ref, "approve", by="matthew")
+    ledger.transition(conn, tid, "EXECUTED", by="communications",
+                      approval_ref=ref, action=reply)
     ledger.transition(conn, tid, "VERIFIED", by="reviewer",
                       evidence="bank posting 2026-10-07 ref 99812")
     ledger.transition(conn, tid, "CLOSED", by="coordinator")
@@ -107,11 +111,13 @@ def test_the_whole_happy_path(conn):
     assert row["status"] == "CLOSED"
     assert row["final_outcome"] == "DONE"
     assert row["completed_at"]
-    moves = [(e["from_status"], e["to_status"]) for e in ledger.history(conn, tid)]
+    moves = [(e["from_status"], e["to_status"]) for e in ledger.history(conn, tid)
+             if e["event"] == "TRANSITION"]
     assert len(moves) == 9
     executed = [e for e in ledger.history(conn, tid) if e["to_status"] == "EXECUTED"][0]
-    assert (executed["recipient"], executed["amount_cents"]) == ("Acme Corp", 12500)
-    assert executed["approval_ref"] == "appr-1"
+    assert (executed["recipient"], executed["destination"]) == ("Acme Corp",
+                                                                "ap@acme.example")
+    assert executed["approval_ref"] == ref
 
 
 def test_level_a_and_b_execute_without_approval(conn):
@@ -195,8 +201,9 @@ def test_every_pair_outside_the_table_is_refused(conn):
             tid = a_task(conn, status=start, action_risk="A")
             legal = to in ledger.allowed(conn, ledger.get(conn, tid), "agent")
             try:
+                # the table, not the gate: test_approvals.py covers that
                 ledger.transition(conn, tid, to, by="agent", evidence="e",
-                                  approval_ref="a")
+                                  approval_ref="a", gate=lambda *_: None)
                 moved = True
             except ledger.IllegalTransition:
                 moved = False
@@ -212,7 +219,7 @@ def test_a_missing_approval_is_not_an_approval(conn):
 
 @pytest.mark.parametrize("risk", ["C", "D", None])
 def test_level_c_d_and_unassessed_cannot_skip_approval(conn, risk):
-    """C needs a mandate (R19) and there are none yet; unassessed counts as D."""
+    """C needs a mandate (R19, none yet) or an approval; unassessed counts as D."""
     tid = a_task(conn, status="PREPARED", action_risk=risk)
     with pytest.raises(ledger.IllegalTransition):
         ledger.transition(conn, tid, "EXECUTED", by="finance")
@@ -223,7 +230,7 @@ def test_the_execution_gate_is_replaceable(conn):
     tid = a_task(conn, status="PREPARED", action_risk="C")
     calls = []
 
-    def mandate_gate(conn, task, approval_ref, actor):
+    def mandate_gate(conn, task, approval_ref, actor, action):
         calls.append((task["id"], actor))
 
     ledger.transition(conn, tid, "EXECUTED", by="finance", gate=mandate_gate)

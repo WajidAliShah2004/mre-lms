@@ -218,6 +218,78 @@ BEGIN
 END;
 
 -- ---------------------------------------------------------------------------
+-- approvals — the addendum's approval object (§3, R19, D-067), and the record
+-- of every execution above level B. basis HUMAN: Matthew answered it; basis
+-- MANDATE: a live mandate covered it, written already CONSUMED.
+--
+-- The action and its fingerprint are fixed when it is asked for ("approval
+-- applies only to those exact details"); a trigger refuses any change to
+-- them. Only the answer, and its consumption, can be written later — once.
+-- `ref` is what task_events.approval_ref holds.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS approvals (
+    id              INTEGER PRIMARY KEY,
+    ref             TEXT    NOT NULL UNIQUE,           -- AP-<n>
+    task_id         INTEGER NOT NULL REFERENCES tasks(id),
+    basis           TEXT    NOT NULL CHECK (basis IN ('HUMAN','MANDATE')),
+    mandate_id      TEXT,                              -- the mandate that covers it, if one does
+    kind            TEXT    NOT NULL,
+    action_json     TEXT    NOT NULL,                  -- policy.Action, every field
+    fingerprint     TEXT    NOT NULL,                  -- sha256 of action_json
+    draft           TEXT,
+    before_after    TEXT,
+    recipient       TEXT,                              -- payee or correspondent
+    destination     TEXT,                              -- bank destination, address, path
+    amount_cents    INTEGER,
+    currency        TEXT,
+    affected_files  TEXT    NOT NULL DEFAULT '[]',     -- JSON array
+    evidence_links  TEXT    NOT NULL DEFAULT '[]',     -- JSON array
+    anomaly         TEXT,
+    -- What the policy engine said when it was asked: shadow mode's record.
+    policy_verdict  TEXT    NOT NULL,                  -- ALLOW | NEEDS_APPROVAL | REFUSED
+    policy_reasons  TEXT,
+    would_execute   INTEGER NOT NULL DEFAULT 0 CHECK (would_execute IN (0,1)),
+    requested_by    TEXT    NOT NULL,
+    requested_at    TEXT    NOT NULL,
+    expires_at      TEXT    NOT NULL,
+    status          TEXT    NOT NULL CHECK (status IN (
+                        'PENDING','APPROVED','DENIED','REVISE','EXPIRED',
+                        'SUPERSEDED','CONSUMED')),
+    decided_by      TEXT,
+    decided_at      TEXT,
+    decision_note   TEXT,
+    consumed_at     TEXT,
+    consumed_by     TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_approvals_task   ON approvals(task_id);
+CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals(status);
+CREATE INDEX IF NOT EXISTS idx_approvals_fp     ON approvals(fingerprint);
+
+CREATE TRIGGER IF NOT EXISTS approvals_details_fixed
+BEFORE UPDATE OF ref, task_id, basis, mandate_id, kind, action_json, fingerprint,
+                 draft, before_after, recipient, destination, amount_cents,
+                 currency, affected_files, evidence_links, anomaly,
+                 policy_verdict, policy_reasons, would_execute, requested_by,
+                 requested_at, expires_at ON approvals
+BEGIN
+    SELECT RAISE(ABORT, 'an approval''s details are fixed; ask for a new one');
+END;
+
+CREATE TRIGGER IF NOT EXISTS approvals_answer_once
+BEFORE UPDATE ON approvals
+WHEN OLD.status NOT IN ('PENDING','APPROVED')
+BEGIN
+    SELECT RAISE(ABORT, 'this approval is already settled');
+END;
+
+CREATE TRIGGER IF NOT EXISTS approvals_no_delete
+BEFORE DELETE ON approvals
+BEGIN
+    SELECT RAISE(ABORT, 'approvals are append-only');
+END;
+
+-- ---------------------------------------------------------------------------
 -- actions_log — append-only. Every side effect the system takes, including
 -- the ones it declined to take. Triggers below make append-only real rather
 -- than a convention.

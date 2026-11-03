@@ -96,11 +96,13 @@ class Brief:
     # Scheduled jobs that have not run when they should have. Empty is the
     # normal state and prints nothing.
     stalled: list[str] = field(default_factory=list)
+    # Approval objects waiting on his answer (R19, D-067), unexpired.
+    approvals: list[sqlite3.Row] = field(default_factory=list)
 
     @property
     def is_empty(self) -> bool:
         return not (self.tasks or self.new_by_entity or self.needs_decision
-                    or self.stalled)
+                    or self.stalled or self.approvals)
 
 
 # ---------------------------------------------------------------------------
@@ -348,6 +350,19 @@ def stalled_jobs(conn: sqlite3.Connection, now: datetime) -> list[str]:
     return out
 
 
+def _approvals_waiting(conn: sqlite3.Connection, now: datetime) -> list[sqlite3.Row]:
+    """Read-only: an expired one is not shown, and is not expired here either
+    (approvals.expire_due does that, from a job that writes)."""
+    return [a for a in conn.execute(
+                "SELECT * FROM approvals WHERE status = 'PENDING' ORDER BY expires_at")
+            if datetime.fromisoformat(a["expires_at"]) > _aware(now)]
+
+
+def _aware(now: datetime) -> datetime:
+    from ..db import database as db
+    return now if now.tzinfo else now.replace(tzinfo=db.TZ)
+
+
 def build_brief(conn: sqlite3.Connection, *, kind: str = "morning",
                 now: datetime | None = None,
                 window_hours: int | None = None) -> Brief:
@@ -382,6 +397,7 @@ def build_brief(conn: sqlite3.Connection, *, kind: str = "morning",
         new_by_entity=_new_since(conn, since),
         needs_decision=_needs_decision(conn),
         stalled=stalled_jobs(conn, now),
+        approvals=_approvals_waiting(conn, now),
     )
 
 
@@ -424,6 +440,20 @@ def render_text(brief: Brief, registry: Registry | None = None) -> str:
         out.append("Nothing needs you. No new documents, no open tasks, "
                    "nothing waiting on a decision.")
         return "\n".join(out)
+
+    if brief.approvals:
+        out.append(f"APPROVALS WAITING ({len(brief.approvals)})")
+        for a in brief.approvals:
+            amount = (f" · ${a['amount_cents'] / 100:,.2f}"
+                      if a["amount_cents"] is not None else "")
+            out.append(f"   {a['ref']} · {a['kind'].replace('_', ' ')} · "
+                       f"{a['recipient'] or ''}{amount}")
+            out.append(f"       task #{a['task_id']}, expires "
+                       f"{a['expires_at'][5:16].replace('T', ' ')}"
+                       + (" · approving records agreement only"
+                          if a["policy_verdict"] == "REFUSED" else ""))
+        out.append("   Answer approve, revise or deny with the AP number.")
+        out.append("")
 
     if brief.tasks:
         out.append(f"WHAT NEEDS YOU ({len(brief.tasks)})")
