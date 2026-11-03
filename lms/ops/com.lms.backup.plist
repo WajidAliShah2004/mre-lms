@@ -26,6 +26,11 @@
 
   NO PASSWORD APPEARS HERE. A plist is world-readable and lands in git. The
   script reads the repo password from the Keychain at run time (D-016).
+
+  The off-site copy to Backblaze B2 (R29) runs inside this job, after a
+  successful local snapshot, so there is no second plist to keep in step.
+  Its key and passwords are in the Keychain too. Exit 3 means the local
+  snapshot is good and the off-site copy failed.
 -->
 <plist version="1.0">
 <dict>

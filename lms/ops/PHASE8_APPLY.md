@@ -79,9 +79,9 @@ Expect `critical=0 warn=2 info=2; verify_setup PASS; report=…`.
    (never the account password, which was exposed, D-017).
 2. The key stored in the Keychain on the Mac, at the prompt.
 3. Code: a second restic repository on B2 and a nightly `restic copy` from
-   the local one (same snapshots, one encryption), plus its own restore test.
+   the local one, plus its own restore test.
 
-Built when the bucket and key exist.
+Built (R29), inert until configured. Steps: `ops/OFFSITE_APPLY.md`.
 
 ## Step 6 — Outbound allowlist (optional; last)
 

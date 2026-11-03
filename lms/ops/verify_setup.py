@@ -499,6 +499,8 @@ def check_backup_ready() -> None:
         ok(f"repository password present ({len(pw)} chars) — and it is in "
            f"Matthew's password manager, yes? restic has no recovery path.")
 
+    check_offsite()
+
     archive = os.environ.get("LMS_ARCHIVE_ROOT")
     if not archive:
         warn("LMS_ARCHIVE_ROOT unset — cannot check where the repo would go")
@@ -512,6 +514,39 @@ def check_backup_ready() -> None:
              f"said which volume is the mirror.")
     else:
         ok(f"repo is on a different volume from the archive")
+
+
+def check_offsite() -> None:
+    """Part of [8]: the off-site copy (R29).
+
+    Not configured is a WARN, never a FAIL: it waits on a Backblaze bucket and
+    key that Matthew has to create, and a FAIL here reads "do not process
+    mail", which would be false. But it is said every time this runs — and the
+    weekly audit runs this — because a machine whose only backup is inside it
+    must not come to look normal. The brief stays quiet about it on purpose
+    (offsite_backup.py explains why).
+
+    Half-configured IS a FAIL: someone started, the nightly copy now fails,
+    and the fix is one command.
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    try:
+        import offsite_backup as off
+    except Exception as exc:
+        fail(f"could not import ops/offsite_backup.py: {exc}")
+        return
+    try:
+        cfg = off.load_config()
+    except off.OffsiteError as exc:
+        fail(f"off-site backup (R29): {str(exc).splitlines()[0]}")
+        return
+    if cfg is None:
+        warn("off-site not configured (R29) — the only backup is inside this "
+             "Mac and does not survive theft or fire. Needs a private B2 "
+             "bucket and a bucket-only key: ops/OFFSITE_APPLY.md")
+        return
+    ok(f"off-site repository configured: {cfg.repo} (own password, "
+       f"{len(cfg.password)} chars — in the password manager too, yes?)")
 
 
 def check_kill_switch() -> None:

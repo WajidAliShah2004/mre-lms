@@ -25,6 +25,17 @@ because it will be run when things are already going badly.
 
     ./ops/restore_test.py             # restore latest, verify, report
     ./ops/restore_test.py --keep      # leave the restored tree for inspection
+    ./ops/restore_test.py --offsite   # the same, from the B2 copy (R29)
+
+THE OFF-SITE RESTORE IS QUARTERLY, AND RUN BY A PERSON
+------------------------------------------------------
+Spec §11.4: "restores tested quarterly", and §11.8 puts restore drills on a
+calendar with a named owner. `--offsite` downloads the whole latest snapshot
+from B2 — a few hundred MB, minutes, cents — so it is not scheduled nightly,
+and it is not a launchd job at all: a drill nobody watches is not a drill. It
+is in the RUNBOOK calendar (§5). It runs the identical checks as the local
+test, because the off-site copy is the one that exists for the day everything
+else is gone.
 """
 
 from __future__ import annotations
@@ -323,41 +334,86 @@ def verify_restore(restored: Path, live_counts: dict[str, int] | None,
 
 # ---------------------------------------------------------------------------
 
-def main() -> int:
+def _offsite_restorer():
+    """restore(dest) -> (exit, stderr) for the B2 repository, or None (after
+    saying why) when there is nothing to restore from.
+
+    The same verify_restore() as the local test, deliberately. The off-site
+    copy is the one that exists for the day everything else is gone; checking
+    it less thoroughly than the local one would make the copy that matters
+    most the one proven least. Passwords by fd, B2 credentials only to the
+    restic child (offsite_backup.py), and restic's stderr scrubbed before it
+    is printed.
+    """
+    import offsite_backup as off
+    try:
+        cfg = off.load_config()
+    except off.OffsiteError as exc:
+        print(f"\n{exc}", file=sys.stderr)
+        return None
+    if cfg is None:
+        print("\noff-site backup is not configured (R29) — nothing to restore "
+              "from. See ops/OFFSITE_APPLY.md.", file=sys.stderr)
+        return None
+    print(f"repo: {cfg.repo}  (off-site)")
+
+    def restore(dest: Path) -> tuple[int, str]:
+        r = off.restore_latest(cfg, dest)
+        return r.returncode, off.scrub(r.stderr.strip(), cfg.secrets())
+    return restore
+
+
+def main(argv: list[str] | None = None) -> int:
     ensure_venv("LMS_RESTORE_REEXEC", script=__file__)
     load_lms_env()
 
     p = argparse.ArgumentParser()
     p.add_argument("--repo", default=None)
+    p.add_argument("--offsite", action="store_true",
+                   help="restore from the off-site B2 repository instead of "
+                        "the local one (R29; quarterly — downloads a snapshot)")
     p.add_argument("--keep", action="store_true",
                    help="do not delete the restored tree")
-    args = p.parse_args()
+    args = p.parse_args(argv)
 
     archive = os.environ.get("LMS_ARCHIVE_ROOT")
     if not archive:
         print("LMS_ARCHIVE_ROOT is not set — run: source ops/lms.env", file=sys.stderr)
         return 2
     archive = Path(archive)
-    repo = Path(args.repo or os.environ.get(
-        "LMS_BACKUP_REPO", archive.parent / "LMS_backup"))
 
-    print("LMS restore verification")
+    print("LMS restore verification" + (" — OFF-SITE" if args.offsite else ""))
     print("=" * 60)
-    print(f"repo: {repo}")
 
     if shutil.which("restic") is None:
         print("\nrestic is not installed. `brew install restic`", file=sys.stderr)
         return 2
-    if not (repo / "config").exists():
-        print(f"\nno restic repository at {repo} — run ./ops/backup.py first",
-              file=sys.stderr)
-        return 2
 
-    try:
-        password = restic_password()
-    except Exception as exc:
-        print(f"\n{exc}", file=sys.stderr)
-        return 2
+    if args.offsite:
+        restore = _offsite_restorer()
+        if restore is None:
+            return 2
+    else:
+        repo = Path(args.repo or os.environ.get(
+            "LMS_BACKUP_REPO", archive.parent / "LMS_backup"))
+        print(f"repo: {repo}")
+        if not (repo / "config").exists():
+            print(f"\nno restic repository at {repo} — run ./ops/backup.py first",
+                  file=sys.stderr)
+            return 2
+
+        try:
+            password = restic_password()
+        except Exception as exc:
+            print(f"\n{exc}", file=sys.stderr)
+            return 2
+
+        def restore(dest: Path) -> tuple[int, str]:
+            r = subprocess.run(
+                ["restic", "-r", str(repo), "restore", "latest", "--target", str(dest)],
+                env={**os.environ, "RESTIC_PASSWORD": password},
+                capture_output=True, text=True)
+            return r.returncode, r.stderr.strip()
 
     live_db = Path(os.environ.get("LMS_DB", archive.parent / "lms.db"))
     live_counts = row_counts(live_db) if live_db.exists() else None
@@ -366,12 +422,9 @@ def main() -> int:
     dest = Path(tempfile.mkdtemp(prefix="lms-restore-"))
     print(f"restoring into {dest}\n")
     try:
-        r = subprocess.run(
-            ["restic", "-r", str(repo), "restore", "latest", "--target", str(dest)],
-            env={**os.environ, "RESTIC_PASSWORD": password},
-            capture_output=True, text=True)
-        if r.returncode != 0:
-            print(f"restic restore failed: {r.stderr.strip()}", file=sys.stderr)
+        code, err = restore(dest)
+        if code != 0:
+            print(f"restic restore failed: {err}", file=sys.stderr)
             return 1
 
         verify_restore(dest, live_counts, live_sidecars)
@@ -382,7 +435,8 @@ def main() -> int:
             for f in failures:
                 print(f"  - {f}")
             return 1
-        print(f"{GREEN}Restore verified{RESET} — the backup is usable.")
+        print(f"{GREEN}Restore verified{RESET} — the "
+              f"{'OFF-SITE ' if args.offsite else ''}backup is usable.")
         return 0
     finally:
         if args.keep:

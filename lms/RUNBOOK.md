@@ -184,7 +184,9 @@ Read-backs end `>/dev/null && echo OK`. Always.
 # 5. Backup and restore
 
 Nightly at 02:30 via `com.lms.backup`. Encrypted with restic; the repository
-is ciphertext at rest.
+is ciphertext at rest. Once configured (R29, `ops/OFFSITE_APPLY.md`), each
+successful snapshot is then copied to a second repository in a private
+Backblaze B2 bucket; until then that step is inert and says so.
 
 ## Check a backup is good — do this monthly, not after a disaster
 
@@ -273,9 +275,29 @@ corruption, a bad delete, or theft.
 So: **this survives the array failing.** It does not survive the machine.
 Theft, fire, or the Mac dying takes both copies, because both are inside it.
 
-There is still **no off-machine copy** — D-012, open. The blocker is not
-technical: an off-machine target means client tax and NPI data leaving the
-premises, and that needs Matthew's decision in writing.
+The **off-machine copy** is the B2 repository (R29). It needs a private bucket
+and a bucket-only key from Matthew, and his written sign-off that encrypted
+client data may leave the premises (D-012); `ops/OFFSITE_APPLY.md` has the
+steps. Until it is configured, `verify_setup.py` [8] WARNs `off-site not
+configured (R29)` every run.
+
+Once configured:
+
+```bash
+./ops/offsite_backup.py              # copy + retention now (catch-up after an outage)
+./ops/offsite_backup.py --unlock     # after an interrupted run left a lock
+./ops/set_offsite_backup.py --check  # key still bucket-only, snapshots readable
+./ops/set_offsite_backup.py --show   # the off-site passphrase (a DIFFERENT one)
+```
+
+**Quarterly — January, April, July, October:** `./ops/restore_test.py
+--offsite`. The same checks as the monthly local test, against a download of
+the latest B2 snapshot (spec §11.4). Not scheduled; someone runs it and reads
+it.
+
+A failed copy makes `backup.py` exit 3 (the local snapshot is still good and
+recorded) and logs `OFFSITE_COPY_FAILED`. If no copy succeeds for 48 hours the
+brief says `off-site backup: last ran …` under THE SYSTEM NEEDS ATTENTION.
 
 If a dedicated external disk is ever added, change one line in `ops/lms.env`
 and re-run `./ops/backup.py`. The same-volume check will confirm it.

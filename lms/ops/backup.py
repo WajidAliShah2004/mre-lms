@@ -65,6 +65,17 @@ file, never in lms.env, never in a launchd plist (D-016, spec §12.4).
 with NO value after -w, so it prompts and the secret stays out of the shell
 history and the process table.
 
+OFF-SITE (R29)
+--------------
+After a successful local snapshot — and after BACKUP_COMPLETED is written, so
+a B2 outage can never make a good local backup look like a failed one — the
+snapshot is copied to a second restic repository on Backblaze B2 by
+`offsite_backup.py`. Inert until `set_offsite_backup.py` has configured it.
+
+Exit codes: 0 local done (off-site done, or not configured); 3 local done but
+the off-site copy failed; anything else, the local backup failed and nothing
+was attempted off-site.
+
     ./ops/backup.py                     # database, config, sidecars, documents
     ./ops/backup.py --catalogue-only    # everything EXCEPT the documents
     ./ops/backup.py --dry-run           # say what would happen
@@ -240,6 +251,17 @@ def repo_path(override: str | None = None) -> Path:
         "LMS_BACKUP_REPO", Path(archive).resolve().parent / "LMS_backup")).resolve()
 
 
+def live_db_path() -> Path:
+    """The live database. Same reasoning as repo_path(): offsite_backup.py
+    needs it too, and a second derivation is a second answer waiting to
+    happen."""
+    archive = os.environ.get("LMS_ARCHIVE_ROOT")
+    if not archive:
+        raise BackupError("LMS_ARCHIVE_ROOT is not set — ops/lms.env not found")
+    return Path(os.environ.get(
+        "LMS_DB", Path(archive).resolve().parent / "lms.db")).resolve()
+
+
 def restic_password() -> str:
     """From the Keychain. Never from a file, an env var in lms.env, or a plist.
 
@@ -405,7 +427,7 @@ def main() -> int:
     # renders as ".../archive/.." otherwise, which hides that the repo default
     # sits on the same volume as the data.
     archive = Path(archive).resolve()
-    db_path = Path(os.environ.get("LMS_DB", archive.parent / "lms.db")).resolve()
+    db_path = live_db_path()
     repo = repo_path(args.repo)
 
     print(f"==> database  {db_path}")
@@ -496,12 +518,20 @@ def main() -> int:
         print("\nThis snapshot is on the same volume as the archive. It survives")
         print("a mistake. It does not survive the disk. See the warning above.")
 
-    print("\nOFF-MACHINE COPY — still outstanding, and it is Matthew's decision.")
-    print("A local repo does not survive theft, fire, or the volume failing.")
-    print("But an off-machine target means client tax and NPI data leaving the")
-    print("premises. restic encrypts before upload, so the provider stores")
-    print("ciphertext — that is the mitigation, not an argument that the")
-    print("question does not arise. Get it in writing before enabling it.")
+    # Off-site (R29), strictly after the local snapshot succeeded and was
+    # recorded. Until set_offsite_backup.py has run this prints one line and
+    # returns 0: the local repository is still the only copy, and the nightly
+    # log says so, but nothing has failed.
+    #
+    # A failure here is 3, not 1: BACKUP_COMPLETED is already written and the
+    # local snapshot is good. launchd does not care; a person reading the exit
+    # status by hand should be able to tell the two apart.
+    import offsite_backup
+    if offsite_backup.run_after_local_backup(
+            db_path, repo, password, dry_run=args.dry_run) != 0:
+        print("\nThe LOCAL backup succeeded. The OFF-SITE copy did not — see "
+              "above, and OFFSITE_COPY_FAILED in the audit log.", file=sys.stderr)
+        return 3
     return 0
 
 
