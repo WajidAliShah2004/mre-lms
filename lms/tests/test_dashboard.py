@@ -265,7 +265,8 @@ def test_taxpayer_ids_are_masked(conn, registry):
     task(conn, "W-2 for SSN 123-45-6789, employer EIN 12-3456789", due=day(1))
     html = page(conn, registry)
     assert "123-45-6789" not in html and "12-3456789" not in html
-    assert "***-**-****" in html and "**-*******" in html
+    # the shared digest redactor (R15): last four kept, so he can tell them apart
+    assert "SSN •••-••-6789" in html and "EIN ••-•••6789" in html
 
 
 def test_safe_is_the_escape_and_the_mask():

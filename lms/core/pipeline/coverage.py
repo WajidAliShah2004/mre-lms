@@ -204,16 +204,24 @@ def unregistered(conn: sqlite3.Connection,
 
 
 def disclosures(conn: sqlite3.Connection, register: tuple[Source, ...] | None = None,
-                now: datetime | None = None) -> list[str]:
+                now: datetime | None = None, *, active_only: bool = False) -> list[str]:
     """Every gap in coverage right now, one line each, worst first.
 
     Empty means every registered source completed its schedule — the only
     state the daily reconciliation may call fully reviewed.
+
+    `active_only` is the brief's daily view: sources that are meant to be
+    read and are not being read on time. It leaves out the sources not
+    connected yet (the Monday brief counts those) and "never checked", which
+    on a new install is every source and would be an alarm on day one, the
+    same rule as the brief's stalled jobs.
     """
     lines: list[tuple[int, str]] = []
     for c in coverage(conn, register, now):
         s = c.source
         if s.status != "active":
+            if active_only:
+                continue
             lines.append((3, f"{s.label}: not read — {s.status}, "
                              f"{s.blocked_on or 'no route'} ({s.requirement})"))
             continue
@@ -228,7 +236,8 @@ def disclosures(conn: sqlite3.Connection, register: tuple[Source, ...] | None = 
                              + (f" — {c.last_detail}" if c.last_detail else "")
                              + ("" if c.last_ok else "; no complete check yet")))
         elif c.last_ok is None:
-            lines.append((1, f"{s.label}: never checked"))
+            if not active_only:
+                lines.append((1, f"{s.label}: never checked"))
         elif c.missed:
             lines.append((1, f"{s.label}: {c.missed} scheduled check(s) missed; "
                              f"last good {c.last_ok:%b %d %H:%M}"))

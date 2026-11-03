@@ -222,3 +222,33 @@ def test_poll_mail_records_a_truncated_pass_as_partial(conn, tmp_path, monkeypat
     args = SimpleNamespace(days=2, limit=2, query="")
     pm.poll_mailbox(conn, "a@x.com", args, None, None, None, tmp_path)
     assert _results(conn) == [("email:a@x.com", "PARTIAL")]
+
+
+# ---------------------------------------------------------------------------
+# The brief
+# ---------------------------------------------------------------------------
+
+def test_the_brief_reports_a_failed_source_with_the_stalled_jobs(conn):
+    from core.reports import brief as reports
+    check_at(conn, "email:matthew@mrecai.com", NOW - timedelta(minutes=30),
+             coverage.FAILED, detail="RefreshError: token revoked")
+    text = reports.render_text(reports.build_brief(conn, now=NOW))
+    head, _, rest = text.partition("THE SYSTEM NEEDS ATTENTION")
+    assert "MRECAI mail: last check FAILED" in rest and "token revoked" in rest
+
+
+def test_the_daily_brief_does_not_alarm_on_never_checked_or_unconnected(conn):
+    """Day one after install, and the sources Matthew has not connected yet,
+    are not a system failure every morning."""
+    from core.reports import brief as reports
+    b = reports.build_brief(conn, now=NOW)            # a Tuesday evening
+    assert b.coverage == [] and b.sources_unread == 0
+
+
+def test_the_monday_brief_counts_the_sources_not_read(conn):
+    from core.reports import brief as reports
+    monday = datetime(2026, 11, 2, 6, 30, tzinfo=db.TZ)
+    b = reports.build_brief(conn, kind="morning", now=monday)
+    unread = sum(1 for s in coverage.load_register() if s.status != "active")
+    assert b.sources_unread == unread > 0
+    assert f"NOT READ AT ALL: {unread} source(s)" in reports.render_text(b)

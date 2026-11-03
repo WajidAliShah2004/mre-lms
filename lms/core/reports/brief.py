@@ -198,11 +198,18 @@ class Brief:
     escalations: list[ScoredTask] = field(default_factory=list)
     # The weekly review; None on every brief but the Monday morning one.
     backlog: Backlog | None = None
+    # Sources meant to be read that are not being read on time (R7, D-069):
+    # a failed, partial or late check. Shown with the stalled jobs, because it
+    # means the same thing — what follows is an incomplete picture.
+    coverage: list[str] = field(default_factory=list)
+    # How many registered sources are not connected at all; Monday only.
+    sources_unread: int = 0
 
     @property
     def is_empty(self) -> bool:
         return not (self.tasks or self.new_by_entity or self.needs_decision
-                    or self.stalled or self.escalations or self.approvals)
+                    or self.stalled or self.escalations or self.approvals
+                    or self.coverage)
 
 
 # ---------------------------------------------------------------------------
@@ -691,7 +698,26 @@ def build_brief(conn: sqlite3.Connection, *, kind: str = "morning",
         escalations=escalate,
         backlog=(backlog_review(conn, now.date())
                  if is_backlog_day(kind, now) else None),
+        **_coverage_view(conn, now, monday=is_backlog_day(kind, now)),
     )
+
+
+def _coverage_view(conn: sqlite3.Connection, now: datetime, *,
+                   monday: bool) -> dict:
+    """The coverage register's part of the brief (R7, D-069).
+
+    A register that will not load is itself a gap to report, not a reason
+    for the brief to fail: the brief is how he would hear about it.
+    """
+    from ..pipeline import coverage
+    try:
+        register = coverage.load_register()
+        lines = coverage.disclosures(conn, register, _aware(now), active_only=True)
+        unread = sum(1 for s in register if s.status != "active") if monday else 0
+    except coverage.RegisterError as exc:
+        return {"coverage": [f"coverage register unreadable: {exc}"],
+                "sources_unread": 0}
+    return {"coverage": lines, "sources_unread": unread}
 
 
 # ---------------------------------------------------------------------------
@@ -737,9 +763,9 @@ def _render(brief: Brief, registry: Registry | None) -> str:
     # below is a report on an incomplete picture and he needs to know that
     # before he reads it — "nothing needs you" means something very different
     # when the mail poll died on Tuesday.
-    if brief.stalled:
+    if brief.stalled or brief.coverage:
         out.append("THE SYSTEM NEEDS ATTENTION")
-        for line in brief.stalled:
+        for line in brief.stalled + brief.coverage:
             out.append(f"   {line}")
         out.append("   Everything below may be incomplete.")
         out.append("")
@@ -749,6 +775,7 @@ def _render(brief: Brief, registry: Registry | None) -> str:
     if brief.is_empty:
         out.append("Nothing needs you. No new documents, no open tasks, "
                    "nothing waiting on a decision.")
+        out.extend(_unread_line(brief))
         return "\n".join(out)
 
     # Second only to a stalled system: things that became imminent since the
@@ -811,8 +838,19 @@ def _render(brief: Brief, registry: Registry | None) -> str:
     # above it must not have to scroll past it.
     if brief.backlog is not None:
         out.extend(_render_backlog(brief.backlog, label))
+        out.extend(_unread_line(brief))
 
     return "\n".join(out).rstrip()
+
+
+def _unread_line(brief: Brief) -> list[str]:
+    """Monday only. §6: never call the week reviewed while sources are
+    unread without saying so — even on a brief that otherwise says nothing
+    needs him. The list itself is at the Mac (./ops/coverage.py --gaps)."""
+    if not brief.sources_unread:
+        return []
+    return ["", f"NOT READ AT ALL: {brief.sources_unread} source(s) not "
+                f"connected yet — ./ops/coverage.py --gaps"]
 
 
 def _render_backlog(backlog: Backlog, label) -> list[str]:

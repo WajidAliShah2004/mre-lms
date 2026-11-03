@@ -42,10 +42,10 @@ PRIVACY
 -------
 Titles come from email subjects, which are written by whoever sent the mail:
 hostile input. Every piece of text reaches the page through `_safe`, one
-function, which escapes HTML and masks the two identifier shapes a subject
-line most often carries (SSN, EIN). It is one function on purpose: the shared
-digest redactor being built for the brief can replace its body and every
-string on this page is covered at once.
+function, which escapes HTML after the brief's own digest redactor (R15,
+core/reports/redact.py) has masked taxpayer IDs, account numbers, credentials
+and one-time codes. One function, so every string on the page is covered by
+the same rules as the brief.
 
 A task marked `sensitivity` high or private (spec §5.6; Q5, Q59: "excluded
 from briefs and summaries") appears as "Private item #id": counted, dated and
@@ -66,13 +66,13 @@ from __future__ import annotations
 
 import html
 import json
-import re
 import sqlite3
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from typing import Callable, Iterable, Mapping
 
 from ..db import database as db
+from .redact import redact
 from ..pipeline import approvals as approvals_mod
 from ..pipeline import ledger
 from ..pipeline.registry import Registry
@@ -102,10 +102,10 @@ SIDE_LABEL = {"business": "Business", "personal": "Personal",
 # The one door text goes through
 # ---------------------------------------------------------------------------
 
-# Taxpayer identifiers in the two shapes a subject line carries them. Not a
-# redactor: the shared one replaces this body (see the module docstring).
-_SSN = re.compile(r"(?<!\d)\d{3}-\d{2}-\d{4}(?!\d)")
-_EIN = re.compile(r"(?<!\d)\d{2}-\d{7}(?!\d)")
+# The digest redactor (R15, core/reports/redact.py): taxpayer IDs to their last
+# four, card and account numbers, credentials and one-time codes. One redactor
+# for the brief and this page, so the two can never disagree about what leaves
+# the Mac.
 
 
 def _safe(text: object) -> str:
@@ -117,8 +117,7 @@ def _safe(text: object) -> str:
     """
     if text is None:
         return ""
-    s = _EIN.sub("**-*******", _SSN.sub("***-**-****", str(text)))
-    return html.escape(s, quote=True)
+    return html.escape(redact(str(text)), quote=True)
 
 
 # ---------------------------------------------------------------------------
