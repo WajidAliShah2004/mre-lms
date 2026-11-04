@@ -37,7 +37,7 @@ Where the addendum and the spec disagree, the **addendum wins** (it is later). I
 | # | Item | Source |
 |---|---|---|
 | R9 | Unsubscribe spam — `List-Unsubscribe` header only, logged, 30-day resubscribe log | MTG, SPEC Q33–Q35 |
-| R10 | Tell him when an important email arrives (push; 3/day baseline, 1/hour max outside briefs) | MTG, SPEC §8.8 |
+| R10 | ~~Tell him when an important email arrives (push; 3/day baseline, 1/hour max outside briefs)~~ **Built Nov 4 (D-077)**: Telegram via @MREOCbot for CRITICAL, legal/tax, phishing and stalled jobs; install per [lms/ops/NOTIFY_APPLY.md](lms/ops/NOTIFY_APPLY.md). Not yet: ACT NOW escalations, $2,500 anomalies | MTG, SPEC §8.8 |
 | R11 | Draft replies for his approve / change / send; nothing sends without approval | MTG, SPEC, ADD level B |
 | R12 | Drafting in his voice (style from sent mail; attorney mail excluded) | SPEC (voice corpus) |
 
@@ -73,7 +73,7 @@ Where the addendum and the spec disagree, the **addendum wins** (it is later). I
 | R31 | ~~`gateway.auth.token` into the Keychain~~ **Already done Aug 7 (D-016)**: exec SecretRef to `/usr/bin/security`, token rotated. Confirmed on the Mac Oct 3: `secrets audit` plaintext=1, and that one is the LM Studio `apiKey` placeholder, not the gateway token. Listed here in error on Oct 7 | ADD §5, SPEC §8.4 |
 | R32 | Weekly `security audit --deep` job (built, not installed) | SPEC Q216 |
 | R33 | Outbound egress allowlist — deferred to handover (D-063) | SPEC §4.1 principle 8 |
-| R34 | ~~Model health ping (5 min) with reload and alert~~ **Built Nov 3 (D-070)**; install on the Mac per [lms/ops/MODEL_HEALTH_APPLY.md](lms/ops/MODEL_HEALTH_APPLY.md). Alert is the brief until R10 | SPEC §4.6.5, ADD §5 |
+| R34 | ~~Model health ping (5 min) with reload and alert~~ **Built Nov 3 (D-070)**; install on the Mac per [lms/ops/MODEL_HEALTH_APPLY.md](lms/ops/MODEL_HEALTH_APPLY.md). A failure is pushed to Telegram once R10 is installed (D-077) | SPEC §4.6.5, ADD §5 |
 | R35 | Repo transferred to `Mleca18`; RustDesk removed at handover | SETUP item 1, SPEC §12.4 |
 | R36 | DMARC on mrecai.com, mleca.com, atlase.ai (his DNS) | SPEC Rec 16 |
 

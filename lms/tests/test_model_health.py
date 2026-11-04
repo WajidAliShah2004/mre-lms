@@ -332,6 +332,8 @@ def test_every_action_the_brief_reads_is_one_this_job_writes():
     """The D-027 trap: an alarm armed by a string nothing writes never fires."""
     src = (OPS / "model_health.py").read_text(encoding="utf-8")
     for failed, ok_action in reports.JOB_FAILURES.items():
+        if not failed.startswith("MODEL_"):
+            continue                       # another job's (test_notify.py)
         assert f'"{failed}"' in src and f'"{ok_action}"' in src
         assert ok_action in reports.WATCHED_JOBS
 

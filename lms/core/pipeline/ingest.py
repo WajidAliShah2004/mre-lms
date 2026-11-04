@@ -35,7 +35,7 @@ import yaml
 
 from .. import addressing
 from ..db import database as db
-from . import filing, ledger, ocr
+from . import filing, ledger, notify, ocr
 from .classify import Artifact, Classification, Classifier
 from .registry import Registry
 
@@ -304,9 +304,11 @@ def ingest_file(conn, roots: filing.StorageRoots, registry: Registry,
             conn, roots, source_path=source_path, sha256=sha,
             source=source, reason=reason, source_ref=source_ref,
             parent_id=parent_id)
-        db.set_artifact_status(conn, int(db.find_artifact_by_hash(conn, sha)["id"]),
-                               "SUSPECTED_PHISHING")
+        artifact_id = int(db.find_artifact_by_hash(conn, sha)["id"])
+        db.set_artifact_status(conn, artifact_id, "SUSPECTED_PHISHING")
         db.log_action(conn, "PHISHING_BLOCKED", detail=reason)
+        _alert(conn, notify.for_phishing, artifact_id=artifact_id,
+               parent_id=parent_id, received_date=art.received_date, why=reason)
         return IngestResult(sha256=sha, status="SUSPECTED_PHISHING",
                             path=target, reason=reason, ocr_engine=engine)
 
@@ -318,6 +320,10 @@ def ingest_file(conn, roots: filing.StorageRoots, registry: Registry,
             conn, roots, source_path=source_path, sha256=sha, source=source,
             reason=classification.review_reason or "low confidence",
             source_ref=source_ref, parent_id=parent_id)
+        # Unsure WHOSE it is says nothing about how urgent it is: a lapse
+        # notice we could not route is still a lapse notice.
+        _alert_document(conn, classification, art,
+                        int(db.find_artifact_by_hash(conn, sha)["id"]), parent_id)
         return IngestResult(sha256=sha, status="QUARANTINED", path=target,
                             classification=classification, ocr_engine=engine,
                             reason=classification.review_reason)
@@ -354,6 +360,7 @@ def ingest_file(conn, roots: filing.StorageRoots, registry: Registry,
 
     db.insert_classification(conn, artifact_id=filed.artifact_id,
                              **classification.as_row())
+    _alert_document(conn, classification, art, filed.artifact_id, parent_id)
 
     # --- task --------------------------------------------------------------
     # One task per obligation (ledger v2, D-066): the covering email and the
@@ -381,6 +388,25 @@ def ingest_file(conn, roots: filing.StorageRoots, registry: Registry,
     return IngestResult(sha256=sha, status="FILED", path=filed.filed_path,
                         classification=classification, ocr_engine=engine,
                         task_id=task_id)
+
+
+def _alert(conn, queue, **fields) -> None:
+    """Queue a Telegram alert (R10). A failure here is logged and never stops
+    the document being filed: the alert is the lesser of the two."""
+    try:
+        queue(conn, **fields)
+    except Exception as exc:                                  # noqa: BLE001
+        db.log_action(conn, "NOTIFY_QUEUE_FAILED",
+                      detail=f"{type(exc).__name__}: {exc}"[:400])
+
+
+def _alert_document(conn, c: Classification, art: Artifact, artifact_id: int,
+                    parent_id: int | None) -> None:
+    _alert(conn, notify.for_document, artifact_id=artifact_id,
+           parent_id=parent_id, received_date=art.received_date,
+           urgency=c.urgency, category=c.category,
+           counterparty=c.counterparty, descriptor=c.descriptor,
+           due_date=c.due_date, amount_cents=c.amount_cents)
 
 
 def _task_title(c: Classification) -> str:

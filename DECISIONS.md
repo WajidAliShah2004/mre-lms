@@ -884,6 +884,22 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 
 **302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
 
+### D-077 — Telegram alerts: a queue at ingest, a budget at send
+**Status:** Decided · Nov 4 2026 · developer · implements R10 (MTG; spec §8.8, §7.8) · not yet on the Mac ([lms/ops/NOTIFY_APPLY.md](lms/ops/NOTIFY_APPLY.md))
+
+`core/pipeline/notify.py` decides what interrupts; `ops/notify.py`, run by `com.lms.notify` every 15 minutes, decides when.
+
+- **What interrupts** (§8.8): CRITICAL urgency; HIGH mail in LEGAL or TAX (the "regulatory/legal" class: a summons, a tax notice; formation papers arrive at NORMAL and wait); a blocked phishing attempt; a job on the brief's stalled list, once a day per job. Everything else waits for the brief. Two of §8.8's triggers are not built: an anomaly of $2,500 or more (reconciliation is not scheduled yet, D-075) and an egress-firewall block (there is no firewall, D-063).
+- **Queued at ingest, sent by a job.** Ingest knows what the document is and when it was received; the sender knows the budget. A `notifications` row is the whole contract, so a failed send is retried, and nothing held back is dropped: it goes in the next message. A failure to queue is logged (`NOTIFY_QUEUE_FAILED`) and never stops the filing.
+- **One alert per email.** The key is the covering email's id, so a notice and its covering note are one line. A document quarantined for low confidence still alerts: not knowing whose it is says nothing about how urgent it is.
+- **Only news.** Mail received more than 2 days ago is not queued, so a backfill (21 days on Nov 3) does not empty three weeks of CRITICALs onto his phone at once.
+- **Budget:** one message carries everything pending. At most 3 a day (ET), 1 an hour, none 22:00–07:00. A CRITICAL in the batch sends it regardless (the tuning sprint's exit criterion is zero missed CRITICALs, and §7.8 lets notifications, never sends, break quiet hours). The count is `NOTIFY_SENT` rows in `actions_log`.
+- **Content:** plain text, no previews, every line redacted (R15) and capped at 140 characters, bare domains defanged (`evil[.]com`) because the fields come from untrusted mail and Telegram links them. A HEALTH document is "a private item". The text passes through Telegram's servers and shows on a lock screen.
+- **Through @MREOCbot**, the gateway's chat bot, to the kill switch's owner id. Not @MREOC18bot, which is only the kill switch (D-059). Sending does not compete with the gateway's update reader.
+- **Watched by the brief:** `NOTIFY_CHECKED`, at most hourly, stale after 3 h; `NOTIFY_FAILED` shows with Telegram's reason until the next good pass. The alert job is the one stalled job it cannot push, so it is excluded from its own list.
+
+Not done: pushing the digest's ACT NOW escalations (R15) and the brief itself; mail is still polled twice a day (R16), so an alert is as fresh as the last mail pass. **1059 passed, 1 skipped, 1 xfailed** on Windows.
+
 ### D-075 — Reconciliation: findings and candidate links, never edits
 **Status:** Decided · Nov 3 2026 · developer · implements R26 (addendum §4 "Reconcile and surface action"; §7 scenarios 4 and 6) · not yet run on the Mac, not scheduled
 

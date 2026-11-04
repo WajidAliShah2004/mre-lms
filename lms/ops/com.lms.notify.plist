@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Telegram alerts, every 15 minutes. R10, D-077. ops/notify.py says what is
+  sent, when, and through which bot.
+
+  Install (ops/NOTIFY_APPLY.md):
+    cp ops/com.lms.notify.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.lms.notify.plist
+
+  StartInterval: a pass missed while the Mac slept is worth nothing once the
+  next one is due; whatever was pending is still pending, and goes then.
+  Mail itself arrives on the mail job's schedule, so an alert is as fresh as
+  the last mail pass, not as this interval.
+
+  A LaunchAgent: the Keychain items are in the login keychain. A halt (D-059)
+  disables this job with the rest, and run by hand while halted it sends
+  nothing.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.lms.notify</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/mleca/lms-repo/lms/.venv/bin/python</string>
+        <string>/Users/mleca/lms-repo/lms/ops/notify.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/mleca/lms-repo/lms</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>TZ</key>
+        <string>America/New_York</string>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <key>StartInterval</key>
+    <integer>900</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/mleca/LMS/logs/notify.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/mleca/LMS/logs/notify.err</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>Nice</key>
+    <integer>10</integer>
+</dict>
+</plist>

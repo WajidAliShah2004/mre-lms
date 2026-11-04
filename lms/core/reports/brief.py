@@ -448,6 +448,8 @@ WATCHED_JOBS: dict[str, tuple[str, int]] = {
     # Once armed, a configured copy that stops (failing nightly, or the
     # Keychain items gone) is reported like any other stalled job.
     "OFFSITE_COPY_COMPLETED": ("off-site backup", 48),
+    # Telegram alerts (R10): every 15 min, a heartbeat row at most hourly.
+    "NOTIFY_CHECKED":   ("alerts",  3),
 }
 
 # Jobs that also record their own failure. While the failure row is newer than
@@ -459,6 +461,7 @@ WATCHED_JOBS: dict[str, tuple[str, int]] = {
 #   failure action          success action it is cleared by
 JOB_FAILURES: dict[str, str] = {
     "MODEL_HEALTH_FAILED": "MODEL_HEALTH_OK",
+    "NOTIFY_FAILED":       "NOTIFY_CHECKED",
 }
 
 
@@ -485,8 +488,9 @@ def stalled_jobs(conn: sqlite3.Connection, now: datetime) -> list[str]:
     job, and an alarm that fires on day one is an alarm that gets ignored by
     day two. The first successful run arms it.
 
-    It is also, until Telegram push (R10), the only alert there is: a failed
-    model health check (R34) is told to him here and nowhere else.
+    Each line is also pushed to Telegram by ops/notify.py (R10, D-077), once
+    a day per job, except the alert job's own: a stopped alert job cannot
+    report itself, so here is the only place that one is said.
     """
     # Every ts in actions_log carries an offset — now_iso() writes
     # "2026-09-10T08:31:40-04:00" — and `datetime.now()` is naive. Subtracting

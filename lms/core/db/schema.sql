@@ -502,3 +502,24 @@ CREATE TABLE IF NOT EXISTS recon_findings (
 );
 
 CREATE INDEX IF NOT EXISTS idx_recon_findings_status ON recon_findings(status);
+
+-- ---------------------------------------------------------------------------
+-- notifications — the Telegram alert queue (R10, D-077). Ingest adds a row
+-- when a document interrupts (core/pipeline/notify.py); ops/notify.py sends
+-- every pending row in one message when the budget allows and sets sent_at.
+-- `key` makes queueing idempotent: one alert per email, however many of its
+-- parts are re-ingested. `text` is stored already redacted.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS notifications (
+    id              INTEGER PRIMARY KEY,
+    key             TEXT    NOT NULL UNIQUE,
+    reason          TEXT    NOT NULL
+                    CHECK (reason IN ('CRITICAL','LEGAL','PHISHING','SYSTEM')),
+    critical        INTEGER NOT NULL DEFAULT 0,
+    artifact_id     INTEGER REFERENCES artifacts(id),
+    text            TEXT    NOT NULL,
+    created_at      TEXT    NOT NULL,
+    sent_at         TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_notifications_pending ON notifications(sent_at);
