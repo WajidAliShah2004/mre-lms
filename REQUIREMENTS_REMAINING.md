@@ -30,7 +30,7 @@ Where the addendum and the spec disagree, the **addendum wins** (it is later). I
 | R6 | Calendar invitations and notes as a source | ADD §1, §6, SPEC §7.6 | — |
 | R7 | ~~Coverage register: every source, its method, permissions, last checkpoint, gaps (WhatsApp listed as "no supported path")~~ **Built Nov 3 (D-069)**: `config/sources.yaml` (18 sources), `source_checks`, `ops/coverage.py`; mail records every pass. Shown in the brief since the merge (D-072) | ADD §4, §6 | — |
 | R8 | Strict read-only mode for every new source (no move, no rename) | ADD §0 | — |
-| R39 | Poll `mreconsultinginsurance@gmail.com` (business mail goes there) | Matthew, Oct 19 (D-065) | **Added to B_MRE (MRE Consulting & Insurance LLC) Nov 5, so the mail job polls it once signed in.** Still needs its Google sign-in (Nov 5 `--check`: nothing stored), then a 21-day backfill |
+| R39 | Poll `mreconsultinginsurance@gmail.com` (business mail goes there) | Matthew, Oct 19 (D-065) | **Done Nov 5.** Routed to B_MRE (MRE Consulting & Insurance LLC); signed in through the External app, `--check` works, 21-day backfill filed 130 of 131 listed messages. The twice-daily mail job now polls it |
 | R40 | WhatsApp, hourly, read-only | Matthew, Oct 19 (D-065) | No supported path; Matthew: OK to try the unofficial Mac-app route |
 
 ### Email hygiene

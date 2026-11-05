@@ -109,16 +109,15 @@ sources:
     label: Business Gmail (mreconsultinginsurance)
     kind: email
     account: mreconsultinginsurance@gmail.com
-    method: Gmail API, once authorised (ops/authorise_gmail.py)
-    permissions: none held; needs gmail.readonly via the External app (D-061)
+    method: Gmail API, read-only poll of a rolling window (ops/poll_mail.py)
+    permissions: gmail.readonly via the published External app (D-061)
     cadence_hours: 12
-    status: pending
+    status: active
     requirement: R39
-    blocked_on: >-
-      One Google sign-in (Nov 5 --check: nothing stored). Added to B_MRE in
-      entities.yaml, so the mail job polls it once a grant exists; set active
-      after --check works.
-    gaps: Business mail that goes to this address is not read.
+    gaps: >-
+      Routed to B_MRE by recipient (entities.yaml); the classifier still files
+      personal items (IONOS invoices) to PERSONAL. Calendar attachments (.ics)
+      are not read (R6). Signed in and backfilled 21 days on Nov 5.
 
   # -------------------------------------------------------------------------
   # Texts and calls
