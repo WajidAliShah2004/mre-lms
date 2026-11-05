@@ -23,9 +23,9 @@ Where the addendum and the spec disagree, the **addendum wins** (it is later). I
 | # | Item | Source | Blocked on |
 |---|---|---|---|
 | R1 | 5th mailbox `matthew@atlase.ai` (separate mailbox or alias?) | MTG "all my emails", SETUP | Matthew: which it is |
-| R2 | iMessage / texts, read-only | MTG, SPEC Phase 10, ADD §6 | Full Disk Access; Matthew: which Apple ID his iPhone's iMessage uses — the Mac's Messages is on `mattyeps@gmail.com`, not `mrecaitechnology@gmail.com` (D-068; that address unconfirmed, D-076); Text Message Forwarding for SMS. Scope: **all chats, hourly** (D-065) |
+| R2 | iMessage / texts, read-only | MTG, SPEC Phase 10, ADD §6 | Full Disk Access; the Mac's Messages is on `mattyeps@gmail.com`, which is OpenClaw's Apple ID (D-078), so likely right; his iPhone's Send & Receive confirms it (D-068); Text Message Forwarding for SMS. Scope: **all chats, hourly** (D-065) |
 | R3 | Call transcripts, voicemail, Google Voice, phone logs | MTG, SPEC DEC-5, ADD §6 | Matthew: where transcripts come from (C15) |
-| R4 | Photo Shortcut installed and used on his phone | MTG, SPEC Phase 5, ADD §0 | Matthew: install + first run. Phone's Apple ID unconfirmed: reported as `mrecaitechnology@gmail.com` (D-065), which may not exist (D-076); the Mac must be signed in to the same Apple ID |
+| R4 | Photo Shortcut installed and used on his phone | MTG, SPEC Phase 5, ADD §0 | Matthew: install + first run. Apple ID is `mattyeps@gmail.com` (D-078); the Mac's iCloud must be moved to it first |
 | R5 | Google Drive, Dropbox, whole iCloud Drive, approved Mac folders — **read-only** | ADD §4, SPEC Q68 (Dropbox) | Scope = everything (D-065). Matthew: which Dropbox and Google accounts; one read-only grant each |
 | R6 | Calendar invitations and notes as a source | ADD §1, §6, SPEC §7.6 | — |
 | R7 | ~~Coverage register: every source, its method, permissions, last checkpoint, gaps (WhatsApp listed as "no supported path")~~ **Built Nov 3 (D-069)**: `config/sources.yaml` (18 sources), `source_checks`, `ops/coverage.py`; mail records every pass. Shown in the brief since the merge (D-072) | ADD §4, §6 | — |
@@ -37,7 +37,7 @@ Where the addendum and the spec disagree, the **addendum wins** (it is later). I
 | # | Item | Source |
 |---|---|---|
 | R9 | Unsubscribe spam — `List-Unsubscribe` header only, logged, 30-day resubscribe log | MTG, SPEC Q33–Q35 |
-| R10 | ~~Tell him when an important email arrives (push; 3/day baseline, 1/hour max outside briefs)~~ **Built Nov 4 (D-077)**: Telegram via @MREOCbot for CRITICAL, legal/tax, phishing and stalled jobs; install per [lms/ops/NOTIFY_APPLY.md](lms/ops/NOTIFY_APPLY.md). Not yet: ACT NOW escalations, $2,500 anomalies | MTG, SPEC §8.8 |
+| R10 | ~~Tell him when an important email arrives (push; 3/day baseline, 1/hour max outside briefs)~~ **Built Nov 4 (D-077)**: Telegram via @MREOCbot for CRITICAL, legal/tax, phishing and stalled jobs; **installed on the Mac Nov 4** ([lms/ops/NOTIFY_APPLY.md](lms/ops/NOTIFY_APPLY.md)). Not yet: ACT NOW escalations, $2,500 anomalies | MTG, SPEC §8.8 |
 | R11 | Draft replies for his approve / change / send; nothing sends without approval | MTG, SPEC, ADD level B |
 | R12 | Drafting in his voice (style from sent mail; attorney mail excluded) | SPEC (voice corpus) |
 
@@ -69,13 +69,13 @@ Where the addendum and the spec disagree, the **addendum wins** (it is later). I
 | # | Item | Source |
 |---|---|---|
 | R29 | Off-site backup to Backblaze (private bucket, bucket-only key). **Built inert Nov 3 (D-071)**; Matthew: create the private bucket and a bucket-restricted key ([lms/ops/OFFSITE_APPLY.md](lms/ops/OFFSITE_APPLY.md)) and give D-012's written sign-off. Follow-up: the local repository is never pruned | SETUP, SPEC §11.4 |
-| R30 | Rotate the @MREOC18bot token (shared as a screenshot) | ADD §5 (credential revocation) |
+| R30 | ~~Rotate the @MREOC18bot token (shared as a screenshot)~~ **Done Nov 4**: rotated, re-stored, `verify_setup` [11] asks Telegram to accept it | ADD §5 (credential revocation) |
 | R31 | ~~`gateway.auth.token` into the Keychain~~ **Already done Aug 7 (D-016)**: exec SecretRef to `/usr/bin/security`, token rotated. Confirmed on the Mac Oct 3: `secrets audit` plaintext=1, and that one is the LM Studio `apiKey` placeholder, not the gateway token. Listed here in error on Oct 7 | ADD §5, SPEC §8.4 |
 | R32 | Weekly `security audit --deep` job (built, not installed) | SPEC Q216 |
 | R33 | Outbound egress allowlist — deferred to handover (D-063) | SPEC §4.1 principle 8 |
-| R34 | ~~Model health ping (5 min) with reload and alert~~ **Built Nov 3 (D-070)**; install on the Mac per [lms/ops/MODEL_HEALTH_APPLY.md](lms/ops/MODEL_HEALTH_APPLY.md). A failure is pushed to Telegram once R10 is installed (D-077) | SPEC §4.6.5, ADD §5 |
+| R34 | ~~Model health ping (5 min) with reload and alert~~ **Built Nov 3 (D-070)**; install on the Mac per [lms/ops/MODEL_HEALTH_APPLY.md](lms/ops/MODEL_HEALTH_APPLY.md). A failure is pushed to Telegram by R10 (D-077, installed Nov 4) | SPEC §4.6.5, ADD §5 |
 | R35 | Repo transferred to `Mleca18`; RustDesk removed at handover | SETUP item 1, SPEC §12.4 |
-| R36 | DMARC on mrecai.com, mleca.com, atlase.ai (his DNS) | SPEC Rec 16 |
+| R36 | DMARC on mrecai.com, mleca.com, atlase.ai, atlaseai.com. DNS is at IONOS and the developer has the logins (D-078) | SPEC Rec 16 |
 
 ### Acceptance
 | # | Item | Source |
@@ -90,7 +90,7 @@ Where the addendum and the spec disagree, the **addendum wins** (it is later). I
 | # | Spec says | Addendum says | Recommendation |
 |---|---|---|---|
 | X1 | Hard stops: never move money, never send without approval | Level C: pay verified recurring bills, send routine replies, inside a mandate | Shadow mode per action class first; lift a hard stop only by a recorded decision per class. No payment rail exists yet. **Oct 19: accepted in principle; bills and bank on a call (D-065)** |
-| X2 | DEC-8: business documents to Google Shared Drives per entity | Managed copies **only** in `iCloud Drive/OpenClaw` | Follow the addendum. **Oct 19: iCloud+ and ADP done on `mrecaitechnology@gmail.com` (D-065)**; the Mac must be moved to that Apple ID, **once confirmed (D-076)** |
+| X2 | DEC-8: business documents to Google Shared Drives per entity | Managed copies **only** in `iCloud Drive/OpenClaw` | Follow the addendum. **Oct 19: iCloud+ and ADP done (D-065); Nov 4: the Apple ID is `mattyeps@gmail.com` (D-078)**; the Mac's iCloud must be moved to it |
 | X3 | Entities: no Atlase products | Atlase products are entities | Ask: the product names |
 | X4 | Tailscale-only remote access (spec S3) | — | D-063 chose RustDesk; R38's port scan cannot pass "outside Tailscale" until that is reversed |
 

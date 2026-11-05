@@ -156,6 +156,7 @@ businesses:
     # that will receive mail.
     domains:
       - "atlase.ai"
+      - "atlaseai.com"          # Matthew, Nov 4: his, at IONOS with atlase.ai (D-078)
       - "atlas.te"              # VERIFY — from the Aug 6 planning docs, never
                                 # confirmed. ".te" is not a valid TLD; this is
                                 # probably a typo for atlas.tech or atlas.team.

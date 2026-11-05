@@ -884,8 +884,19 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 
 **302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
 
+### D-078 — Matthew's answers of Nov 4: OpenClaw's iCloud is mattyeps@gmail.com; his domains' DNS is at IONOS
+**Status:** Recorded · Nov 4 2026 · WhatsApp, relayed to the developer by Zeeshan Liaqat · answers D-076; bears on D-068, C12, X2, R4, R24, R36
+
+| Item | Answer | Consequence |
+|---|---|---|
+| Apple ID for OpenClaw | "OpenClaw iCloud id mattyeps@gmail.com" (Zeeshan's line in the relay, sent with Matthew's messages) | **Replaces `mrecaitechnology@gmail.com`** (D-065), which is dropped: D-076 is answered. The Mac's Messages is already on `mattyeps@gmail.com` (D-068); its iCloud is on `mreconsultinginsurance@gmail.com` and must move to `mattyeps`. That move needs the `mattyeps` **Apple ID** password (not given; it need not match the Gmail one) and, with ADP on, approval on his iPhone. Signing the Mac's iCloud out of `mreconsultinginsurance` takes that account's iCloud Drive off this Mac, so first check what the brief (D-046) and the watcher read and write there. That his iPhone is on `mattyeps` too was not said in words; the photo Shortcut's first photo reaching the Mac is the test (R4) |
+| Who holds his DNS | IONOS: one login for mrecai.com, atlase.ai and **atlaseai.com**; a separate login for mleca.com | R36 (DMARC) no longer waits on him: the developer has the logins. Publish `p=none` with aggregate reports first, read a week of reports, then tighten; D-054 removed IONOS from mrecai.com's SPF, so a site form still sending through IONOS would show there. **atlaseai.com** was not on record: added to Atlase's domains in `entities.yaml` and to R36 |
+| Passwords | Five, in plain text on WhatsApp: matthew@mleca.com, mre@atlase.ai, matthew@mrecai.com, and the two IONOS logins | **Not recorded anywhere in this repo or the Keychain.** A person types them into the provider's own page; no script takes them. matthew@mrecai.com's is not needed (its OAuth grant works). Two pairs are the same password. Same incident as D-017: after setup, each becomes a unique password and the messages are deleted on both phones |
+
+Not answered by these messages: `matthew@atlase.ai` (R1), which entity `mreconsultinginsurance@gmail.com` mail belongs to (R39), where call transcripts come from (C15), which Dropbox and Google accounts (R5), the WhatsApp route (R40), Atlase product names (X3), the ChatGPT files (R23).
+
 ### D-077 — Telegram alerts: a queue at ingest, a budget at send
-**Status:** Decided · Nov 4 2026 · developer · implements R10 (MTG; spec §8.8, §7.8) · not yet on the Mac ([lms/ops/NOTIFY_APPLY.md](lms/ops/NOTIFY_APPLY.md))
+**Status:** Applied on the Mac · Nov 4 2026 · developer · implements R10 (MTG; spec §8.8, §7.8) · test message delivered, `com.lms.notify` running every 15 minutes ([lms/ops/NOTIFY_APPLY.md](lms/ops/NOTIFY_APPLY.md))
 
 `core/pipeline/notify.py` decides what interrupts; `ops/notify.py`, run by `com.lms.notify` every 15 minutes, decides when.
 
@@ -1093,10 +1104,10 @@ Reply to the "4 mailboxes and Telegram are live" message. His answers, in his wo
 
 | Question | Answer | Consequence |
 |---|---|---|
-| `/halt` to @MREOC18bot from his phone | "DONE" | Acceptance item in Phase 7 met **once verified on the Mac**: `~/LMS/HALTED.json` timestamp and the haltbot log showing his id. **The system is now halted** (mail, watcher, brief, backup, gateway) until `./ops/halt.py --resume` is run at the Mac. Token rotation for @MREOC18bot is still owed (R30) |
+| `/halt` to @MREOC18bot from his phone | "DONE" | Acceptance item in Phase 7 met **once verified on the Mac**: `~/LMS/HALTED.json` timestamp and the haltbot log showing his id. **The system is now halted** (mail, watcher, brief, backup, gateway) until `./ops/halt.py --resume` is run at the Mac. Token rotation for @MREOC18bot is still owed (R30). **Verified Nov 4:** the haltbot log shows it on Oct 18, halted in 0.34 s; token rotated the same day (D-059) |
 | @MREOCbot can't change anything | "OKAY" | Acknowledged (D-060) |
 | Auto-payments / replies in trial mode; which bills, which bank | "YES LETS TALK ABOUT IT" | Shadow mode accepted **in principle** (gap analysis 2.1). Bills, bank and reply types still to be settled on a call. Hard stops `never_move_money` / `never_send_without_approval` stay until a per-class decision is recorded |
-| iCloud+ 2 TB with Advanced Data Protection; Apple ID on the iPhone | "ALREADY DONE AND ITS FOR MRECAITECHNOLOGY@GMAIL.COM" | **Unconfirmed: reported Nov 3 not to exist (D-076).** **A seventh address, and not the Mac's Apple ID** (`mreconsultinginsurance@gmail.com`). The phone Shortcut writes to `mrecaitechnology`'s iCloud; the Mac's watcher and the brief (D-046) use `mreconsultinginsurance`'s. Until the Mac is signed in to the same Apple ID, the Shortcut's photos never reach the watcher and `iCloud Drive/OpenClaw` cannot be the managed root. With ADP on, signing the Mac in needs approval from his iPhone |
+| iCloud+ 2 TB with Advanced Data Protection; Apple ID on the iPhone | "ALREADY DONE AND ITS FOR MRECAITECHNOLOGY@GMAIL.COM" | **Superseded Nov 4 (D-078): OpenClaw's Apple ID is `mattyeps@gmail.com`; the address below is dropped.** Reported Nov 3 not to exist (D-076). **A seventh address, and not the Mac's Apple ID** (`mreconsultinginsurance@gmail.com`). The phone Shortcut writes to `mrecaitechnology`'s iCloud; the Mac's watcher and the brief (D-046) use `mreconsultinginsurance`'s. Until the Mac is signed in to the same Apple ID, the Shortcut's photos never reach the watcher and `iCloud Drive/OpenClaw` cannot be the managed root. With ADP on, signing the Mac in needs approval from his iPhone |
 | Which Dropbox / Drive folders | "LET IT READ EVERYTHIG" | Scope = everything, read-only (R5, R8). Still needed: which Dropbox account(s), and whether "Drive" means all Google accounts. Each needs its own read-only grant (`drive.readonly`, Dropbox read scope). Backfill runs in batches (R28) |
 | ChatGPT account; Sept 24 files | "I WILL RESEND THEM SHORTLY" | Files pending. **Which account** was not answered |
 | Messages checked hourly; iMessage? | "ALL WHATSAPP, IMESSAGE" | Hourly sources = WhatsApp and iMessage. **iMessage: all chats**, which closes C13's opt-in list as "all" by his choice (default had been none). **WhatsApp has no supported read path** (R7); to evaluate: WhatsApp's Mac app, read-only from its local database with Full Disk Access (unofficial, can break on update). Not answered: whether email is an hourly source; Google Voice |
@@ -1138,7 +1149,7 @@ Not pursued, by the developer's decision, recorded so the gap is visible rather 
 - **Down-notification for power cuts (C8).** Unlock owner is Matthew; nothing tells him the machine is down beyond the brief's stalled-job section (D-051), which itself stops when the machine does.
 - **Remaining registry data (C16):** C.H. Shink, both parents' names, Jessie's email. `B_CHS`, `P_AE`, `P_PE` stay placeholders and `test_no_placeholders_remain` stays xfail. Mail mentioning them goes to review rather than being filed to them.
 
-Still open and not dropped: @MREOC18bot token rotation, /halt from Matthew's phone at acceptance, and the addendum questions (ADDENDUM_2026-09-28_GAP_ANALYSIS.md §4).
+Still open and not dropped: @MREOC18bot token rotation and /halt from Matthew's phone at acceptance (both done Nov 4, D-059), and the addendum questions (ADDENDUM_2026-09-28_GAP_ANALYSIS.md §4).
 
 ### D-061 — One Google app per Workspace, and a published External app for the personal Gmail
 **Status:** Applied · Oct 6 2026 — 4 of 5 mailboxes polled; matthew@atlase.ai pending (separate mailbox or alias of mre@atlase.ai: unknown)
@@ -1193,7 +1204,7 @@ Written from `openclaw config schema` on the Mac (2026.7.1-2), not from the spec
 `tests/test_phase7b.py` parses the patch, rather than grepping it, and asserts each property above. The halt still covers this: the gateway is an `ai.openclaw.*` job, so `/halt` to @MREOC18bot stops the chat too.
 
 ### D-059 — The kill switch is its own bot and stops every job, not the gateway
-**Status:** Applied on the Mac · Oct 6 2026 · **local halt 0.3 s, Telegram /halt 0.3 s** (limit 10 s), all five jobs disabled, haltbot up throughout, resume restored all five. Owed: token rotation (below), and /halt from Matthew's own phone at acceptance.
+**Status:** Applied on the Mac · Oct 6 2026 · **local halt 0.3 s, Telegram /halt 0.3 s** (limit 10 s), all five jobs disabled, haltbot up throughout, resume restored all five. **Acceptance met Nov 4:** /halt from Matthew's own phone on Oct 18 halted in 0.34 s (haltbot log on the Mac, 1.3 s Telegram lag on top), and the token was rotated and re-stored Nov 4 (below).
 
 **OpenClaw has no `/halt`.** Its command list (docs.openclaw.ai/tools/slash-commands, read Oct 6) has `/stop`, which aborts the current reply, and `/restart`. Nothing stops the gateway from chat. The Sept 8 Phase 7 plan, RUNBOOK page 1 and D-005 all assumed a command that does not exist.
 
@@ -1218,7 +1229,7 @@ Written from `openclaw config schema` on the Mac (2026.7.1-2), not from the spec
 
 Re-run: `verify_halt.sh` PASS, HALTED in 0.3 s, nothing force-killed. Then `/halt` from Telegram (Matthew's account, on the Mac): HALTED in 0.3 s; `/status` showed every job `disabled`.
 
-**Token, Oct 6:** the screenshotted token was kept for now at the developer's request (the user's choice; rotation deferred). Someone holding it cannot halt or resume anything, but can consume updates, which would swallow a /halt, and can message Matthew as the bot. **Rotate before acceptance:** BotFather `/revoke`, then the one-line clipboard store in PHASE7_APPLY step 1 with `-U`, then `launchctl kickstart -k gui/$(id -u)/com.lms.haltbot`. Storing it over RustDesk failed three ways first (a short paste, the whole message, an empty value, because RustDesk overwrote the Mac clipboard between check and store). Only the single-command check-and-store worked.
+**Token, Oct 6:** the screenshotted token was kept for now at the developer's request (the user's choice; rotation deferred). Someone holding it cannot halt or resume anything, but can consume updates, which would swallow a /halt, and can message Matthew as the bot. **Rotate before acceptance:** BotFather `/revoke`, then the one-line clipboard store in PHASE7_APPLY step 1 with `-U`, then `launchctl kickstart -k gui/$(id -u)/com.lms.haltbot`. **Rotated and re-stored Nov 4**; `halt_bot.py --check` OK, and `verify_setup` [11] now fails if Telegram refuses the stored token. Storing it over RustDesk failed three ways first (a short paste, the whole message, an empty value, because RustDesk overwrote the Mac clipboard between check and store). Only the single-command check-and-store worked.
 
 **7b (gateway chat) is deliberately not written yet.** The Sept 8 draft used `channels.telegram.token`; the docs say `botToken`, and the default DM policy is `pairing`, which lets anyone request pairing. D-021 and D-056 both came from writing config from documents. The patch will be written from `openclaw config schema` read on the Mac (PHASE7_APPLY 7b step 1).
 
@@ -1650,7 +1661,7 @@ Email + photographed mail + the to-do list are the visible value. Day 4's call-t
 ## Open — these block work
 
 ### D-076 — Matthew's iPhone Apple ID is unconfirmed
-**Status:** OPEN · blocks the Mac's Apple ID move (C12, X2), R4 (photo Shortcut), R24 (managed iCloud root); bears on D-068 · raised Nov 3 2026
+**Status:** Answered Nov 4 2026 (D-078): `mattyeps@gmail.com` · raised Nov 3 2026 · blocked the Mac's Apple ID move (C12, X2), R4 (photo Shortcut), R24 (managed iCloud root)
 
 D-065 recorded the iPhone's Apple ID as `mrecaitechnology@gmail.com`, from Matthew's reply of Oct 19 ("ALREADY DONE AND ITS FOR MRECAITECHNOLOGY@GMAIL.COM"). On Nov 3 the developer reported that no such mailbox exists. Either the reply has a typo, or the Apple ID is an address with no Gmail inbox behind it (an Apple ID keeps working after its email is gone). Until he confirms it, every mention of that address in this repo is a reported value, not a known one, and nothing may be signed in to it.
 
@@ -1658,11 +1669,11 @@ What decides it, on his iPhone:
 - **Settings → his name at the top**: the email under the name is the iCloud Apple ID.
 - **Settings → Messages → Send & Receive**: the iMessage Apple ID (D-068), which can differ.
 
-> **Answer (record here):**
-> **Date:**
+> **Answer (record here):** "OpenClaw iCloud id mattyeps@gmail.com". `mrecaitechnology@gmail.com` is dropped. The phone itself was not named; the Shortcut's first photo reaching the Mac confirms it (D-078).
+> **Date:** Nov 4 2026, WhatsApp, relayed by Zeeshan Liaqat
 
 ### D-068 — Which Apple ID carries Matthew's iMessage
-**Status:** OPEN · blocks R2 (iMessage, hourly, all chats per D-065) · found Nov 3 2026 in the Mac terminal log of Oct 6
+**Status:** OPEN · blocks R2 (iMessage, hourly, all chats per D-065) · found Nov 3 2026 in the Mac terminal log of Oct 6 · **Nov 4 (D-078): OpenClaw's Apple ID is `mattyeps@gmail.com`, the account the Mac's Messages already uses.** Likely right as it stands; his iPhone's Send & Receive screen still decides it
 
 The Mac's account database (`~/Library/Accounts/Accounts4.sqlite`, read Oct 6) shows three identities, not one:
 

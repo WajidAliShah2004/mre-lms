@@ -37,8 +37,12 @@ four times.
     ./ops/authorise_gmail.py matthew@mrecai.com --client-json ~/Downloads/client_secret_*.json
     ./ops/authorise_gmail.py matthew@mrecai.com --check
 
-    # a second mailbox, reusing the app already stored for the first:
-    ./ops/authorise_gmail.py matthew@mleca.com --client-from matthew@mrecai.com
+    # re-authorising a mailbox (invalid_grant), reusing its own stored app:
+    ./ops/authorise_gmail.py matthew@mleca.com --client-from matthew@mleca.com
+
+An Internal app serves only its own Workspace, so --client-from must name a
+mailbox in the same domain (mrecai.com, mleca.com and atlase.ai are three
+Workspaces, D-061); across domains Google answers `403 org_internal`.
 
 Before saving, it asks Gmail which mailbox the new token actually reads, and
 refuses if that is not the address given — the browser is usually already

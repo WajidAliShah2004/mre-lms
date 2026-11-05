@@ -1,5 +1,9 @@
 # Phase 7 acceptance — at the Mac, after Matthew's /halt
 
+**Done Nov 4.** The haltbot log shows his /halt on Oct 18, halted in 0.34 s;
+the token was rotated and re-stored the same day (D-059). Kept as the record
+of how it was checked.
+
 Matthew reported sending `/halt` to @MREOC18bot from his phone on Oct 19
 (D-065). If it worked, **everything except the haltbot is stopped** — mail, the
 watcher, the brief, the backup, the gateway — and stays stopped until resumed
