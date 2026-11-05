@@ -85,6 +85,7 @@ ls -la ~/.openclaw/workspace-lms-orchestrator/
   4. `registerCommand` options and the handler's context field names for channel, sender and arguments; what returning `{ text: "" }` does.
   5. Whether `lms` and `halt` are free names.
   6. Which workspace files OpenClaw injects into the prompt, and the per-file character limit.
+  Done Nov 5 with `ops/chat_control_facts.sh`; rows 4, 5 and parts of 1–3 were left open (its greps for the handler context and reserved names found nothing). Second pass: `ops/plugin_api_facts.sh`, which reads the `.d.ts` types, a bundled plugin that calls `registerCommand`, the current `plugins`/`commands`/`bindings` config and the WhatsApp doc.
 - [ ] **Step 3: Adjust before Task 2.** If any fact differs from what Tasks 2–6 assume (`USER.md` injected, ≥15,000 chars allowed; context fields `channel`, `senderId`, `args`; `plugins.load.paths` and `plugins.entries.<id>.enabled`; `channels.whatsapp.{dmPolicy,allowFrom,selfChatMode,groupPolicy,groupAllowFrom,configWrites}`), edit those tasks' code in this plan first. If plugin commands do not bypass the agent at all, **stop** and report to the user: the design depends on it.
 - [ ] **Step 4: Commit** the filled-in plan.
 
@@ -499,7 +500,7 @@ git commit -m "D-080: read-only snapshot for lms-orchestrator (ops/agent_context
   - `@dataclass class Env` with fields `connect: Callable[[], sqlite3.Connection]`, `owners: dict[str, str]`, `flag: Path`, `run: Callable[[list[str]], subprocess.CompletedProcess]`, `spawn_halt: Callable[[str], None]`, `status: Callable[[], dict]`, `refresh: Callable[[sqlite3.Connection], None]`, `now: Callable[[], datetime]`, `uid: int`, `log: Callable[[str], None]`.
   - `handle(words: list[str], channel: str, sender: str, env: Env) -> str`
   - `COMMANDS: dict[str, Callable[[Env, sqlite3.Connection | None, list[str], str], str]]`, `CHANGES: set[str]`, `NEEDS_DB: set[str]`, `HELP: str`, `MAX_REPLY = 3500`.
-  - `sender_id(raw: str) -> str` (digits of the part before `@` and `:`).
+  - `sender_id(raw: str) -> str` (drop a leading `channel:`, then digits of the part before `@` and `:`).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -588,6 +589,7 @@ def task(env, title, *, due=None, status="TRIAGED", sensitivity="normal"):
     ("telegram", TG), ("whatsapp", "+1 555 123 4567"),
     ("whatsapp", "15551234567@s.whatsapp.net"),
     ("whatsapp", "15551234567:12@s.whatsapp.net"),
+    ("whatsapp", "whatsapp:+15551234567"), ("telegram", f"telegram:{TG}"),
 ])
 def test_the_owner_is_recognised(env, channel, sender):
     assert remote.handle(["help"], channel, sender, env).startswith("LMS commands")
@@ -796,8 +798,10 @@ class Env:
 
 
 def sender_id(raw: str | None) -> str:
-    """'+1 555-123-4567', '15551234567@s.whatsapp.net', '1555...:12@...' -> digits."""
-    base = (raw or "").split("@", 1)[0].split(":", 1)[0]
+    """'+1 555-123-4567', '15551234567@s.whatsapp.net', '1555...:12@...',
+    'whatsapp:+1555...' -> digits. A leading 'channel:' is OpenClaw's own form."""
+    base = re.sub(r"^[a-z]+:", "", (raw or "").strip())
+    base = base.split("@", 1)[0].split(":", 1)[0]
     return re.sub(r"\D", "", base)
 
 
@@ -1351,6 +1355,7 @@ PATCH = LMS / "ops" / "remote.patch.json5"
 PLUGIN = LMS / "openclaw-plugin" / "lms-control"
 TG = "8783061626"
 WA = "__WHATSAPP_OWNER__"
+WA_E164 = "+" + WA          # config form (Mac facts row 1); Keychain holds digits
 
 sys.path.insert(0, str(LMS / "ops"))
 import verify_setup as vs                                    # noqa: E402
@@ -1365,7 +1370,7 @@ def test_whatsapp_is_an_allowlist_of_his_own_number(patch):
     wa = patch["channels"]["whatsapp"]
     assert wa["enabled"] is True
     assert wa["dmPolicy"] == "allowlist"
-    assert wa["allowFrom"] == [WA]
+    assert wa["allowFrom"] == [WA_E164]
     assert wa["selfChatMode"] is True
     assert wa["groupPolicy"] == "disabled" and wa["groupAllowFrom"] == []
     assert wa["configWrites"] is False
@@ -1388,8 +1393,8 @@ def test_both_chats_route_to_the_tool_less_agent_only(patch):
 
 def test_owners_are_exactly_matthew_on_both(patch):
     c = patch["commands"]
-    assert sorted(c["ownerAllowFrom"]) == sorted([f"telegram:{TG}", f"whatsapp:{WA}"])
-    assert c["allowFrom"] == {"telegram": [TG], "whatsapp": [WA]}
+    assert sorted(c["ownerAllowFrom"]) == sorted([f"telegram:{TG}", f"whatsapp:{WA_E164}"])
+    assert c["allowFrom"] == {"telegram": [TG], "whatsapp": [WA_E164]}
 
 
 def test_dangerous_chat_commands_stay_off(patch):
@@ -1563,7 +1568,8 @@ If Task 1 found `/halt` reserved, set `REGISTER_HALT = false` and leave the bloc
       // His own number only; self-chat ("Message yourself") is where he types.
       // Anyone else who messages him is dropped and never answered.
       dmPolicy: "allowlist",
-      allowFrom: ["__WHATSAPP_OWNER__"],
+      // E.164 with "+", as the schema's example; the Keychain holds digits only.
+      allowFrom: ["+__WHATSAPP_OWNER__"],
       selfChatMode: true,
       groupPolicy: "disabled",
       groupAllowFrom: [],
@@ -1588,8 +1594,8 @@ If Task 1 found `/halt` reserved, set `REGISTER_HALT = false` and leave the bloc
   ],
 
   commands: {
-    ownerAllowFrom: ["telegram:8783061626", "whatsapp:__WHATSAPP_OWNER__"],
-    allowFrom: { telegram: ["8783061626"], whatsapp: ["__WHATSAPP_OWNER__"] },
+    ownerAllowFrom: ["telegram:8783061626", "whatsapp:+__WHATSAPP_OWNER__"],
+    allowFrom: { telegram: ["8783061626"], whatsapp: ["+__WHATSAPP_OWNER__"] },
     bash: false,
     config: false,
     mcp: false,
@@ -1857,12 +1863,14 @@ The user runs `lms/ops/CHAT_CONTROL_APPLY.md` and pastes the output. Pushes to G
 
 ## Mac facts (filled in by Task 1)
 
+From `ops/chat_control_facts.sh` on Nov 5 (OpenClaw 2026.7.1-2, installed at `/opt/homebrew/lib/node_modules/openclaw`). Rows marked *open* are settled by `ops/plugin_api_facts.sh`.
+
 | # | Fact | Value on the Mac |
 |---|---|---|
-| 1 | `channels.whatsapp` keys | |
-| 2 | `plugins` keys to load and enable a local plugin | |
-| 3 | Plugin entry file and manifest fields | |
-| 4 | `registerCommand` options; handler context fields; empty reply behaviour | |
-| 5 | `lms` / `halt` free? | |
-| 6 | Injected workspace files; per-file character limit | |
-| 7 | WhatsApp link command | |
+| 1 | `channels.whatsapp` keys | All the plan uses exist: `enabled`, `dmPolicy` (`pairing` default, `allowlist`, `open`, `disabled`), `allowFrom`, `selfChatMode`, `groupPolicy` (`open`, `disabled`, `allowlist`; default `allowlist`), `groupAllowFrom`, `configWrites`. Number format: the schema's own example is `whatsapp:+15551234567`, so the patch writes `+` before the stored digits. Bindings peer id for WhatsApp: *open*. |
+| 2 | `plugins` keys to load and enable a local plugin | `plugins.load.paths` and `plugins.entries.<id>.enabled` (shipped `docs/tools/plugin.md`). Also `plugins.enabled` (global, default true) and `plugins.allow`: when set, only listed ids load, so `lms-control` must be added to it if it is set. Workspace-origin plugins are off until enabled or allowlisted. Current `plugins.allow` and `plugins.load`: *open* (the patch replaces arrays). |
+| 3 | Plugin entry file and manifest fields | Native plugin = `openclaw.plugin.json` + a runtime module loaded in process; manifest has at least `id`, `name`. Entry file name and whether plain `.js` ESM loads: *open* (read from a bundled plugin). |
+| 4 | `registerCommand` options; handler context fields; empty reply behaviour | `registerCommand(command: OpenClawPluginCommandDefinition)`; plugin commands are listed among slash commands in `docs/tools/slash-commands.md`. Field names: *open*. |
+| 5 | `lms` / `halt` free? | *open* |
+| 6 | Injected workspace files; per-file character limit | `AGENTS.md`, `BOOTSTRAP.md`, `HEARTBEAT.md`, `IDENTITY.md`, `MEMORY.md`, `SOUL.md`, `TOOLS.md`, `USER.md`. `agents.defaults.bootstrapMaxChars` default 20,000 per file; `bootstrapTotalMaxChars` default 60,000. The workspace's files total 11,649 bytes today, so `USER.md` + a 15,000-char block stays under both. `USER.md` (537 bytes) as planned. |
+| 7 | WhatsApp link command | `openclaw channels login --channel whatsapp` (options `--account`, `--verbose`), as planned. |
