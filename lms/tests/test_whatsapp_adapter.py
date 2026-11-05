@@ -141,3 +141,19 @@ def test_probe_prints_shape_not_content(box):
     assert p["counts"]["ZWAMESSAGE"] == 1
     assert p["message_types"] == {0: 1}
     assert "a secret" not in repr(p)
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ops"))
+
+
+def test_probe_command_reports_shape_and_exit_status(box, capsys):
+    import whatsapp as job
+    c = box.chat("15550100@s.whatsapp.net", "Acme")
+    box.message(c, datetime(2026, 11, 4, tzinfo=UTC), "private words")
+    assert job.do_probe(box.container) == 0
+    out = capsys.readouterr().out
+    assert "ZWAMESSAGE: 1" in out and "private words" not in out
+    box.conn.execute("DROP TABLE ZWAGROUPMEMBER")
+    assert job.do_probe(box.container) == 1
+    assert "MISSING: ZWAGROUPMEMBER" in capsys.readouterr().out
