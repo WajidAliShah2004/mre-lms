@@ -115,8 +115,9 @@ sources:
     status: pending
     requirement: R39
     blocked_on: >-
-      Matthew said yes on Oct 19 (D-065); needs one Google sign-in from him,
-      and the address added to entities.yaml.
+      One Google sign-in (Nov 5 --check: nothing stored). Added to B_MRE in
+      entities.yaml, so the mail job polls it once a grant exists; set active
+      after --check works.
     gaps: Business mail that goes to this address is not read.
 
   # -------------------------------------------------------------------------
