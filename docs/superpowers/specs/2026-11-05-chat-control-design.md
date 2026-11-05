@@ -73,7 +73,7 @@ The single entry point, tested with pytest like every other `ops/` script.
 | Command | Does |
 |---|---|
 | `help` (or nothing) | The list |
-| `status` | Halted or not (`_halt.status`), each `com.lms.*` job, last mail pass, last WhatsApp pass, last backup |
+| `status` | Halted or not (`_halt.status`), each `com.lms.*` job, last good mail check, last good WhatsApp check (from `source_checks`; the backup job's state is in the job list) |
 | `brief` | Today's brief text, shortened |
 | `tasks` · `tasks overdue` | Open tasks by ledger number: number, title, due date, entity |
 | `coverage` | Registered sources that are behind or failing |
