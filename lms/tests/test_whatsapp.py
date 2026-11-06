@@ -551,3 +551,38 @@ def test_an_unreadable_voice_file_counts_as_not_transcribed(conn, tmp_path):
     result = w.PassResult()
     assert w.voice_text(conn, chat.messages[0], tmp_path, lambda p, t: "x", result) is None
     assert result.voice_missing == 1 and result.failed == 0
+
+
+def test_hostile_message_ids_stay_inside_the_temp_dir(conn, pipe, tmp_path):
+    """A modified client chooses its own message ids: never a path segment."""
+    from core.pipeline.ingest import ingest_file
+    roots, registry, clf = pipe
+    src = tmp_path / "container"
+    src.mkdir()
+    (src / "INV.pdf").write_bytes(b"%PDF-1.4 invoice 31")
+    (src / "v.opus").write_bytes(b"opus")
+    tmp = tmp_path / "a" / "b" / "c" / "pass"
+    chat = direct(msg("../../../../x", at(4, 9), kind="document",
+                      media=Media(src / "INV.pdf", "INV.pdf", 20, None)),
+                  msg("../../../../v", at(4, 9, 1), kind="voice",
+                      media=Media(src / "v.opus", None, None, 5.0)))
+    w.record(conn, [chat])
+    handed = []
+
+    def speech(path, tmp_):
+        handed.append(path)
+        return "hello"
+
+    def watching(conn_, roots_, registry_, clf_, path, **kw):
+        handed.append(path)
+        return ingest_file(conn_, roots_, registry_, clf_, path, **kw)
+    result = w.PassResult()
+    assert w.close(conn, roots, registry, clf, [chat], at(5, 1), tmp, speech, result,
+                   ocr=False, ingest=watching) == 1
+    assert result.failed == 0
+    assert all(p.resolve().is_relative_to(tmp.resolve()) for p in handed), handed
+    assert not (tmp_path / "a" / "x").exists() and not (tmp.parent / "x").exists()
+    assert len(handed) == 3
+    for hostile in ("/abs/../../x", "../../x", "..", ""):
+        slot = w._slot(hostile)
+        assert len(slot) == 16 and slot.isalnum()

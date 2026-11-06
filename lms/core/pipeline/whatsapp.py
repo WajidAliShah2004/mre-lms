@@ -15,6 +15,7 @@ ever rewritten.
 
 from __future__ import annotations
 
+import hashlib
 import re
 import shutil
 import sqlite3
@@ -162,6 +163,12 @@ def _row(conn, stanza_id: str) -> sqlite3.Row:
                         (stanza_id,)).fetchone()
 
 
+def _slot(stanza_id: str) -> str:
+    """A temp directory name for a message. The id is the sender's client's
+    choice ("../../x", an absolute path): never a path segment itself."""
+    return hashlib.sha1(stanza_id.encode("utf-8")).hexdigest()[:16]
+
+
 def voice_text(conn: sqlite3.Connection, m: Message, tmp_dir: Path,
                transcriber: Transcriber, result: PassResult) -> str | None:
     """The cached transcription, or a new one. None if it cannot be had."""
@@ -173,7 +180,7 @@ def voice_text(conn: sqlite3.Connection, m: Message, tmp_dir: Path,
         return None
     if (m.media.duration_s or 0) > asr.MAX_SECONDS:
         return None
-    copy = Path(tmp_dir) / "voice" / m.stanza_id / m.media.local_path.name
+    copy = Path(tmp_dir) / "voice" / _slot(m.stanza_id) / m.media.local_path.name
     try:
         copy.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(m.media.local_path, copy)
@@ -346,7 +353,7 @@ def _file_day(conn, roots, registry, classifier, chat: Chat, day: str,
             result.media_missing += 1
             continue
         try:
-            copy = _copy(m.media.local_path, work / "media" / m.stanza_id,
+            copy = _copy(m.media.local_path, work / "media" / _slot(m.stanza_id),
                          _media_name(m.media.title, m.media.local_path))
             # A fresh Artifact with an EMPTY body, as mail does: the file's
             # own text fills it in. The caption ("here you go") stays in the
