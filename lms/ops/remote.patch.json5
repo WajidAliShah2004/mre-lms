@@ -1,0 +1,65 @@
+// Chat control (D-080): WhatsApp on Matthew's own number, the lms-control
+// plugin, and his number as a command owner. Telegram (Phase 7b) is repeated
+// here because a config patch replaces arrays: bindings and the owner lists
+// must name both chats or the Telegram entries would be dropped.
+//
+// Every key is from `openclaw config schema` on the Mac (plan Task 1), not from
+// the docs (D-021, D-056).
+//
+// His number is never committed. Apply (ops/CHAT_CONTROL_APPLY.md):
+//     N=$(security find-generic-password -a lms -s lms/whatsapp-owner -w)
+//     sed "s/__WHATSAPP_OWNER__/$N/g" ops/remote.patch.json5 > /tmp/remote.patch.json5
+//     openclaw config patch --file /tmp/remote.patch.json5 --dry-run
+//     openclaw config patch --file /tmp/remote.patch.json5
+//     rm /tmp/remote.patch.json5
+//     openclaw gateway restart
+
+{
+  channels: {
+    whatsapp: {
+      enabled: true,
+      // His own number only; self-chat ("Message yourself") is where he types.
+      // Anyone else who messages him is dropped and never answered.
+      dmPolicy: "allowlist",
+      // E.164 with "+", as the schema's example; the Keychain holds digits only.
+      allowFrom: ["+__WHATSAPP_OWNER__"],
+      selfChatMode: true,
+      groupPolicy: "disabled",
+      groupAllowFrom: [],
+      configWrites: false,
+    },
+  },
+
+  // Plain text from either chat reaches only the tool-less agent (D-056).
+  bindings: [
+    {
+      type: "route",
+      agentId: "lms-orchestrator",
+      comment: "Phase 7b: Matthew's Telegram DM. No tools (D-056).",
+      match: { channel: "telegram", peer: { kind: "direct", id: "8783061626" } },
+    },
+    {
+      type: "route",
+      agentId: "lms-orchestrator",
+      comment: "D-080: Matthew's WhatsApp self-chat. No tools (D-056).",
+      // Direct chats match E.164 numbers (shipped docs/channels/whatsapp.md).
+      match: { channel: "whatsapp", peer: { kind: "direct", id: "+__WHATSAPP_OWNER__" } },
+    },
+  ],
+
+  commands: {
+    ownerAllowFrom: ["telegram:8783061626", "whatsapp:+__WHATSAPP_OWNER__"],
+    allowFrom: { telegram: ["8783061626"], whatsapp: ["+__WHATSAPP_OWNER__"] },
+    bash: false,
+    config: false,
+    mcp: false,
+    plugins: false,
+    debug: false,
+    restart: false,
+  },
+
+  plugins: {
+    load: { paths: ["/Users/mleca/lms-repo/lms/openclaw-plugin/lms-control"] },
+    entries: { "lms-control": { enabled: true } },
+  },
+}

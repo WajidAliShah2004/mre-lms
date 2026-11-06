@@ -1,0 +1,11 @@
+{
+  "id": "lms-control",
+  "name": "LMS control",
+  "description": "Matthew's fixed /lms commands (D-080). Runs ops/remote.py; no AI involved.",
+  "version": "1.0.0",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

@@ -597,6 +597,74 @@ def check_kill_switch() -> None:
              f"./ops/halt.py --resume at the Mac")
 
 
+def whatsapp_problems(cfg: dict, owner: str) -> list[str]:
+    """What is wrong with channels.whatsapp for chat control (D-080). [] = fine."""
+    digits = lambda s: "".join(ch for ch in str(s) if ch.isdigit())   # noqa: E731
+    problems = []
+    if not owner:
+        problems.append("no WhatsApp owner in Keychain (lms/whatsapp-owner)")
+    if cfg.get("dmPolicy") != "allowlist":
+        problems.append(f"dmPolicy is {cfg.get('dmPolicy')!r}, not 'allowlist'")
+    allow = [digits(a) for a in cfg.get("allowFrom") or []]
+    if len(allow) != 1:
+        problems.append(f"allowFrom has {len(allow)} entries, not exactly one")
+    elif owner and allow[0] != digits(owner):
+        problems.append("allowFrom is not the Keychain owner's number")
+    if cfg.get("groupPolicy") != "disabled":
+        problems.append(f"groupPolicy is {cfg.get('groupPolicy')!r}, not 'disabled'")
+    if cfg.get("selfChatMode") is not True:
+        problems.append("selfChatMode is not on")
+    return problems
+
+
+def check_chat_control() -> None:
+    """[12] WhatsApp and Telegram control (D-080) is as narrow as designed."""
+    print("\n[12] Chat control (D-080)")
+    if sys.platform != "darwin":
+        warn(f"chat control is not checkable on {sys.platform}")
+        return
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import _halt
+    import halt_bot
+
+    try:
+        r = subprocess.run(["openclaw", "config", "get", "channels.whatsapp", "--json"],
+                           capture_output=True, text=True, timeout=30)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        warn("openclaw CLI not available; skipped")
+        return
+    if r.returncode != 0 and "path not found" in (r.stderr + r.stdout).lower():
+        warn("channels.whatsapp is not set; chat control not applied yet "
+             "(ops/CHAT_CONTROL_APPLY.md)")
+        return
+    try:
+        cfg = json.loads(r.stdout) if r.stdout.strip() else {}
+    except json.JSONDecodeError:
+        warn("could not parse channels.whatsapp; check by hand")
+        return
+    problems = whatsapp_problems(cfg, halt_bot.keychain("lms/whatsapp-owner") or "")
+    for p_ in problems:
+        fail(f"WhatsApp: {p_}")
+    if not problems:
+        ok("WhatsApp: allowlist of one, his own number, groups off, self-chat")
+
+    r = subprocess.run(["openclaw", "config", "get", "plugins.entries", "--json"],
+                       capture_output=True, text=True, timeout=30)
+    try:
+        entries = json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip() else {}
+    except json.JSONDecodeError:
+        entries = {}
+    if entries.get("lms-control", {}).get("enabled") is True:
+        ok("plugin lms-control enabled")
+    else:
+        fail("plugin lms-control is not enabled; /lms will not answer")
+
+    if "com.lms.agentcontext" in _halt.loaded():
+        ok("com.lms.agentcontext loaded")
+    else:
+        fail("com.lms.agentcontext not loaded; plain-text answers go stale")
+
+
 # ---------------------------------------------------------------------------
 
 def main() -> int:
@@ -620,6 +688,7 @@ def main() -> int:
         check_system_timezone()
         check_live_providers()
         check_kill_switch()
+        check_chat_control()
 
     print("\n" + "=" * 60)
     if failures:
