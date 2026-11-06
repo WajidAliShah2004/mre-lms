@@ -43,11 +43,15 @@ def read_halt_flag(flag: Path = FLAG) -> dict | None:
     still means halted; damage is never read as running.
     """
     try:
-        return json.loads(flag.read_text(encoding="utf-8"))
+        data = json.loads(flag.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return None
     except (OSError, ValueError):
         return {"ts": "?", "by": "?", "corrupt": True}
+    if isinstance(data, dict) and data:
+        return data
+    # Valid JSON that is empty or not an object ({}, [], null, 0) is damage too.
+    return {"ts": "?", "by": "?", "corrupt": True}
 
 
 def money(cents: int | None) -> str:

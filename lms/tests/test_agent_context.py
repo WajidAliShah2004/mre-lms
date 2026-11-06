@@ -112,3 +112,17 @@ def test_pending_approvals_leaves_out_expired(conn):
             " 'PENDING')",
             (ref, tid, ref, NOW.isoformat(), (NOW + timedelta(hours=hours)).isoformat()))
     assert [a["ref"] for a in ac.pending_approvals(conn, NOW)] == ["AP-1"]
+
+
+def test_snapshot_cut_reaches_the_cap(conn):
+    gaps = [f"Source {i}: " + "y" * 100 for i in range(300)]
+    text = ac.snapshot(conn, NOW, gaps=gaps)
+    assert len(text) <= ac.MAX_CHARS
+    assert text.endswith("… (cut; /lms tasks has the full list)")
+
+
+@pytest.mark.parametrize("content", ["{}", "null", "[]", "0"])
+def test_a_falsy_halt_flag_still_counts_as_halted(tmp_path, content):
+    flag = tmp_path / "HALTED.json"
+    flag.write_text(content)
+    assert ac.read_halt_flag(flag)
