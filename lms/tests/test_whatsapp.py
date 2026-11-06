@@ -406,6 +406,22 @@ def test_a_changed_schema_fails_the_pass_loudly(conn, pipe, tmp_path):
     assert conn.execute("SELECT result FROM source_checks").fetchone()[0] == "FAILED"
 
 
+def test_read_chats_skips_his_own_chat(tmp_path, monkeypatch):
+    # User, Nov 6: the reader skips the "Message yourself" chat (D-080's
+    # /lms commands and replies), so the LMS never reads its own output.
+    from core.adapters import whatsapp as wa
+    box = WA(tmp_path / "container")
+    t = datetime(2026, 11, 4, 14, tzinfo=timezone.utc)
+    box.message(box.chat("15550100@s.whatsapp.net", "Acme"), t, "invoice?")
+    box.message(box.chat("15559999@s.whatsapp.net", "Matthew"), t, "/lms tasks")
+    box.close()
+    monkeypatch.setattr(wa, "own_jids",
+                        lambda: frozenset({"15559999@s.whatsapp.net"}))
+    chats = w.read_chats(box.container, tmp_path / "tmp",
+                         datetime(2026, 11, 1, tzinfo=timezone.utc))
+    assert [c.jid for c in chats] == ["15550100@s.whatsapp.net"]
+
+
 def test_plan_days_reads_without_writing(conn, tmp_path):
     chat = direct(msg("A", at(4, 9), "x"), msg("B", at(5, 9), "y"))
     assert w.plan_days(conn, [chat], at(5, 10)) == [

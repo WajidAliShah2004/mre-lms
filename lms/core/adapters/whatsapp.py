@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import shutil
 import sqlite3
+import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -27,6 +28,7 @@ CONTAINER = Path("~/Library/Group Containers/"
 DB_NAME = "ChatStorage.sqlite"
 MEDIA_DIR = "Message"
 STATUS_JID = "status@broadcast"
+OWNER_SERVICE = "lms/whatsapp-owner"    # Keychain item D-080 stores, digits
 GROUP_SESSION = 1               # ZSESSIONTYPE of a group (Mac probe Nov 6: all 14 @g.us chats)
 # Only 0 (direct) and 1 (group) are read: 2 is a broadcast list, 3 the status
 # feed (Mac probe Nov 6); _SQL filters on these two values.
@@ -153,12 +155,45 @@ SELECT m.ZSTANZAID, m.ZMESSAGEDATE, m.ZISFROMME, m.ZTEXT, m.ZMESSAGETYPE,
 """
 
 
-def read(conn: sqlite3.Connection, since: datetime, media_root: Path) -> list[Chat]:
+def _keychain(service: str) -> str | None:
+    try:
+        r = subprocess.run(["/usr/bin/security", "find-generic-password",
+                            "-a", "lms", "-s", service, "-w"],
+                           capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None                      # not a Mac (tests), or no Keychain
+    value = r.stdout.strip()
+    return value if r.returncode == 0 and value else None
+
+
+def own_jids(lookup=None) -> frozenset[str]:
+    """Matthew's own chat ("Message yourself"), from the number D-080 stored.
+
+    That chat carries his /lms commands and the LMS's replies (D-080). The
+    reader skips it, so the LMS never reads its own output back in as new
+    messages (echo alerts, duplicate tasks). Empty if the number is not set:
+    verify_setup check [12] fails then."""
+    digits = "".join(c for c in ((lookup or _keychain)(OWNER_SERVICE) or "")
+                     if c.isdigit())
+    return frozenset({f"{digits}@s.whatsapp.net"}) if digits else frozenset()
+
+
+def own_chat_count(conn: sqlite3.Connection, jids: frozenset[str]) -> int:
+    """How many chat sessions are his own chat: for --probe, a count only."""
+    return sum(conn.execute("SELECT COUNT(*) FROM ZWACHATSESSION "
+                            "WHERE ZCONTACTJID = ?", (j,)).fetchone()[0]
+               for j in jids)
+
+
+def read(conn: sqlite3.Connection, since: datetime, media_root: Path,
+         skip: frozenset[str] = frozenset()) -> list[Chat]:
     chats: dict[str, Chat] = {}
     since_s = (since - APPLE_EPOCH).total_seconds()
     for (stanza, when, from_me, text, mtype, jid, partner, stype, member,
          member_jid, rel, title, size, duration, media_pk) in conn.execute(
             _SQL, (since_s, STATUS_JID)):
+        if jid in skip:
+            continue
         is_group = stype == GROUP_SESSION
         chat = chats.get(jid)
         if chat is None:

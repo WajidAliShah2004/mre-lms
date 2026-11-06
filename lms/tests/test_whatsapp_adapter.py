@@ -32,6 +32,47 @@ def test_apple_time_and_numbers():
     assert wa.number("185432112345678@lid") == "number hidden"
 
 
+def test_own_jids_comes_from_the_stored_number():
+    # D-080 stores his number, digits only, in Keychain lms/whatsapp-owner.
+    seen = []
+
+    def lookup(service):
+        seen.append(service)
+        return "+1 (555) 0100"
+    assert wa.own_jids(lookup) == frozenset({"15550100@s.whatsapp.net"})
+    assert seen == ["lms/whatsapp-owner"]
+    assert wa.own_jids(lambda s: None) == frozenset()
+
+
+def test_read_skips_his_own_chat(box):
+    # His "Message yourself" chat holds /lms commands and the LMS's replies
+    # (D-080); reading it would feed the LMS its own output (user, Nov 6).
+    t = datetime(2026, 11, 4, 14, tzinfo=UTC)
+    box.message(box.chat("15550100@s.whatsapp.net", "Acme"), t, "kept")
+    box.message(box.chat("15559999@s.whatsapp.net", "Matthew"), t, "/lms tasks")
+    chats = wa.read(box.conn, datetime(2026, 11, 1, tzinfo=UTC),
+                    box.container / "Message",
+                    skip=frozenset({"15559999@s.whatsapp.net"}))
+    assert [c.jid for c in chats] == ["15550100@s.whatsapp.net"]
+    assert wa.own_chat_count(box.conn, frozenset({"15559999@s.whatsapp.net"})) == 1
+    assert wa.own_chat_count(box.conn, frozenset({"1@s.whatsapp.net"})) == 0
+
+
+def test_probe_says_whether_his_own_chat_is_found(box, capsys, monkeypatch):
+    import whatsapp as job
+    box.message(box.chat("15559999@s.whatsapp.net", "Matthew"),
+                datetime(2026, 11, 4, tzinfo=UTC), "/lms help")
+    monkeypatch.setattr(wa, "own_jids",
+                        lambda: frozenset({"15559999@s.whatsapp.net"}))
+    job.do_probe(box.container)
+    out = capsys.readouterr().out
+    assert "own chat (Message yourself): found under his number" in out
+    assert "15559999" not in out
+    monkeypatch.setattr(wa, "own_jids", lambda: frozenset())
+    job.do_probe(box.container)
+    assert "number not in Keychain" in capsys.readouterr().out
+
+
 def test_read_skips_broadcast_and_status_sessions(box):
     # Mac probe Nov 6: session type 2 is a broadcast list, 3 the status feed.
     t = datetime(2026, 11, 4, 14, tzinfo=UTC)

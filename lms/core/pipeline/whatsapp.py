@@ -405,7 +405,10 @@ def _read(src_dir: Path, tmp: Path,
         missing = wa.check_schema(rconn)
         if missing:
             raise wa.WhatsAppError("schema changed, missing: " + ", ".join(missing))
-        return (wa.read(rconn, since, Path(src_dir) / wa.MEDIA_DIR),
+        # His own chat holds the /lms commands and the LMS's replies (D-080):
+        # never read back in.
+        return (wa.read(rconn, since, Path(src_dir) / wa.MEDIA_DIR,
+                        skip=wa.own_jids()),
                 wa.newest(rconn))
     finally:
         rconn.close()

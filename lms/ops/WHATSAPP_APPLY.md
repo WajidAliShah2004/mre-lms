@@ -51,6 +51,14 @@ readable: True`. Anything else: copy the output to the developer and stop.
 cd ~/lms-repo/lms && git pull
 ```
 ```bash
+./ops/whatsapp.py --probe | tail -2
+```
+
+It must say `own chat (Message yourself): found under his number; the
+reader skips it`. That chat holds the `/lms` commands and the LMS's replies
+(D-080), so the reader never reads it. Any other wording: copy the output to
+the developer and stop.
+```bash
 brew install ffmpeg
 ```
 ```bash
