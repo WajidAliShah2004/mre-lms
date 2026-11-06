@@ -1114,6 +1114,17 @@ def test_done_yes_closes_it_as_matthew_and_refreshes(env):
     assert actions(env)[-1][2] == "matthew"
 
 
+def test_done_still_closes_when_the_refresh_fails(env):
+    def boom(conn):
+        raise RuntimeError("snapshot broke")
+    env.refresh = boom
+    tid = task(env, "Pay Con Edison", due="2026-11-01")
+    text = remote.handle(["done", str(tid), "yes"], "whatsapp", WA, env)
+    assert text == f"Closed #{tid}: Pay Con Edison"
+    assert any("snapshot broke" in m for m in env.calls["log"])
+    assert actions(env)[-1][0] == "remote:done"
+
+
 def test_done_private_task_is_not_named(env):
     tid = task(env, "Dr. Patel follow-up", sensitivity="private")
     assert "Patel" not in remote.handle(["done", str(tid)], "telegram", TG, env)
@@ -1171,6 +1182,16 @@ def test_approve_yes_decides_as_matthew(env):
     c.close()
     assert tuple(row) == ("APPROVED", "matthew", "via whatsapp")
     assert env.calls["refresh"] == 1
+
+
+def test_approve_still_decides_when_the_refresh_fails(env):
+    def boom(conn):
+        raise RuntimeError("snapshot broke")
+    env.refresh = boom
+    approval(env)
+    text = remote.handle(["approve", "7", "yes"], "whatsapp", WA, env)
+    assert text.startswith("AP-7 approved")
+    assert any("snapshot broke" in m for m in env.calls["log"])
 
 
 def test_deny_yes_denies(env):
@@ -1447,6 +1468,17 @@ def test_the_plugin_commands_require_an_authorised_sender():
     assert "requireAuth: false" not in js
 
 
+def test_the_plugin_is_silent_for_unauthorised_senders_before_running_anything():
+    js = (PLUGIN / "index.js").read_text(encoding="utf-8")
+    assert "isAuthorizedSender" in js
+    body = js[js.index("async function handle"):]
+    assert body.index("isAuthorizedSender") < body.index("runRemote(")
+
+
+def test_d015_baseline_counts_whatsapp_and_lms_control():
+    assert vs.D015_PLUGINS == 6
+
+
 def test_the_manifest_names_the_plugin():
     import json
     m = json.loads((PLUGIN / "openclaw.plugin.json").read_text(encoding="utf-8"))
@@ -1474,6 +1506,21 @@ def test_the_manifest_names_the_plugin():
 ])
 def test_whatsapp_problems(cfg, owner, expect_ok):
     assert (vs.whatsapp_problems(cfg, owner) == []) is expect_ok
+
+
+@pytest.mark.parametrize("owner", ["abc", "+"])
+def test_an_owner_with_no_digits_is_no_owner(owner):
+    cfg = {"dmPolicy": "allowlist", "allowFrom": ["*"], "selfChatMode": True,
+           "groupPolicy": "disabled"}
+    assert any("no WhatsApp owner" in p for p in vs.whatsapp_problems(cfg, owner))
+
+
+@pytest.mark.parametrize("allow", ["+15551234567", {"a": 1}, 5])
+def test_allow_from_must_be_a_list(allow):
+    cfg = {"dmPolicy": "allowlist", "allowFrom": allow, "selfChatMode": True,
+           "groupPolicy": "disabled"}
+    assert any("allowFrom is not a list" in p
+               for p in vs.whatsapp_problems(cfg, "15551234567"))
 ```
 
 - [ ] **Step 2: Run to verify they fail**
