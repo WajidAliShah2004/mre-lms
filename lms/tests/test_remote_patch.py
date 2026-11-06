@@ -122,3 +122,14 @@ def test_the_manifest_names_the_plugin():
 ])
 def test_whatsapp_problems(cfg, owner, expect_ok):
     assert (vs.whatsapp_problems(cfg, owner) == []) is expect_ok
+
+
+@pytest.mark.parametrize("raw", ["not json", "", "null", "[]", "42"])
+def test_unreadable_whatsapp_config_fails_closed(raw):
+    assert vs.whatsapp_config_problems(raw, "15551234567") != []
+
+
+def test_good_whatsapp_config_text_passes():
+    raw = ('{"enabled": true, "dmPolicy": "allowlist", "allowFrom": ["+15551234567"],'
+           ' "selfChatMode": true, "groupPolicy": "disabled"}')
+    assert vs.whatsapp_config_problems(raw, "15551234567") == []

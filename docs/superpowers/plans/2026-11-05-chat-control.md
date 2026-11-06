@@ -1679,6 +1679,21 @@ def whatsapp_problems(cfg: dict, owner: str) -> list[str]:
     return problems
 
 
+def whatsapp_config_problems(raw_stdout: str, owner: str) -> list[str]:
+    """Parse `openclaw config get channels.whatsapp --json` and judge it.
+
+    Fails closed: output that is empty, not JSON, or not an object is a
+    problem, never a pass and never a crash.
+    """
+    try:
+        cfg = json.loads(raw_stdout)
+    except (json.JSONDecodeError, TypeError):
+        return ["could not parse channels.whatsapp output as JSON; check by hand"]
+    if not isinstance(cfg, dict):
+        return [f"channels.whatsapp is {type(cfg).__name__}, not an object"]
+    return whatsapp_problems(cfg, owner)
+
+
 def check_chat_control() -> None:
     """[12] WhatsApp and Telegram control (D-080) is as narrow as designed."""
     print("\n[12] Chat control (D-080)")
@@ -1699,12 +1714,8 @@ def check_chat_control() -> None:
         warn("channels.whatsapp is not set; chat control not applied yet "
              "(ops/CHAT_CONTROL_APPLY.md)")
         return
-    try:
-        cfg = json.loads(r.stdout) if r.stdout.strip() else {}
-    except json.JSONDecodeError:
-        warn("could not parse channels.whatsapp; check by hand")
-        return
-    problems = whatsapp_problems(cfg, halt_bot.keychain("lms/whatsapp-owner") or "")
+    problems = whatsapp_config_problems(r.stdout,
+                                        halt_bot.keychain("lms/whatsapp-owner") or "")
     for p_ in problems:
         fail(f"WhatsApp: {p_}")
     if not problems:
