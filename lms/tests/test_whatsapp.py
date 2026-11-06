@@ -360,3 +360,73 @@ def test_a_failed_attachment_leaves_the_day_for_retry(conn, pipe, tmp_path):
     assert w.close(conn, roots, registry, clf, [chat], at(5, 2), tmp_path, no_speech,
                    w.PassResult(), ocr=False) == 1
     assert None not in filed_ids(conn, "P", "Q")
+
+
+from core.reports import brief
+from tests.wa_fixture import WA
+
+
+def build_container(tmp_path, when):
+    box = WA(tmp_path / "container")
+    c = box.chat("15550100@s.whatsapp.net", "Acme Supply")
+    box.message(c, when, "Can you resend the invoice?", from_me=True)
+    box.message(c, when + timedelta(minutes=5), "Sent it")
+    box.close()
+    return box.container
+
+
+def test_a_whole_pass_files_records_and_cleans_up(conn, pipe, tmp_path):
+    roots, registry, clf = pipe
+    now = datetime.now(ET)
+    src = build_container(tmp_path, (now - timedelta(days=1)).replace(hour=9))
+    r = w.run_pass(conn, roots, registry, clf, src_dir=src,
+                   tmp_root=tmp_path / "tmp", now=now.replace(hour=1, minute=0),
+                   transcriber=no_speech)
+    assert r.error is None and r.filed == 1 and r.result == "OK"
+    [check] = conn.execute("SELECT * FROM source_checks WHERE source_id='chat:whatsapp'")
+    assert check["result"] == "OK"
+    assert conn.execute("SELECT COUNT(*) FROM actions_log WHERE action='WHATSAPP_CHECKED'"
+                        ).fetchone()[0] == 1
+    assert list((tmp_path / "tmp").iterdir()) == [], "the copy was left behind"
+
+
+def test_a_changed_schema_fails_the_pass_loudly(conn, pipe, tmp_path):
+    roots, registry, clf = pipe
+    src = build_container(tmp_path, at(4, 9))
+    import sqlite3
+    raw = sqlite3.connect(src / "ChatStorage.sqlite")
+    raw.execute("ALTER TABLE ZWAMESSAGE RENAME COLUMN ZTEXT TO ZBODY")
+    raw.commit()
+    raw.close()
+    r = w.run_pass(conn, roots, registry, clf, src_dir=src, tmp_root=tmp_path / "tmp",
+                   now=at(5, 1), transcriber=no_speech)
+    assert r.result == "FAILED" and "ZWAMESSAGE.ZTEXT" in r.error
+    assert conn.execute("SELECT detail FROM actions_log WHERE action='WHATSAPP_FAILED'"
+                        ).fetchone()[0].startswith("WhatsAppError")
+    assert conn.execute("SELECT result FROM source_checks").fetchone()[0] == "FAILED"
+
+
+def test_plan_days_reads_without_writing(conn, tmp_path):
+    chat = direct(msg("A", at(4, 9), "x"), msg("B", at(5, 9), "y"))
+    assert w.plan_days(conn, [chat], at(5, 10)) == [
+        ("Acme Supply (+15550100)", "2026-11-04", 1, True),
+        ("Acme Supply (+15550100)", "2026-11-05", 1, False)]
+    assert conn.execute("SELECT COUNT(*) FROM whatsapp_messages").fetchone()[0] == 0
+
+
+def test_every_action_the_brief_reads_is_one_this_job_writes():
+    """The D-027 trap, as in test_notify.py."""
+    assert brief.JOB_FAILURES[w.FAILED] == w.CHECKED
+    assert brief.WATCHED_JOBS[w.CHECKED] == ("whatsapp", 3)
+
+
+def test_the_job_stops_when_halted(monkeypatch, capsys):
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ops"))
+    import whatsapp as job
+    monkeypatch.setattr(job._halt, "read_flag", lambda: {"ts": "now", "by": "telegram"})
+    monkeypatch.setattr(job, "ensure_venv", lambda *a, **k: None)
+    monkeypatch.setattr(job, "load_lms_env", lambda: {})
+    monkeypatch.setattr(_sys, "argv", ["whatsapp.py"])
+    assert job.main() == 0
+    assert "HALTED" in capsys.readouterr().out

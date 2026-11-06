@@ -236,7 +236,7 @@ FORBIDDEN_CALLS = [
 # file". A move that provably destroys nothing is allowed; a move that MIGHT
 # is not.
 EXEMPT = {
-    ("corrections.py", "shutil.move"): (
+    ("pipeline/corrections.py", "shutil.move"): (
         "Re-files a document Matthew has said is in the wrong place. The copy "
         "in the archive tree is DERIVED — file_artifact keeps the incoming "
         "bytes under _originals/<sha256> and never writes there again — so "
@@ -246,7 +246,7 @@ EXEMPT = {
         "system exists to prevent. It refuses rather than overwrites, and "
         "nothing is deleted."
     ),
-    ("filing.py", "shutil.move"): (
+    ("pipeline/filing.py", "shutil.move"): (
         "retire_quarantine_copy moves a document out of the review queue once "
         "it has actually FILED, into quarantine/_resolved. By the time this "
         "runs the bytes exist in TWO other places — the archive copy written "
@@ -258,7 +258,7 @@ EXEMPT = {
         "correctly filed in FINANCE, with nothing to tell a reviewer which is "
         "true. A queue that lies about resolved work is a queue nobody trusts."
     ),
-    ("watchfolder.py", "shutil.move"): (
+    ("adapters/watchfolder.py", "shutil.move"): (
         "Retires a handled file from the iCloud inbox to inbox/_done. By the "
         "time this runs the bytes exist in TWO other places — the archive and "
         "_originals — so the inbox copy is redundant, not precious. It stays "
@@ -266,23 +266,53 @@ EXEMPT = {
         "leaving it to be rescanned forever, which grows the scan cost without "
         "bound and re-OCRs the same document nightly."
     ),
+    ("pipeline/whatsapp.py", "shutil.rmtree"): (
+        "run_pass removes only its own scratch directory: the exact path "
+        "tempfile.mkdtemp returned under tmp_root in the same call. That "
+        "directory holds copies only: the database snapshot, the voice and "
+        "media copies, and transcript files whose originals filing already "
+        "moved into the archive or _originals. It never touches the archive, "
+        "_originals, or the WhatsApp container, which is read-only by "
+        "construction (D-079). Leaving it would grow disk use every hour and "
+        "keep plaintext copies of messages on disk."
+    ),
 }
+
+
+def find_offenders(root: Path, exempt) -> list[str]:
+    """Forbidden calls under root, unless (path relative to root, needle) is
+    in exempt. Keyed on the relative path, so an exemption for
+    pipeline/x.py never covers adapters/x.py."""
+    offenders = []
+    for path in root.rglob("*.py"):
+        rel = path.relative_to(root).as_posix()
+        text = path.read_text(encoding="utf-8")
+        for needle in FORBIDDEN_CALLS:
+            if needle in text and (rel, needle) not in exempt:
+                offenders.append(f"{rel}: {needle}")
+    return offenders
 
 
 def test_core_contains_no_send_or_delete_primitives():
     """Grep-level guard. Crude, and that is the point.
 
     If someone adds a delete to core/ this fails before it reaches the Mac.
-    Exemptions are possible but must be argued in EXEMPT above — which is the
-    whole mechanism: the cost of an exception is writing down why.
+    Exemptions are possible but must be argued in EXEMPT above (keyed on the
+    path under core/) — which is the whole mechanism: the cost of an
+    exception is writing down why.
     """
-    offenders = []
-    for path in CORE.rglob("*.py"):
-        text = path.read_text(encoding="utf-8")
-        for needle in FORBIDDEN_CALLS:
-            if needle in text and (path.name, needle) not in EXEMPT:
-                offenders.append(f"{path.name}: {needle}")
+    offenders = find_offenders(CORE, EXEMPT)
     assert not offenders, f"forbidden primitives found: {offenders}"
+
+
+def test_an_exemption_covers_one_path_not_a_file_name(tmp_path):
+    for folder in ("pipeline", "adapters"):
+        (tmp_path / folder).mkdir()
+        (tmp_path / folder / "same.py").write_text("shutil.rmtree(x)")
+    exempt = {("pipeline/same.py", "shutil.rmtree"): "x"}
+    assert find_offenders(tmp_path, exempt) == ["adapters/same.py: shutil.rmtree"]
+    assert all("/" in rel for rel, _ in EXEMPT)
+    assert ("adapters/whatsapp.py", "shutil.rmtree") not in EXEMPT
 
 
 def test_every_exemption_is_still_used():
@@ -291,9 +321,9 @@ def test_every_exemption_is_still_used():
     If the code that needed an exception is gone, the exception should go too
     — otherwise it silently permits a future call that was never argued for.
     """
-    for (filename, needle), reason in EXEMPT.items():
-        matches = [p for p in CORE.rglob(filename)]
-        assert matches, f"exemption for {filename} but the file is gone"
-        assert needle in matches[0].read_text(encoding="utf-8"), (
-            f"exemption ({filename}, {needle}) is no longer used — remove it")
+    for (relpath, needle), reason in EXEMPT.items():
+        path = CORE / relpath
+        assert path.is_file(), f"exemption for {relpath} but the file is gone"
+        assert needle in path.read_text(encoding="utf-8"), (
+            f"exemption ({relpath}, {needle}) is no longer used — remove it")
         assert len(reason) > 80, "an exemption needs a real justification"

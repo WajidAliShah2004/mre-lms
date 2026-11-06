@@ -450,6 +450,8 @@ WATCHED_JOBS: dict[str, tuple[str, int]] = {
     "OFFSITE_COPY_COMPLETED": ("off-site backup", 48),
     # Telegram alerts (R10): every 15 min, a heartbeat row at most hourly.
     "NOTIFY_CHECKED":   ("alerts",  3),
+    # WhatsApp (R40, D-079): hourly; every pass writes a row.
+    "WHATSAPP_CHECKED": ("whatsapp", 3),
 }
 
 # Jobs that also record their own failure. While the failure row is newer than
@@ -462,6 +464,7 @@ WATCHED_JOBS: dict[str, tuple[str, int]] = {
 JOB_FAILURES: dict[str, str] = {
     "MODEL_HEALTH_FAILED": "MODEL_HEALTH_OK",
     "NOTIFY_FAILED":       "NOTIFY_CHECKED",
+    "WHATSAPP_FAILED":     "WHATSAPP_CHECKED",
 }
 
 

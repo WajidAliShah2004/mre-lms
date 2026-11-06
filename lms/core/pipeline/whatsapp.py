@@ -18,6 +18,7 @@ from __future__ import annotations
 import re
 import shutil
 import sqlite3
+import tempfile
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
@@ -25,9 +26,10 @@ from typing import Callable
 from zoneinfo import ZoneInfo
 
 from ..adapters import asr
+from ..adapters import whatsapp as wa
 from ..adapters.whatsapp import Chat, Message, number
 from ..db import database as db
-from . import notify
+from . import coverage, notify
 from .classify import Artifact
 from .ingest import ingest_file
 
@@ -331,3 +333,65 @@ def _file_day(conn, roots, registry, classifier, chat: Chat, day: str,
         "scanned_at = COALESCE(scanned_at, ?) WHERE stanza_id = ?",
         [(parent, db.now_iso(), m.stanza_id) for m in msgs])
     conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# One pass
+# ---------------------------------------------------------------------------
+
+def read_chats(src_dir: Path, tmp: Path, since: datetime) -> list[Chat]:
+    copy = wa.snapshot(src_dir, tmp / "db")
+    rconn = sqlite3.connect(copy)
+    try:
+        missing = wa.check_schema(rconn)
+        if missing:
+            raise wa.WhatsAppError("schema changed, missing: " + ", ".join(missing))
+        return wa.read(rconn, since, Path(src_dir) / wa.MEDIA_DIR)
+    finally:
+        rconn.close()
+
+
+def run_pass(conn: sqlite3.Connection, roots, registry, classifier, *,
+             src_dir: Path, tmp_root: Path, now: datetime,
+             transcriber: Transcriber = asr.transcribe, since_days: int = 3,
+             ingest=ingest_file) -> PassResult:
+    """Read, check the hour, close the days; record the pass however it ends.
+
+    since_days covers yesterday's closing and late-synced messages; older
+    days are the backfill's (ops/backfill_whatsapp.py)."""
+    started = db.now_iso()
+    result = PassResult()
+    Path(tmp_root).mkdir(parents=True, exist_ok=True)
+    tmp = Path(tempfile.mkdtemp(prefix="pass-", dir=tmp_root))
+    try:
+        chats = read_chats(src_dir, tmp, now - timedelta(days=since_days))
+        result.messages = sum(len(c.messages) for c in chats)
+        record(conn, chats)
+        scan(conn, chats, classifier, now, tmp, transcriber, result)
+        close(conn, roots, registry, classifier, chats, now, tmp, transcriber,
+              result, ingest=ingest)
+    except Exception as exc:                                  # noqa: BLE001
+        result.error = f"{type(exc).__name__}: {exc}"
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    coverage.record_check(conn, SOURCE_ID, result.result, started_at=started,
+                          items=result.messages, detail=result.summary())
+    db.log_action(conn, "WHATSAPP_FAILED" if result.error else "WHATSAPP_CHECKED",
+                  detail=result.summary()[:400])
+    conn.commit()
+    return result
+
+
+def plan_days(conn: sqlite3.Connection, chats: list[Chat],
+              now: datetime) -> list[tuple[str, str, int, bool]]:
+    """For --dry-run: unfiled messages per chat day. Writes nothing."""
+    out = []
+    for chat in chats:
+        unfiled = []
+        for m in chat.messages:
+            row = _row(conn, m.stanza_id)
+            if row is None or row["artifact_id"] is None:
+                unfiled.append(m)
+        for day, msgs in sorted(_by_day(unfiled).items()):
+            out.append((chat_label(chat), day, len(msgs), closed(day, now)))
+    return out
