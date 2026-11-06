@@ -178,15 +178,30 @@ sources:
   - id: chat:whatsapp
     label: WhatsApp
     kind: chat
+    account: Matthew's WhatsApp, linked to the Mac app
     method: >-
-      no supported path. The candidate is reading the WhatsApp Mac app's
-      local database read-only (unofficial; can break on any update)
-    permissions: would need Full Disk Access and the WhatsApp Mac app linked
+      read-only copy of the WhatsApp Mac app's ChatStorage.sqlite
+      (ops/whatsapp.py, D-079). One transcript per chat per day, filed when
+      the day closes; documents and photos filed under it; voice notes
+      transcribed on the Mac. Unofficial: a WhatsApp update can change it,
+      and the pass then fails loudly
+    permissions: >-
+      Full Disk Access for the LMS Python; the WhatsApp Mac app linked to his
+      phone. Nothing is written to WhatsApp and nothing is sent
     cadence_hours: 1
-    status: unsupported
+    status: blocked
     requirement: R40
-    blocked_on: "Matthew: OK to try the unofficial Mac-app route (follow-up of Oct 19)."
-    gaps: No WhatsApp message is read.
+    blocked_on: >-
+      Install com.lms.whatsapp per ops/WHATSAPP_APPLY.md steps 5-6 (speech
+      model, dry run, backfill, job). The Mac app is linked and the probe
+      passed (Nov 6).
+    gaps: >-
+      Only the history the Mac app synced when linked. Videos are listed, not
+      filed. Files the Mac app never downloaded are listed, not filed. The
+      history's media was never downloaded to the Mac (auto-download covers
+      new media only), so older documents are listed, not filed, unless
+      Matthew opens those chats in the Mac app or exports them. A message
+      deleted in WhatsApp after filing stays filed.
 
   # -------------------------------------------------------------------------
   # Calendar

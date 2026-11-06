@@ -900,6 +900,18 @@ Matthew asked to control OpenClaw and the Mac from WhatsApp and Telegram. D-056 
 - **WhatsApp on his own number**, self-chat, allowlist of one. Accepted risk, his choice: OpenClaw's WhatsApp client is unofficial and WhatsApp can ban numbers using one; OpenClaw recommends a separate number. Recommended and declined.
 - **Rejected:** giving the agent tools (an injected "approve 7" could be obeyed); our own WhatsApp client; a dedicated bot number.
 
+### D-079 — WhatsApp is read from the Mac app's database, one transcript per chat per day
+**Status:** Decided · Nov 5 2026 · developer · implements R40 (Matthew, Oct 19, D-065) · Mac checks passed Nov 6; job not yet installed ([lms/ops/WHATSAPP_APPLY.md](lms/ops/WHATSAPP_APPLY.md)) · spec: [docs/superpowers/specs/2026-11-05-whatsapp-reader-design.md](docs/superpowers/specs/2026-11-05-whatsapp-reader-design.md)
+
+- **How:** a copy of the WhatsApp Mac app's `ChatStorage.sqlite` (and its WAL), checked with `quick_check`, read with the expected `ZWA*` schema. SQLite never opens the original. Rejected: an unofficial WhatsApp Web client (ban risk, his keys on the machine, a new runtime). Fallback if the database is unreadable: chat export into the watch folder.
+- **What is filed:** one transcript per chat per Eastern-time day, closed at the first pass after 00:30 the next day; documents and photos under it as attachments are under an email (D-040). Late-synced messages become a part 2. All chats, groups included (D-065).
+- **Hourly:** today's and yesterday's new messages go to the classifier for urgency only; an urgent chat day is one Telegram alert, keyed `whatsapp:<chat>:<day>`, and its filing reuses the key (`ingest_file(alert_key=...)`), so it is not alerted twice.
+- **Voice notes:** `ffmpeg` + `mlx-whisper` (Whisper large-v3-turbo) on the Mac, offline; LM Studio has no speech endpoint. TIER-A's model is Whisper until a Qwen3-ASR MLX runtime is confirmed. Over 10 minutes: not transcribed, listed. A note is transcribed once: the transcription is cached in `whatsapp_messages.voice_text`, the one message text that table keeps.
+- **Watched:** `WHATSAPP_CHECKED` / `WHATSAPP_FAILED`, stale after 3 h; `source_checks` `chat:whatsapp` OK, PARTIAL (voice or files missing) or FAILED (unreadable, schema changed).
+- **Copies only:** `filing.file_artifact` moves what it is given, so every transcript and media file handed to ingest is a temp copy.
+- **Confirmed on the Mac (Nov 6 probes):** the database is not encrypted, every table and column needed is present, and Full Disk Access is enough to read the group container. `GROUP_SESSION = 1` holds for all 14 `@g.us` chats; session types 2 (broadcast list) and 3 (status feed) are skipped; 22 direct chats use `@lid` IDs and show as "number hidden"; message type 7 (link preview) is read as text.
+- **History media:** the Mac app's auto-download (Photos, Audio, Video, Documents) covers media received after it is on, so the history's media (about 15,800 items, 643 of them documents) was never downloaded. New documents are filed (a test PDF from another phone downloaded and the reader opened it); older ones are listed "not downloaded on the Mac", not filed. Bringing in the backlog is Matthew's choice: open those chats in the Mac app so the files download, or export the chats with media from his phone.
+
 ### D-078 — Matthew's answers of Nov 4: OpenClaw's iCloud is mattyeps@gmail.com; his domains' DNS is at IONOS
 **Status:** Recorded · Nov 4 2026 · WhatsApp, relayed to the developer by Zeeshan Liaqat · answers D-076; bears on D-068, C12, X2, R4, R24, R36
 

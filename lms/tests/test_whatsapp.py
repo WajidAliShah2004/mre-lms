@@ -430,3 +430,26 @@ def test_the_job_stops_when_halted(monkeypatch, capsys):
     monkeypatch.setattr(_sys, "argv", ["whatsapp.py"])
     assert job.main() == 0
     assert "HALTED" in capsys.readouterr().out
+
+
+def test_backfill_files_old_days_in_batches_and_leaves_yesterday(conn, pipe, tmp_path):
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ops"))
+    import backfill_whatsapp as bf
+    roots, registry, clf = pipe
+    now = datetime.now(ET)
+    box = WA(tmp_path / "container")
+    c = box.chat("15550100@s.whatsapp.net", "Acme Supply")
+    for back in (5, 4, 3, 1):
+        box.message(c, (now - timedelta(days=back)).replace(hour=9), f"day -{back}")
+    box.close()
+    filed = bf.backfill(conn, roots, registry, clf, src_dir=box.container,
+                        tmp_root=tmp_path / "tmp", now=now, days=10, batch=2,
+                        transcriber=no_speech)
+    assert filed == 3
+    days = {r[0]: r[1] for r in conn.execute(
+        "SELECT day, artifact_id FROM whatsapp_messages")}
+    assert days[w.day_of(now - timedelta(days=1))] is None, "yesterday is the hourly job's"
+    assert notify.pending(conn) == []
+    assert conn.execute("SELECT COUNT(*) FROM whatsapp_messages WHERE scanned_at IS NULL "
+                        "AND artifact_id IS NOT NULL").fetchone()[0] == 0

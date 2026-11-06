@@ -31,7 +31,7 @@ The table and column names below are the expected ones (the iOS schema the Mac a
 
 ### 1. Reader — `core/adapters/whatsapp.py`
 
-- `snapshot(src_dir, tmp_dir) -> Path`: copies `ChatStorage.sqlite`, `-wal` and `-shm` into a fresh private directory (mode 0700) under `~/LMS/tmp/whatsapp/`, and returns the copy. **SQLite never opens the originals;** they are only read as bytes by the copy. The copy is ours, so it is opened normally and SQLite applies the copied WAL, which holds recent messages not yet merged into the main file. WhatsApp may be writing while the three files are copied, so the copy is checked with `PRAGMA quick_check`. If the check fails, the copy is retried up to 3 times; after that the pass is `FAILED`. The snapshot directory is deleted at the end of every pass, including failed ones.
+- `snapshot(src_dir, tmp_dir) -> Path`: copies `ChatStorage.sqlite`, `-wal` and `-shm` into a fresh private directory (mode 0700) under `<LMS root>/tmp/whatsapp/` (beside the mail spool), and returns the copy. **SQLite never opens the originals;** they are only read as bytes by the copy. The copy is ours, so it is opened normally and SQLite applies the copied WAL, which holds recent messages not yet merged into the main file. WhatsApp may be writing while the three files are copied, so the copy is checked with `PRAGMA quick_check`. If the check fails, the copy is retried up to 3 times; after that the pass is `FAILED`. The snapshot directory is deleted at the end of every pass, including failed ones.
 - `check_schema(conn) -> list[str]`: the required tables and columns that are missing. Required:
   - `ZWACHATSESSION`: `Z_PK`, `ZCONTACTJID`, `ZPARTNERNAME`, `ZSESSIONTYPE`
   - `ZWAMESSAGE`: `Z_PK`, `ZCHATSESSION`, `ZSTANZAID`, `ZMESSAGEDATE`, `ZISFROMME`, `ZTEXT`, `ZMESSAGETYPE`, `ZGROUPMEMBER`, `ZMEDIAITEM`
@@ -85,7 +85,7 @@ Part: 1
 09:40 Acme Supply: [voice 12:10, not transcribed: over 10 minutes]
 ```
 
-Groups put the group name on the first line and `(group, N participants)`.
+Groups put the group name on the first line and `(group)`.
 
 **Hourly urgency check** (`scan`):
 
