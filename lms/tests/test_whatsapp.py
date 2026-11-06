@@ -482,3 +482,72 @@ def test_an_attachment_is_classified_from_its_own_text_not_its_caption(conn, pip
     assert attachment.subject == "Invoice.txt"
     assert (attachment.sender, attachment.recipient, attachment.received_date) == \
         ("Acme Supply (+15550100)", w.RECIPIENT, "2026-11-04")
+
+
+# --- a bad chat day, the model down, a voice note still downloading ----------
+
+def scanned(conn, *stanzas):
+    return [conn.execute("SELECT scanned_at FROM whatsapp_messages WHERE stanza_id=?",
+                         (s,)).fetchone()[0] is not None for s in stanzas]
+
+
+def test_a_chat_day_that_fails_its_check_does_not_stop_the_pass(conn, pipe, tmp_path):
+    roots, registry, real = pipe
+    box = WA(tmp_path / "container")
+    good = box.chat("15550100@s.whatsapp.net", "Acme Supply")
+    bad = box.chat("15550199@s.whatsapp.net", "Broken")
+    box.message(bad, at(4, 9), "boom", stanza="X")
+    box.message(good, at(4, 9), "fine", stanza="G")
+    box.close()
+
+    class Picky:
+        def classify(self, art):
+            if art.subject == "Broken":
+                raise ValueError("bad chat")
+            return real.classify(art)
+    r = w.run_pass(conn, roots, registry, Picky(), src_dir=box.container,
+                   tmp_root=tmp_path / "tmp", now=at(5, 1), transcriber=no_speech)
+    assert r.error is None and r.result == "PARTIAL"
+    assert scanned(conn, "G", "X") == [True, False]
+    assert filed_ids(conn, "G")[0] is not None and filed_ids(conn, "X") == [None]
+    assert r.filed == 1 and r.failed == 2
+    assert conn.execute("SELECT COUNT(*) FROM actions_log WHERE action='WHATSAPP_DAY_FAILED' "
+                        "AND detail LIKE '15550199%'").fetchone()[0] == 2
+
+
+class DownModel:
+    def complete(self, **kw):
+        from core.adapters.lmstudio import ModelError
+        raise ModelError("LM Studio is down")
+
+
+def test_the_model_down_leaves_the_lines_for_the_next_hour(conn, tmp_path):
+    clf = Classifier(load_registry(CONFIG), client=DownModel())
+    chat = direct(msg("A", at(5, 9), "Final notice: pay today"))
+    w.record(conn, [chat])
+    result = w.PassResult()
+    w.scan(conn, [chat], clf, at(5, 10), tmp_path, no_speech, result)
+    assert scanned(conn, "A") == [False]
+    assert result.failed == 1 and result.result == "PARTIAL"
+    assert conn.execute("SELECT detail FROM actions_log WHERE action='WHATSAPP_DAY_FAILED'"
+                        ).fetchone()[0].startswith("15550100@s.whatsapp.net 2026-11-05")
+
+
+def test_a_voice_note_still_downloading_is_checked_again_next_hour(conn, tmp_path):
+    chat = direct(msg("T", at(5, 9), "listen to this"),
+                  msg("V", at(5, 9, 1), kind="voice", media=Media(None, None, None, 30.0)))
+    w.record(conn, [chat])
+    clf = StubClassifier("NORMAL")
+    w.scan(conn, [chat], clf, at(5, 10), tmp_path, no_speech, w.PassResult())
+    assert scanned(conn, "T", "V") == [True, False]
+    w.scan(conn, [chat], clf, at(5, 11), tmp_path, no_speech, w.PassResult())
+    assert clf.seen[1].body == "09:01 Acme Supply: [voice 0:30, not transcribed]"
+
+
+def test_an_unreadable_voice_file_counts_as_not_transcribed(conn, tmp_path):
+    gone = tmp_path / "gone.opus"
+    chat = direct(msg("V", at(5, 9), kind="voice", media=Media(gone, None, None, 42.0)))
+    w.record(conn, [chat])
+    result = w.PassResult()
+    assert w.voice_text(conn, chat.messages[0], tmp_path, lambda p, t: "x", result) is None
+    assert result.voice_missing == 1 and result.failed == 0

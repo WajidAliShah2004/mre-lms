@@ -174,11 +174,11 @@ def voice_text(conn: sqlite3.Connection, m: Message, tmp_dir: Path,
     if (m.media.duration_s or 0) > asr.MAX_SECONDS:
         return None
     copy = Path(tmp_dir) / "voice" / m.stanza_id / m.media.local_path.name
-    copy.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(m.media.local_path, copy)
     try:
+        copy.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(m.media.local_path, copy)
         text = transcriber(copy, copy.parent)
-    except asr.ASRUnavailable:
+    except (asr.ASRUnavailable, OSError):
         result.voice_missing += 1
         return None
     conn.execute("UPDATE whatsapp_messages SET voice_text = ? WHERE stanza_id = ?",
@@ -207,29 +207,58 @@ def _artifact(chat: Chat, day: str, body: str, subject: str | None = None) -> Ar
 def scan(conn: sqlite3.Connection, chats: list[Chat], classifier, now: datetime,
          tmp_dir: Path, transcriber: Transcriber, result: PassResult) -> None:
     """Today's and yesterday's unscanned messages, per chat day, to the
-    classifier for urgency only. Files nothing."""
+    classifier for urgency only. Files nothing.
+
+    A chat day that fails (the model down included) is logged, counted, and
+    left unscanned for the next hour; the other chats go on."""
     recent = {day_of(now), day_of(now - timedelta(days=1))}
     for chat in chats:
         new = [m for m in chat.messages if day_of(m.sent_at) in recent
                and _row(conn, m.stanza_id)["scanned_at"] is None]
         for day, msgs in _by_day(new).items():
-            voices = {m.stanza_id: voice_text(conn, m, tmp_dir, transcriber, result)
-                      for m in msgs if m.kind == "voice"}
-            body = "\n".join(line(m, voices.get(m.stanza_id)) for m in msgs)
-            c = classifier.classify(_artifact(chat, day, body))
-            reason = notify.reason_for(c.urgency, c.category)
-            if reason and notify.enqueue(
-                    conn, key=alert_key(chat, day), reason=reason,
-                    text=notify.describe(category=c.category,
-                                         counterparty=c.counterparty,
-                                         descriptor=c.descriptor,
-                                         due_date=c.due_date,
-                                         amount_cents=c.amount_cents)):
-                result.alerts += 1
-            conn.executemany(
-                "UPDATE whatsapp_messages SET scanned_at = ? WHERE stanza_id = ?",
-                [(db.now_iso(), m.stanza_id) for m in msgs])
-            conn.commit()
+            try:
+                _scan_day(conn, chat, day, msgs, classifier, tmp_dir,
+                          transcriber, result)
+            except Exception as exc:                          # noqa: BLE001
+                result.failed += 1
+                db.log_action(conn, "WHATSAPP_DAY_FAILED",
+                              detail=f"{chat.jid} {day}: check: "
+                                     f"{type(exc).__name__}: {exc}"[:400])
+                conn.commit()
+
+
+def _model_down(c) -> bool:
+    """Classifier.classify turns a model error into a review Classification
+    with no model name (classify.py); that is "unknown", not "not urgent"."""
+    return bool(getattr(c, "needs_review", False)) and getattr(c, "model", None) == ""
+
+
+def _downloading(m: Message) -> bool:
+    """A voice note the Mac app has not downloaded yet: checked again next hour."""
+    return m.kind == "voice" and (m.media is None or m.media.local_path is None)
+
+
+def _scan_day(conn, chat: Chat, day: str, msgs: list[Message], classifier,
+              tmp_dir: Path, transcriber: Transcriber, result: PassResult) -> None:
+    voices = {m.stanza_id: voice_text(conn, m, tmp_dir, transcriber, result)
+              for m in msgs if m.kind == "voice"}
+    body = "\n".join(line(m, voices.get(m.stanza_id)) for m in msgs)
+    c = classifier.classify(_artifact(chat, day, body))
+    if _model_down(c):
+        raise RuntimeError(c.review_reason or "model error")
+    reason = notify.reason_for(c.urgency, c.category)
+    if reason and notify.enqueue(
+            conn, key=alert_key(chat, day), reason=reason,
+            text=notify.describe(category=c.category,
+                                 counterparty=c.counterparty,
+                                 descriptor=c.descriptor,
+                                 due_date=c.due_date,
+                                 amount_cents=c.amount_cents)):
+        result.alerts += 1
+    conn.executemany(
+        "UPDATE whatsapp_messages SET scanned_at = ? WHERE stanza_id = ?",
+        [(db.now_iso(), m.stanza_id) for m in msgs if not _downloading(m)])
+    conn.commit()
 
 
 def _safe(name: str) -> str:
