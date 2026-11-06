@@ -259,3 +259,32 @@ def test_every_action_the_brief_reads_is_one_this_job_writes():
     assert notify_job.CHECKED in brief.WATCHED_JOBS
     assert (timedelta(hours=brief.WATCHED_JOBS[notify_job.CHECKED][1])
             > 2 * notify_job.HEARTBEAT), "one late heartbeat would cry wolf"
+
+
+def test_a_given_key_makes_two_documents_one_alert(conn):
+    a, b = artifact(conn, 31), artifact(conn, 32)
+    kw = dict(parent_id=None, received_date="2026-11-04", urgency="CRITICAL",
+              category="VENDORS", counterparty="acme", descriptor="final notice",
+              due_date=None, amount_cents=None, today=TODAY,
+              key="whatsapp:15550100@s.whatsapp.net:2026-11-04")
+    assert notify.for_document(conn, artifact_id=a, **kw)
+    assert not notify.for_document(conn, artifact_id=b, **kw)
+
+
+def test_ingest_passes_its_alert_key_through(conn, pipeline, tmp_path):
+    roots, registry, clf = pipeline
+    today = datetime.now(ET).date().isoformat()
+    notify.enqueue(conn, key="whatsapp:x:today", reason="CRITICAL", text="from the hourly check")
+    src = tmp_path / "lapse.pdf"
+    src.write_bytes(b"BiBerk policy will lapse again")
+    ingest_file(conn, roots, registry, clf, src, source="whatsapp",
+                artifact=Artifact(recipient="matthew@mrecai.com",
+                                  body="policy will lapse", received_date=today),
+                run_ocr=False, alert_key="whatsapp:x:today")
+    assert len(notify.pending(conn)) == 1
+
+
+def test_the_whatsapp_table_exists(conn):
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(whatsapp_messages)")}
+    assert cols == {"stanza_id", "chat_jid", "day", "scanned_at",
+                    "artifact_id", "voice_text"}

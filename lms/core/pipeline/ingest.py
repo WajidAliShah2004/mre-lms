@@ -209,7 +209,8 @@ def ingest_file(conn, roots: filing.StorageRoots, registry: Registry,
                 artifact: Artifact | None = None,
                 auth_results: dict[str, bool] | None = None,
                 parent_id: int | None = None,
-                run_ocr: bool = True) -> IngestResult:
+                run_ocr: bool = True,
+                alert_key: str | None = None) -> IngestResult:
     source_path = Path(source_path)
     if not source_path.is_file():
         raise FileNotFoundError(source_path)
@@ -323,7 +324,8 @@ def ingest_file(conn, roots: filing.StorageRoots, registry: Registry,
         # Unsure WHOSE it is says nothing about how urgent it is: a lapse
         # notice we could not route is still a lapse notice.
         _alert_document(conn, classification, art,
-                        int(db.find_artifact_by_hash(conn, sha)["id"]), parent_id)
+                        int(db.find_artifact_by_hash(conn, sha)["id"]), parent_id,
+                        key=alert_key)
         return IngestResult(sha256=sha, status="QUARANTINED", path=target,
                             classification=classification, ocr_engine=engine,
                             reason=classification.review_reason)
@@ -360,7 +362,8 @@ def ingest_file(conn, roots: filing.StorageRoots, registry: Registry,
 
     db.insert_classification(conn, artifact_id=filed.artifact_id,
                              **classification.as_row())
-    _alert_document(conn, classification, art, filed.artifact_id, parent_id)
+    _alert_document(conn, classification, art, filed.artifact_id, parent_id,
+                    key=alert_key)
 
     # --- task --------------------------------------------------------------
     # One task per obligation (ledger v2, D-066): the covering email and the
@@ -401,12 +404,12 @@ def _alert(conn, queue, **fields) -> None:
 
 
 def _alert_document(conn, c: Classification, art: Artifact, artifact_id: int,
-                    parent_id: int | None) -> None:
+                    parent_id: int | None, key: str | None = None) -> None:
     _alert(conn, notify.for_document, artifact_id=artifact_id,
            parent_id=parent_id, received_date=art.received_date,
            urgency=c.urgency, category=c.category,
            counterparty=c.counterparty, descriptor=c.descriptor,
-           due_date=c.due_date, amount_cents=c.amount_cents)
+           due_date=c.due_date, amount_cents=c.amount_cents, key=key)
 
 
 def _task_title(c: Classification) -> str:

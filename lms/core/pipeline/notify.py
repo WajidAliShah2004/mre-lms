@@ -137,15 +137,18 @@ def for_document(conn: sqlite3.Connection, *, artifact_id: int,
                  parent_id: int | None, received_date: str | None,
                  urgency: str | None, category: str, counterparty: str | None,
                  descriptor: str | None, due_date: str | None,
-                 amount_cents: int | None, today: date | None = None) -> bool:
+                 amount_cents: int | None, today: date | None = None,
+                 key: str | None = None) -> bool:
     """Queue a classified document if it interrupts and is news.
 
-    Keyed on the EMAIL, so a notice and its covering note are one alert."""
+    Keyed on the EMAIL, so a notice and its covering note are one alert. A
+    caller with a better key passes it: WhatsApp keys on the chat day, so the
+    hourly check's alert and the day's filing are one alert (D-079)."""
     reason = reason_for(urgency, category)
     if reason is None or not is_fresh(received_date, today or datetime.now(TZ).date()):
         return False
-    return enqueue(conn, key=f"artifact:{parent_id or artifact_id}", reason=reason,
-                   artifact_id=artifact_id,
+    return enqueue(conn, key=key or f"artifact:{parent_id or artifact_id}",
+                   reason=reason, artifact_id=artifact_id,
                    text=describe(category=category, counterparty=counterparty,
                                  descriptor=descriptor, due_date=due_date,
                                  amount_cents=amount_cents))

@@ -523,3 +523,22 @@ CREATE TABLE IF NOT EXISTS notifications (
 );
 
 CREATE INDEX IF NOT EXISTS idx_notifications_pending ON notifications(sent_at);
+
+-- ---------------------------------------------------------------------------
+-- whatsapp_messages — what the WhatsApp reader has seen (R40, D-079).
+-- Keyed on WhatsApp's own message id (ZSTANZAID), which survives a re-link of
+-- the Mac app; its row numbers do not. No message text is kept here: the text
+-- lives in the filed transcript. voice_text caches a transcription so a voice
+-- note is transcribed once, by the hourly check, and reused at filing.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS whatsapp_messages (
+    stanza_id       TEXT    PRIMARY KEY,
+    chat_jid        TEXT    NOT NULL,
+    day             TEXT    NOT NULL,          -- YYYY-MM-DD, America/New_York
+    scanned_at      TEXT,                      -- hourly urgency check done
+    artifact_id     INTEGER REFERENCES artifacts(id),   -- transcript it is filed in
+    voice_text      TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_whatsapp_unfiled
+    ON whatsapp_messages(chat_jid, day) WHERE artifact_id IS NULL;
