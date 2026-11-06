@@ -249,7 +249,7 @@ def _media_name(title: str | None, local: Path) -> str:
     """A file name safe to create in the temp dir, from a sender-chosen title."""
     base = Path((title or "").replace("\\", "/")).name
     stem = re.sub(r"[^\w\- ]+", "", Path(base).stem).strip()[:60]
-    suffix = re.sub(r"[^\w.]+", "", Path(base).suffix)[:10]
+    suffix = re.sub(r"[^\w.]+", "", Path(base).suffix)[:10] or local.suffix
     return f"{stem}{suffix}" if stem else local.name
 
 

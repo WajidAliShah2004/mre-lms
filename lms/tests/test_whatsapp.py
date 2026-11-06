@@ -327,6 +327,8 @@ def test_hostile_media_titles_stay_inside_the_temp_dir(conn, pipe, tmp_path):
     assert w._media_name(r"..\..\x.pdf", media) == "x.pdf"
     assert w._media_name("../..", media) == "INV.pdf"
     assert w._media_name("///", media) == "INV.pdf"
+    # A caption as title (no extension) keeps the file's own type.
+    assert w._media_name("Lease signed today", media) == "Lease signed today.pdf"
     assert filed_ids(conn, "E", "F")[0] is not None
 
 
