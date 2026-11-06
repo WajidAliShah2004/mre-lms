@@ -47,3 +47,42 @@ def test_transcribes_offline_from_the_local_model(tmp_path, monkeypatch):
     assert ran[0][:2] == ["/opt/homebrew/bin/ffmpeg", "-nostdin"]
     assert "16000" in ran[0]
     assert seen["repo"] == str(model) and seen["offline"] == "1"
+
+
+def _model_dir(tmp_path, monkeypatch):
+    model = tmp_path / "model"
+    model.mkdir()
+    monkeypatch.setenv("LMS_ASR_MODEL", str(model))
+    monkeypatch.setattr(asr.shutil, "which", lambda name: "/opt/homebrew/bin/ffmpeg")
+
+
+def test_corrupt_note_is_unavailable_not_a_crash(tmp_path, monkeypatch):
+    _model_dir(tmp_path, monkeypatch)
+
+    def bad_ffmpeg(argv, **kw):
+        raise asr.subprocess.CalledProcessError(1, argv)
+    monkeypatch.setattr(asr.subprocess, "run", bad_ffmpeg)
+    monkeypatch.setitem(sys.modules, "mlx_whisper",
+                        types.SimpleNamespace(transcribe=None))
+    with pytest.raises(asr.ASRUnavailable, match="ffmpeg could not decode"):
+        asr.transcribe(tmp_path / "a.opus", tmp_path)
+
+
+def test_model_error_is_unavailable_not_a_crash(tmp_path, monkeypatch):
+    _model_dir(tmp_path, monkeypatch)
+    monkeypatch.setattr(asr.subprocess, "run", lambda argv, **kw: None)
+
+    def broken(path, path_or_hf_repo):
+        raise RuntimeError("metal out of memory")
+    monkeypatch.setitem(sys.modules, "mlx_whisper",
+                        types.SimpleNamespace(transcribe=broken))
+    with pytest.raises(asr.ASRUnavailable, match="speech model failed"):
+        asr.transcribe(tmp_path / "a.opus", tmp_path)
+
+
+def test_missing_mlx_whisper_is_unavailable(tmp_path, monkeypatch):
+    _model_dir(tmp_path, monkeypatch)
+    monkeypatch.setattr(asr.subprocess, "run", lambda argv, **kw: None)
+    monkeypatch.setitem(sys.modules, "mlx_whisper", None)
+    with pytest.raises(asr.ASRUnavailable, match="mlx-whisper"):
+        asr.transcribe(tmp_path / "a.opus", tmp_path)
