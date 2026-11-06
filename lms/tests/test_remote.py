@@ -243,11 +243,12 @@ def test_halt_starts_the_detached_halt_and_says_so(env):
     assert action == "remote:halt" and by == "matthew"
 
 
-def test_halt_when_already_halted_does_nothing(env):
+def test_halt_when_already_halted_still_halts_and_mentions_it(env):
     env.flag.write_text('{"ts": "2026-11-05T08:00", "by": "local"}')
     text = remote.handle(["halt"], "telegram", TG, env)
-    assert text.startswith("Already halted since 2026-11-05T08:00")
-    assert env.calls["halt"] == []
+    assert env.calls["halt"] == ["telegram"]
+    assert "Was already halted since 2026-11-05T08:00 (by local)" in text
+    assert "halting again in 2 seconds" in text
 
 
 # --- done ----------------------------------------------------------------------
@@ -272,6 +273,17 @@ def test_done_yes_closes_it_as_matthew_and_refreshes(env):
     c.close()
     assert env.calls["refresh"] == 1
     assert actions(env)[-1][2] == "matthew"
+
+
+def test_done_still_closes_when_the_refresh_fails(env):
+    def boom(conn):
+        raise RuntimeError("snapshot broke")
+    env.refresh = boom
+    tid = task(env, "Pay Con Edison", due="2026-11-01")
+    text = remote.handle(["done", str(tid), "yes"], "whatsapp", WA, env)
+    assert text == f"Closed #{tid}: Pay Con Edison"
+    assert any("snapshot broke" in m for m in env.calls["log"])
+    assert actions(env)[-1][0] == "remote:done"
 
 
 def test_done_private_task_is_not_named(env):
@@ -331,6 +343,16 @@ def test_approve_yes_decides_as_matthew(env):
     c.close()
     assert tuple(row) == ("APPROVED", "matthew", "via whatsapp")
     assert env.calls["refresh"] == 1
+
+
+def test_approve_still_decides_when_the_refresh_fails(env):
+    def boom(conn):
+        raise RuntimeError("snapshot broke")
+    env.refresh = boom
+    approval(env)
+    text = remote.handle(["approve", "7", "yes"], "whatsapp", WA, env)
+    assert text.startswith("AP-7 approved")
+    assert any("snapshot broke" in m for m in env.calls["log"])
 
 
 def test_deny_yes_denies(env):

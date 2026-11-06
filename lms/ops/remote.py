@@ -190,11 +190,22 @@ def cmd_run_now(name: str):
 
 def cmd_halt(env, conn, args, channel):
     flag = agent_context.read_halt_flag(env.flag)
-    if flag:
-        return f"Already halted since {flag.get('ts')} (by {flag.get('by')})."
     env.spawn_halt(channel)
+    if flag:
+        return (f"Was already halted since {flag.get('ts')} (by {flag.get('by')}); "
+                "halting again in 2 seconds. Everything stops, including this chat. "
+                "@MREOC18bot /status shows the result. Resume is at the Mac only.")
     return ("Halting in 2 seconds. Everything stops, including this chat. "
             "@MREOC18bot /status shows the result. Resume is at the Mac only.")
+
+
+def _refresh_best_effort(env, conn) -> None:
+    """The change is already committed; a failed snapshot refresh must not
+    change the reply or the audit result. The hourly job refreshes it anyway."""
+    try:
+        env.refresh(conn)
+    except Exception as exc:   # noqa: BLE001
+        env.log(f"snapshot refresh failed after commit: {type(exc).__name__}: {exc}")
 
 
 def _shown_task_title(conn, task_id: int, title: str) -> str:
@@ -215,7 +226,7 @@ def cmd_done(env, conn, args, channel):
         return (f"#{tid} {title} ({row['status']}, due {row['due_date'] or 'none'}).\n"
                 f"Send /lms done {tid} yes to close it.")
     r = task_ops.close_task(conn, tid, note=f"via {channel}", by="matthew")
-    env.refresh(conn)
+    _refresh_best_effort(env, conn)
     if r.was_already:
         return f"#{tid} was already {r.was_already.lower()}: {title}"
     return f"Closed #{tid}: {title}"
@@ -241,7 +252,7 @@ def cmd_answer(answer: str):
             res = approvals.decide(conn, ref, answer, by="matthew", note=f"via {channel}")
         except approvals.ApprovalError as exc:
             return str(exc)
-        env.refresh(conn)
+        _refresh_best_effort(env, conn)
         word = {"approve": "approved", "deny": "denied"}[answer]
         extra = ("" if answer == "deny" or res.authorizes
                  else " (recorded as agreement only: a hard stop still applies)")

@@ -68,7 +68,8 @@ def test_dangerous_chat_commands_stay_off(patch):
 def test_only_our_plugin_is_loaded_from_the_repo(patch):
     p = patch["plugins"]
     assert p["load"]["paths"] == ["/Users/mleca/lms-repo/lms/openclaw-plugin/lms-control"]
-    assert p["entries"] == {"lms-control": {"enabled": True}}
+    assert p["entries"] == {"lms-control": {"enabled": True},
+                            "whatsapp": {"enabled": True}}
 
 
 def test_the_plugin_runs_remote_py_without_a_shell():
@@ -93,6 +94,17 @@ def test_the_plugin_commands_require_an_authorised_sender():
     js = (PLUGIN / "index.js").read_text(encoding="utf-8")
     assert js.count("requireAuth: true") == js.count("registerCommand(")
     assert "requireAuth: false" not in js
+
+
+def test_the_plugin_is_silent_for_unauthorised_senders_before_running_anything():
+    js = (PLUGIN / "index.js").read_text(encoding="utf-8")
+    assert "isAuthorizedSender" in js
+    body = js[js.index("async function handle"):]
+    assert body.index("isAuthorizedSender") < body.index("runRemote(")
+
+
+def test_d015_baseline_counts_whatsapp_and_lms_control():
+    assert vs.D015_PLUGINS == 6
 
 
 def test_the_manifest_names_the_plugin():
@@ -122,6 +134,25 @@ def test_the_manifest_names_the_plugin():
 ])
 def test_whatsapp_problems(cfg, owner, expect_ok):
     assert (vs.whatsapp_problems(cfg, owner) == []) is expect_ok
+
+
+@pytest.mark.parametrize("cfg,owner", [
+    ({"dmPolicy": "allowlist", "allowFrom": ["*"], "selfChatMode": True,
+      "groupPolicy": "disabled"}, "abc"),
+    ({"dmPolicy": "allowlist", "allowFrom": ["*"], "selfChatMode": True,
+      "groupPolicy": "disabled"}, "+"),
+])
+def test_an_owner_with_no_digits_is_no_owner(cfg, owner):
+    problems = vs.whatsapp_problems(cfg, owner)
+    assert any("no WhatsApp owner" in p for p in problems)
+
+
+@pytest.mark.parametrize("allow", ["+15551234567", {"a": 1}, 5])
+def test_allow_from_must_be_a_list(allow):
+    cfg = {"dmPolicy": "allowlist", "allowFrom": allow, "selfChatMode": True,
+           "groupPolicy": "disabled"}
+    problems = vs.whatsapp_problems(cfg, "15551234567")
+    assert any("allowFrom is not a list" in p for p in problems)
 
 
 @pytest.mark.parametrize("raw", ["not json", "", "null", "[]", "42"])

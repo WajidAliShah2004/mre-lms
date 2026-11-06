@@ -45,6 +45,8 @@ const SILENT = { suppressReply: true };
 async function handle(ctx, argWords) {
   const channel = ctx.channel;
   if (!CHANNELS.has(channel)) return SILENT;
+  // OpenClaw says this sender may not run commands: no reply, no process.
+  if (ctx.isAuthorizedSender === false) return SILENT;
   const text = await runRemote(channel, ctx.senderId ?? ctx.from, argWords);
   return text ? { text } : SILENT;
 }

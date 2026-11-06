@@ -11,7 +11,7 @@
 //     sed "s/__WHATSAPP_OWNER__/$N/g" ops/remote.patch.json5 > /tmp/remote.patch.json5
 //     openclaw config patch --file /tmp/remote.patch.json5 --dry-run
 //     openclaw config patch --file /tmp/remote.patch.json5
-//     rm /tmp/remote.patch.json5
+//     rm -f /tmp/remote.patch.json5
 //     openclaw gateway restart
 
 {
@@ -60,6 +60,8 @@
 
   plugins: {
     load: { paths: ["/Users/mleca/lms-repo/lms/openclaw-plugin/lms-control"] },
-    entries: { "lms-control": { enabled: true } },
+    // D-015 turned OpenClaw's channel plugins off by name, so the WhatsApp
+    // channel needs its plugin enabled here (D015_PLUGINS 4 -> 6, D-080).
+    entries: { "lms-control": { enabled: true }, whatsapp: { enabled: true } },
   },
 }

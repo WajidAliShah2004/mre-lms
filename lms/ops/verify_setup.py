@@ -92,7 +92,9 @@ SKILLS_DIR = REPO / "openclaw" / "skills"
 # 2026-09-08 after the 2026.6.34 -> 2026.7.1-2 upgrade. Raised to 4 on Oct 6
 # for the Telegram plugin (Phase 7b, D-060), in the same commit as the patch
 # that enables it, so a fourth plugin that is NOT telegram still fails here.
-D015_PLUGINS = 4
+# Raised to 6 on Nov 6 for `whatsapp` (D-015 had turned the channel plugins
+# off) and `lms-control` (D-080), in the same commit as remote.patch.json5.
+D015_PLUGINS = 6
 D015_SKILLS_READY = 0
 
 TZ = ZoneInfo("America/New_York")
@@ -601,14 +603,19 @@ def whatsapp_problems(cfg: dict, owner: str) -> list[str]:
     """What is wrong with channels.whatsapp for chat control (D-080). [] = fine."""
     digits = lambda s: "".join(ch for ch in str(s) if ch.isdigit())   # noqa: E731
     problems = []
-    if not owner:
+    if not digits(owner):
         problems.append("no WhatsApp owner in Keychain (lms/whatsapp-owner)")
     if cfg.get("dmPolicy") != "allowlist":
         problems.append(f"dmPolicy is {cfg.get('dmPolicy')!r}, not 'allowlist'")
-    allow = [digits(a) for a in cfg.get("allowFrom") or []]
-    if len(allow) != 1:
-        problems.append(f"allowFrom has {len(allow)} entries, not exactly one")
-    elif owner and allow[0] != digits(owner):
+    raw_allow = cfg.get("allowFrom")
+    if not isinstance(raw_allow, list):
+        problems.append(f"allowFrom is not a list ({type(raw_allow).__name__})")
+        allow = []
+    else:
+        allow = [digits(a) for a in raw_allow]
+        if len(allow) != 1:
+            problems.append(f"allowFrom has {len(allow)} entries, not exactly one")
+    if len(allow) == 1 and digits(owner) and allow[0] != digits(owner):
         problems.append("allowFrom is not the Keychain owner's number")
     if cfg.get("groupPolicy") != "disabled":
         problems.append(f"groupPolicy is {cfg.get('groupPolicy')!r}, not 'disabled'")
