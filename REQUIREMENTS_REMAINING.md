@@ -37,8 +37,8 @@ Where the addendum and the spec disagree, the **addendum wins** (it is later). I
 | # | Item | Source |
 |---|---|---|
 | R9 | Unsubscribe spam — `List-Unsubscribe` header only, logged, 30-day resubscribe log | MTG, SPEC Q33–Q35 |
-| R10 | ~~Tell him when an important email arrives (push; 3/day baseline, 1/hour max outside briefs)~~ **Built Nov 4 (D-077)**: Telegram via @MREOCbot for CRITICAL, legal/tax, phishing and stalled jobs; **installed on the Mac Nov 4** ([lms/ops/NOTIFY_APPLY.md](lms/ops/NOTIFY_APPLY.md)). Not yet: ACT NOW escalations, $2,500 anomalies | MTG, SPEC §8.8 |
-| R11 | Draft replies for his approve / change / send; nothing sends without approval | MTG, SPEC, ADD level B |
+| R10 | ~~Tell him when an important email arrives (push; 3/day baseline, 1/hour max outside briefs)~~ **Built Nov 4 (D-077)**: Telegram via @MREOCbot for CRITICAL, legal/tax, phishing and stalled jobs; **installed on the Mac Nov 4** ([lms/ops/NOTIFY_APPLY.md](lms/ops/NOTIFY_APPLY.md)). Not yet: ACT NOW escalations, $2,500 anomalies **Nov 5 (D-080):** two-way: /lms commands on WhatsApp and @MREOCbot. | MTG, SPEC §8.8 |
+| R11 | Draft replies for his approve / change / send; nothing sends without approval **Nov 5 (D-080):** approvals answerable from his phone (/lms approve N yes); drafting replies still to build. | MTG, SPEC, ADD level B |
 | R12 | Drafting in his voice (style from sent mail; attorney mail excluded) | SPEC (voice corpus) |
 
 ### Tasks, briefs, delegation

@@ -884,6 +884,18 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 
 **302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
 
+### D-080 — Chat control from WhatsApp and Telegram: fixed commands, run by code
+**Status:** Decided Nov 5 2026 · Matthew asked; designed and approved with the developer · changes D-056 · R10, R11 · spec [docs/superpowers/specs/2026-11-05-chat-control-design.md](docs/superpowers/specs/2026-11-05-chat-control-design.md)
+
+Matthew asked to control OpenClaw and the Mac from WhatsApp and Telegram. D-056 kept the chat agent tool-less; that stays true, and control is added beside it:
+
+- **Fixed commands, carried out by code.** An OpenClaw plugin (`lms/openclaw-plugin/lms-control`) registers `/lms`, which runs before the agent; `ops/remote.py` does the work. The list: status, brief, tasks, coverage, mail, whatsapp, backup, done, approve, deny, halt. `done`, `approve`, `deny` act only with `yes` in the same message.
+- **A check that fails closed.** `verify_setup` [12] fails (it does not warn) when OpenClaw's WhatsApp config is unreadable or not an object, when the allowlist is not his one number, when `lms-control` is not enabled, or when `com.lms.agentcontext` is not loaded. Decided Nov 6.
+- **No resume from a phone** (D-059 unchanged). @MREOC18bot stays the separate kill switch.
+- **Plain text** goes to `lms-orchestrator`, still with no tools, which answers from an hourly snapshot (`ops/agent_context.py`).
+- **WhatsApp on his own number**, self-chat, allowlist of one. Accepted risk, his choice: OpenClaw's WhatsApp client is unofficial and WhatsApp can ban numbers using one; OpenClaw recommends a separate number. Recommended and declined.
+- **Rejected:** giving the agent tools (an injected "approve 7" could be obeyed); our own WhatsApp client; a dedicated bot number.
+
 ### D-078 — Matthew's answers of Nov 4: OpenClaw's iCloud is mattyeps@gmail.com; his domains' DNS is at IONOS
 **Status:** Recorded · Nov 4 2026 · WhatsApp, relayed to the developer by Zeeshan Liaqat · answers D-076; bears on D-068, C12, X2, R4, R24, R36
 
