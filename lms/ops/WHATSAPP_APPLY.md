@@ -93,10 +93,12 @@ downloaded to the Mac. The backfill files those days' text, and lists those
 files as "not downloaded on the Mac". Bringing them in is Matthew's choice,
 either way:
 
-1. Open the chats that matter in the Mac app, so their files download; the
-   next pass files them as a late part of that day.
-2. Export those chats with media from his phone, and drop the export in the
-   watch folder.
+1. **Before the backfill (step 6):** open the chats that matter in the Mac
+   app and let their files download; the backfill then files them with
+   their day. A day already filed does not pick up files downloaded later:
+   once a chat day is filed, only newly arrived messages make a later part.
+2. **At any time:** export those chats with media from his phone, and drop
+   the export in the watch folder.
 
 ## Undo
 

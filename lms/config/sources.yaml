@@ -200,7 +200,8 @@ sources:
       filed. Files the Mac app never downloaded are listed, not filed. The
       history's media was never downloaded to the Mac (auto-download covers
       new media only), so older documents are listed, not filed, unless
-      Matthew opens those chats in the Mac app or exports them. A message
+      Matthew opens those chats in the Mac app before the backfill or
+      exports them. A message
       deleted in WhatsApp after filing stays filed.
 
   # -------------------------------------------------------------------------
