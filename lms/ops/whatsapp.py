@@ -81,9 +81,16 @@ def do_probe(src_dir: Path) -> int:
             numbered = wa.own_jids()
             by_number = wa.own_chat_count(conn, numbered)
             by_content = wa.own_chats_by_content(conn)
+            shapes = wa.lms_chat_shapes(conn)
         finally:
             conn.close()
         found = by_number + len(by_content - numbered)
+        if found != 1:
+            print(f"chats with /lms text: {len(shapes)}")
+            for s in shapes[:5]:
+                print(f"  type {s['type']}, {s['domain']}: {s['messages']} "
+                      f"message(s), {s['from_him']} marked his; {s['lms']} "
+                      f"/lms command(s), {s['lms_from_him']} of them marked his")
         how = ", ".join(
             (["under his number"] if by_number else [])
             + [f"by its /lms commands ({j.rpartition('@')[2]})"

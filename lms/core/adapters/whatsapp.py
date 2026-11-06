@@ -201,6 +201,28 @@ SELECT s.ZCONTACTJID FROM ZWACHATSESSION s
 """
 
 
+_LMS_CHATS = """
+SELECT s.ZSESSIONTYPE, s.ZCONTACTJID, COUNT(*),
+       SUM(COALESCE(m.ZISFROMME, 0) = 1),
+       SUM(m.ZTEXT = '/lms' OR m.ZTEXT LIKE '/lms %'),
+       SUM(COALESCE(m.ZISFROMME, 0) = 1
+           AND (m.ZTEXT = '/lms' OR m.ZTEXT LIKE '/lms %'))
+  FROM ZWACHATSESSION s JOIN ZWAMESSAGE m ON m.ZCHATSESSION = s.Z_PK
+ WHERE s.Z_PK IN (SELECT ZCHATSESSION FROM ZWAMESSAGE
+                   WHERE ZTEXT LIKE '%/lms%')
+ GROUP BY s.Z_PK ORDER BY 3 DESC
+"""
+
+
+def lms_chat_shapes(conn: sqlite3.Connection) -> list[dict]:
+    """Chats with any '/lms' text, as counts only: for --probe, to see how
+    the Mac stores his own chat. No id, number or text leaves this."""
+    return [{"type": t, "domain": (jid or "").rpartition("@")[2] or "(none)",
+             "messages": n, "from_him": mine or 0, "lms": lms or 0,
+             "lms_from_him": lms_mine or 0}
+            for t, jid, n, mine, lms, lms_mine in conn.execute(_LMS_CHATS)]
+
+
 def own_chats_by_content(conn: sqlite3.Connection) -> frozenset[str]:
     return frozenset(r[0] for r in conn.execute(_OWN_BY_CONTENT))
 

@@ -99,6 +99,24 @@ def test_own_chat_is_found_by_content_under_a_hidden_number(box):
     assert "15550100@s.whatsapp.net" in {c.jid for c in chats}
 
 
+def test_probe_describes_lms_chats_when_it_cannot_find_his_own(box, capsys,
+                                                               monkeypatch):
+    # Mac, Nov 6: no chat matched; this says why, in counts only.
+    import whatsapp as job
+    t = datetime(2026, 11, 4, tzinfo=UTC)
+    me = box.chat("185432112345678@lid", "Matthew")
+    box.message(me, t, "/lms tasks")                     # stored as received
+    box.message(me, t, "LMS commands (send in this chat):", from_me=True)
+    monkeypatch.setattr(wa, "own_jids", lambda: frozenset())
+    job.do_probe(box.container)
+    out = capsys.readouterr().out
+    assert "chats with /lms text: 1" in out
+    assert ("type 0, lid: 2 message(s), 1 marked his; 1 /lms command(s), "
+            "0 of them marked his") in out
+    assert "185432112345678" not in out and "LMS commands" not in out
+    assert "own chat (Message yourself): not found" in out
+
+
 def test_probe_reports_the_own_chat_found_by_content(box, capsys, monkeypatch):
     import whatsapp as job
     t = datetime(2026, 11, 4, tzinfo=UTC)
