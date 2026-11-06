@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The snapshot lms-orchestrator answers plain-text questions from, hourly.
+  D-080; ops/agent_context.py says what is in it.
+
+  Install (ops/CHAT_CONTROL_APPLY.md):
+    cp ops/com.lms.agentcontext.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.lms.agentcontext.plist
+
+  A halt (D-059) disables this job with the rest; run by hand while halted
+  it writes nothing.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.lms.agentcontext</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/mleca/lms-repo/lms/.venv/bin/python</string>
+        <string>/Users/mleca/lms-repo/lms/ops/agent_context.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/mleca/lms-repo/lms</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>TZ</key>
+        <string>America/New_York</string>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <key>StartInterval</key>
+    <integer>3600</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/mleca/LMS/logs/agentcontext.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/mleca/LMS/logs/agentcontext.err</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>Nice</key>
+    <integer>10</integer>
+</dict>
+</plist>
