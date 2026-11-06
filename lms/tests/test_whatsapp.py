@@ -422,6 +422,24 @@ def test_read_chats_skips_his_own_chat(tmp_path, monkeypatch):
     assert [c.jid for c in chats] == ["15550100@s.whatsapp.net"]
 
 
+def test_read_chats_skips_his_own_chat_under_a_hidden_number(tmp_path, monkeypatch):
+    # Mac, Nov 6: the probe found no chat under his number; his own chat is
+    # an @lid chat, recognised by its content (all his, with /lms commands).
+    from core.adapters import whatsapp as wa
+    box = WA(tmp_path / "container")
+    t = datetime(2026, 11, 4, 14, tzinfo=timezone.utc)
+    box.message(box.chat("15550100@s.whatsapp.net", "Acme"), t, "invoice?")
+    me = box.chat("185432112345678@lid", "Matthew")
+    box.message(me, t, "/lms tasks", from_me=True)
+    box.message(me, t, "#7 Eo compliance notice — due 2026-10-04", from_me=True)
+    box.close()
+    monkeypatch.setattr(wa, "own_jids",
+                        lambda: frozenset({"15559999@s.whatsapp.net"}))
+    chats = w.read_chats(box.container, tmp_path / "tmp",
+                         datetime(2026, 11, 1, tzinfo=timezone.utc))
+    assert [c.jid for c in chats] == ["15550100@s.whatsapp.net"]
+
+
 def test_plan_days_reads_without_writing(conn, tmp_path):
     chat = direct(msg("A", at(4, 9), "x"), msg("B", at(5, 9), "y"))
     assert w.plan_days(conn, [chat], at(5, 10)) == [

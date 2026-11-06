@@ -185,6 +185,33 @@ def own_chat_count(conn: sqlite3.Connection, jids: frozenset[str]) -> int:
                for j in jids)
 
 
+# His own chat by what is in it. On the Mac (Nov 6) "Message yourself" is not
+# stored under his number but under a hidden-number @lid id, which nothing
+# here can map to the number. It is the one direct chat where every message
+# is his (no message from anyone else, ever) and where he sends /lms
+# commands; D-080 answers /lms only there.
+_OWN_BY_CONTENT = """
+SELECT s.ZCONTACTJID FROM ZWACHATSESSION s
+ WHERE s.ZSESSIONTYPE = 0 AND s.ZCONTACTJID IS NOT NULL
+   AND EXISTS (SELECT 1 FROM ZWAMESSAGE m WHERE m.ZCHATSESSION = s.Z_PK
+               AND m.ZISFROMME = 1
+               AND (m.ZTEXT = '/lms' OR m.ZTEXT LIKE '/lms %'))
+   AND NOT EXISTS (SELECT 1 FROM ZWAMESSAGE m WHERE m.ZCHATSESSION = s.Z_PK
+                   AND COALESCE(m.ZISFROMME, 0) = 0)
+"""
+
+
+def own_chats_by_content(conn: sqlite3.Connection) -> frozenset[str]:
+    return frozenset(r[0] for r in conn.execute(_OWN_BY_CONTENT))
+
+
+def own_chats(conn: sqlite3.Connection,
+              numbered: frozenset[str] | None = None) -> frozenset[str]:
+    """Every JID that is his own chat: under his number, or found by content."""
+    numbered = own_jids() if numbered is None else numbered
+    return frozenset(numbered) | own_chats_by_content(conn)
+
+
 def read(conn: sqlite3.Connection, since: datetime, media_root: Path,
          skip: frozenset[str] = frozenset()) -> list[Chat]:
     chats: dict[str, Chat] = {}

@@ -76,19 +76,28 @@ def do_probe(src_dir: Path) -> int:
             finally:
                 conn.close()
             print(f"local paths the reader can open: {found} of {filled}")
-        own = wa.own_jids()
-        if not own:
-            print("own chat (Message yourself): number not in Keychain "
-                  f"({wa.OWNER_SERVICE}); it would be read")
+        conn = sqlite3.connect(copy)
+        try:
+            numbered = wa.own_jids()
+            by_number = wa.own_chat_count(conn, numbered)
+            by_content = wa.own_chats_by_content(conn)
+        finally:
+            conn.close()
+        found = by_number + len(by_content - numbered)
+        how = ", ".join(
+            (["under his number"] if by_number else [])
+            + [f"by its /lms commands ({j.rpartition('@')[2]})"
+               for j in sorted(by_content - numbered)])
+        if found == 1:
+            print(f"own chat (Message yourself): found {how}; the reader skips it")
+        elif found == 0:
+            print("own chat (Message yourself): not found"
+                  + ("" if numbered else
+                     f" (and no number in Keychain {wa.OWNER_SERVICE})")
+                  + "; tell the developer")
         else:
-            conn = sqlite3.connect(copy)
-            try:
-                n = wa.own_chat_count(conn, own)
-            finally:
-                conn.close()
-            print("own chat (Message yourself): "
-                  + ("found under his number; the reader skips it" if n else
-                     "not found under his number; tell the developer"))
+            print(f"own chat (Message yourself): {found} chats found ({how}); "
+                  "tell the developer")
         for m in p["missing"]:
             print(f"MISSING: {m}")
         return 1 if p["missing"] else 0

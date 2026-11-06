@@ -54,8 +54,8 @@ cd ~/lms-repo/lms && git pull
 ./ops/whatsapp.py --probe | tail -2
 ```
 
-It must say `own chat (Message yourself): found under his number; the
-reader skips it`. That chat holds the `/lms` commands and the LMS's replies
+It must say `own chat (Message yourself): found ...; the reader skips it`
+(on this Mac: `found by its /lms commands (lid)`). That chat holds the `/lms` commands and the LMS's replies
 (D-080), so the reader never reads it. Any other wording: copy the output to
 the developer and stop.
 ```bash

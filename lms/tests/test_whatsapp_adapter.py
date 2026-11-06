@@ -70,7 +70,51 @@ def test_probe_says_whether_his_own_chat_is_found(box, capsys, monkeypatch):
     assert "15559999" not in out
     monkeypatch.setattr(wa, "own_jids", lambda: frozenset())
     job.do_probe(box.container)
-    assert "number not in Keychain" in capsys.readouterr().out
+    assert "not found (and no number in Keychain" in capsys.readouterr().out
+
+
+def test_own_chat_is_found_by_content_under_a_hidden_number(box):
+    # Mac probe, Nov 6: "Message yourself" is not under his number but an
+    # @lid id. It is the one direct chat where every message is his and he
+    # sends /lms commands.
+    t = datetime(2026, 11, 4, 14, tzinfo=UTC)
+    me = box.chat("185432112345678@lid", "Matthew")
+    box.message(me, t, "/lms tasks", from_me=True)
+    box.message(me, t, "#7 Eo compliance notice", from_me=True)
+    friend = box.chat("15550100@s.whatsapp.net", "Jo")
+    box.message(friend, t, "/lms status", from_me=True)     # typed by mistake
+    box.message(friend, t, "what?")                          # Jo replied
+    group = box.chat("120363000000000001@g.us", "Board", group=True)
+    box.message(group, t, "/lms help", from_me=True)
+    notes = box.chat("185400000000001@lid", "Pat")           # only his, no /lms
+    box.message(notes, t, "call me back", from_me=True)
+    assert wa.own_chats_by_content(box.conn) == frozenset({"185432112345678@lid"})
+    assert wa.own_chats(box.conn, frozenset()) == frozenset({"185432112345678@lid"})
+    assert wa.own_chats(box.conn, frozenset({"15559999@s.whatsapp.net"})) == \
+        frozenset({"185432112345678@lid", "15559999@s.whatsapp.net"})
+    chats = wa.read(box.conn, datetime(2026, 11, 1, tzinfo=UTC),
+                    box.container / "Message",
+                    skip=wa.own_chats(box.conn, frozenset()))
+    assert "185432112345678@lid" not in {c.jid for c in chats}
+    assert "15550100@s.whatsapp.net" in {c.jid for c in chats}
+
+
+def test_probe_reports_the_own_chat_found_by_content(box, capsys, monkeypatch):
+    import whatsapp as job
+    t = datetime(2026, 11, 4, tzinfo=UTC)
+    box.message(box.chat("185432112345678@lid", "Matthew"), t, "/lms help",
+                from_me=True)
+    monkeypatch.setattr(wa, "own_jids",
+                        lambda: frozenset({"15559999@s.whatsapp.net"}))
+    job.do_probe(box.container)
+    out = capsys.readouterr().out
+    assert ("own chat (Message yourself): found by its /lms commands (lid); "
+            "the reader skips it") in out
+    assert "185432112345678" not in out and "15559999" not in out
+    box.message(box.chat("185400000000002@lid", "Matthew 2"), t, "/lms tasks",
+                from_me=True)
+    job.do_probe(box.container)
+    assert "2 chats found" in capsys.readouterr().out
 
 
 def test_read_skips_broadcast_and_status_sessions(box):

@@ -408,7 +408,7 @@ def _read(src_dir: Path, tmp: Path,
         # His own chat holds the /lms commands and the LMS's replies (D-080):
         # never read back in.
         return (wa.read(rconn, since, Path(src_dir) / wa.MEDIA_DIR,
-                        skip=wa.own_jids()),
+                        skip=wa.own_chats(rconn)),
                 wa.newest(rconn))
     finally:
         rconn.close()
