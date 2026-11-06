@@ -73,23 +73,19 @@ security add-generic-password -U -a lms -s lms/whatsapp-owner -w
 N=$(security find-generic-password -a lms -s lms/whatsapp-owner -w)
 ```
 
-Refuse a number that is empty or not all digits (this must print nothing):
+Write the patch with his number filled in. The file is written only when the number is all digits; otherwise the line prints a message, writes nothing, and the steps below fail harmlessly:
 
 ```bash
-case "$N" in ''|*[!0-9]*) echo "lms/whatsapp-owner must be digits only"; false;; esac
+rm -f /tmp/remote.patch.json5; case "$N" in ''|*[^0-9]*) echo "lms/whatsapp-owner must be digits only: store it again (step 3) and stop here";; *) sed "s/__WHATSAPP_OWNER__/$N/g" ops/remote.patch.json5 > /tmp/remote.patch.json5;; esac; unset N
 ```
 
-If it printed that message, stop and store the number again (step 3). Otherwise:
-
-```bash
-sed "s/__WHATSAPP_OWNER__/$N/g" ops/remote.patch.json5 > /tmp/remote.patch.json5; unset N
-```
+If it printed that message, stop and go back to step 3.
 
 ```bash
 openclaw config patch --file /tmp/remote.patch.json5 --dry-run
 ```
 
-Read the dry-run output: his number must appear with a leading `+` (for example `+15551234567`), once in `allowFrom`, in the WhatsApp binding and in the two command lists. If it does not, stop.
+Read the dry-run output: his number must appear with a leading `+` (for example `+15551234567`), once in `allowFrom`, in the WhatsApp binding and in the two command lists. If it does not, run the `rm -f` block below and stop.
 
 ```bash
 openclaw config patch --file /tmp/remote.patch.json5
@@ -200,6 +196,10 @@ openclaw plugins disable whatsapp
 
 ```bash
 openclaw plugins disable lms-control
+```
+
+```bash
+openclaw gateway restart
 ```
 
 If chat control is removed for good, set `D015_PLUGINS` in `ops/verify_setup.py` back to 4, or check [5] will fail.
