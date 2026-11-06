@@ -307,3 +307,54 @@ def test_one_bad_chat_day_does_not_stop_the_others(conn, pipe, tmp_path):
     assert filed_ids(conn, "X") == [None]
     assert conn.execute("SELECT COUNT(*) FROM actions_log WHERE action='WHATSAPP_DAY_FAILED'"
                         ).fetchone()[0] == 1
+
+
+def test_hostile_media_titles_stay_inside_the_temp_dir(conn, pipe, tmp_path):
+    roots, registry, clf = pipe
+    media = tmp_path / "container" / "INV.pdf"
+    media.parent.mkdir()
+    media.write_bytes(b"%PDF-1.4 invoice 777")
+    tmp = tmp_path / "pass"
+    chat = direct(msg("E", at(4, 9), kind="document", media=Media(media, "../../evil.pdf", 20, None)),
+                  msg("F", at(4, 9, 1), kind="document", media=Media(media, "../..", 20, None)))
+    w.record(conn, [chat])
+    result = w.PassResult()
+    assert w.close(conn, roots, registry, clf, [chat], at(5, 1), tmp, no_speech, result,
+                   ocr=False) == 1
+    assert result.failed == 0
+    assert not (tmp_path / "evil.pdf").exists() and not (tmp.parent / "evil.pdf").exists()
+    assert w._media_name("../../evil.pdf", media) == "evil.pdf"
+    assert w._media_name(r"..\..\x.pdf", media) == "x.pdf"
+    assert w._media_name("../..", media) == "INV.pdf"
+    assert w._media_name("///", media) == "INV.pdf"
+    assert filed_ids(conn, "E", "F")[0] is not None
+
+
+def test_a_failed_attachment_leaves_the_day_for_retry(conn, pipe, tmp_path):
+    from core.pipeline.ingest import ingest_file
+    roots, registry, clf = pipe
+    media = tmp_path / "container" / "a.pdf"
+    media.parent.mkdir()
+    media.write_bytes(b"%PDF-1.4 one")
+    media2 = tmp_path / "container" / "b.pdf"
+    media2.write_bytes(b"%PDF-1.4 two")
+    chat = direct(msg("P", at(4, 9), kind="document", media=Media(media, "first.pdf", 12, None)),
+                  msg("Q", at(4, 9, 1), kind="document", media=Media(media2, "second.pdf", 12, None)))
+    w.record(conn, [chat])
+    attempted = []
+
+    def flaky(conn_, roots_, registry_, clf_, path, **kw):
+        if kw.get("source") == "attachment":
+            attempted.append(path.name)
+            if path.name == "first.pdf":
+                raise RuntimeError("boom")
+        return ingest_file(conn_, roots_, registry_, clf_, path, **kw)
+    result = w.PassResult()
+    assert w.close(conn, roots, registry, clf, [chat], at(5, 1), tmp_path, no_speech,
+                   result, ocr=False, ingest=flaky) == 0
+    assert result.failed == 1
+    assert attempted == ["first.pdf", "second.pdf"]
+    assert filed_ids(conn, "P", "Q") == [None, None]
+    assert w.close(conn, roots, registry, clf, [chat], at(5, 2), tmp_path, no_speech,
+                   w.PassResult(), ocr=False) == 1
+    assert None not in filed_ids(conn, "P", "Q")

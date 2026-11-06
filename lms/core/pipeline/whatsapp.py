@@ -245,6 +245,14 @@ def _part(conn, jid: str, day: str) -> int:
     return n + 1
 
 
+def _media_name(title: str | None, local: Path) -> str:
+    """A file name safe to create in the temp dir, from a sender-chosen title."""
+    base = Path((title or "").replace("\\", "/")).name
+    stem = re.sub(r"[^\w\- ]+", "", Path(base).stem).strip()[:60]
+    suffix = re.sub(r"[^\w.]+", "", Path(base).suffix)[:10]
+    return f"{stem}{suffix}" if stem else local.name
+
+
 def _copy(src: Path, dest_dir: Path, name: str) -> Path:
     """A copy to hand to ingest: filing MOVES what it is given (filing.py)."""
     dest_dir.mkdir(parents=True, exist_ok=True)
@@ -298,24 +306,26 @@ def _file_day(conn, roots, registry, classifier, chat: Chat, day: str,
                source_ref=f"whatsapp:{chat.jid}:{day}:{part}",
                artifact=_artifact(chat, day, text), run_ocr=False, alert_key=key)
     parent = int(db.find_artifact_by_hash(conn, r.sha256)["id"])
+    failures: list[str] = []
     for m in msgs:
         if m.kind not in FILED_KINDS:
             continue
         if m.media is None or m.media.local_path is None:
             result.media_missing += 1
             continue
-        name = m.media.title or m.media.local_path.name
-        copy = _copy(m.media.local_path, work / "media" / m.stanza_id, name)
         try:
+            copy = _copy(m.media.local_path, work / "media" / m.stanza_id,
+                         _media_name(m.media.title, m.media.local_path))
             ingest(conn, roots, registry, classifier, copy, source="attachment",
                    source_ref=f"whatsapp:{m.stanza_id}", parent_id=parent,
                    artifact=_artifact(chat, day, m.text or ""), run_ocr=ocr,
                    alert_key=key)
         except Exception as exc:                              # noqa: BLE001
-            result.failed += 1
-            db.log_action(conn, "WHATSAPP_DAY_FAILED",
-                          detail=f"{chat.jid} {day} {m.stanza_id}: "
-                                 f"{type(exc).__name__}: {exc}"[:400])
+            failures.append(f"{m.stanza_id}: {type(exc).__name__}: {exc}")
+    if failures:
+        # Leave the day unfiled so the next pass retries; ingest_file answers
+        # DUPLICATE for what was already filed.
+        raise RuntimeError(f"{len(failures)} attachment(s) failed: " + "; ".join(failures))
     conn.executemany(
         "UPDATE whatsapp_messages SET artifact_id = ?, "
         "scanned_at = COALESCE(scanned_at, ?) WHERE stanza_id = ?",
