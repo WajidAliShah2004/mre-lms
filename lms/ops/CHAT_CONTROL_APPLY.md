@@ -110,7 +110,35 @@ On Matthew's phone, in WhatsApp's "Message yourself" chat and in @MREOCbot:
 5. A plain question, "what's overdue?": an answer that names the snapshot time.
 6. From **another phone**, a WhatsApp to his number saying `/lms status`: **no reply**, and `tail -3 ~/LMS/logs/remote.log` shows nothing new or `remote:refused`. OpenClaw's log shows the message dropped.
 
-Leave `/lms halt` for a planned test: it stops everything, and resume is `./ops/halt.py --resume` at the Mac.
+Leave `/lms halt` for the planned test below: it stops everything.
+
+## Planned halt test
+
+While halted nothing answers on WhatsApp or @MREOCbot and the snapshot job writes nothing. Resume is only at the Mac (no remote resume, D-059).
+
+1. From the phone, send `/lms halt` in WhatsApp's "Message yourself" chat or in @MREOCbot. Expect the "Halting in 2 seconds" reply, then those chats go quiet.
+2. From the phone, send `/status` to @MREOC18bot. Expect it to report HALTED (it is the independent kill switch and keeps answering).
+3. At the Mac, show the state (halted, by whatsapp or telegram):
+
+```bash
+./ops/halt.py --status
+```
+
+4. At the Mac, resume:
+
+```bash
+./ops/halt.py --resume
+```
+
+5. At the Mac, confirm it is running again:
+
+```bash
+./ops/halt.py --status
+```
+
+```bash
+./ops/verify_setup.py | tail -15
+```
 
 ## Undo
 
