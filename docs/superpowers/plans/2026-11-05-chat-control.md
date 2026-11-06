@@ -1420,6 +1420,13 @@ def test_the_plugin_runs_remote_py_without_a_shell():
     assert '"--"' in js
 
 
+def test_the_plugin_stays_silent_rather_than_sending_an_empty_reply():
+    js = (PLUGIN / "index.js").read_text(encoding="utf-8")
+    assert "suppressReply: true" in js
+    assert 'text: ""' not in js
+    assert "continueAgent" not in js            # a command never reaches the agent
+
+
 def test_the_plugin_commands_require_an_authorised_sender():
     js = (PLUGIN / "index.js").read_text(encoding="utf-8")
     assert js.count("requireAuth: true") == js.count("registerCommand(")
@@ -1490,7 +1497,8 @@ const PYTHON = `${LMS}/.venv/bin/python`;
 const SCRIPT = `${LMS}/ops/remote.py`;
 const CHANNELS = new Set(["telegram", "whatsapp"]);
 const MAX_WORDS = 4;
-// Set from Task 1's Mac facts: false if /halt is reserved by a built-in.
+// /halt is not a built-in on 2026.7.1-2 (Mac facts row 5). Set false if a
+// later OpenClaw reserves it: registration would fail and take /lms with it.
 const REGISTER_HALT = true;
 
 function words(raw) {
@@ -1513,10 +1521,15 @@ function runRemote(channel, sender, argWords) {
   });
 }
 
+// Nothing is sent back: a stranger, another channel, or remote.py printing
+// nothing. suppressReply stops OpenClaw's fallback reply (Mac facts row 4).
+const SILENT = { suppressReply: true };
+
 async function handle(ctx, argWords) {
   const channel = ctx.channel;
-  if (!CHANNELS.has(channel)) return { text: "" };
-  return { text: await runRemote(channel, ctx.senderId, argWords) };
+  if (!CHANNELS.has(channel)) return SILENT;
+  const text = await runRemote(channel, ctx.senderId ?? ctx.from, argWords);
+  return text ? { text } : SILENT;
 }
 
 export default function register(api) {
@@ -1869,8 +1882,8 @@ From `ops/chat_control_facts.sh` on Nov 5 (OpenClaw 2026.7.1-2, installed at `/o
 |---|---|---|
 | 1 | `channels.whatsapp` keys | All the plan uses exist: `enabled`, `dmPolicy` (`pairing` default, `allowlist`, `open`, `disabled`), `allowFrom`, `selfChatMode`, `groupPolicy` (`open`, `disabled`, `allowlist`; default `allowlist`), `groupAllowFrom`, `configWrites`. Number format: the schema's own example is `whatsapp:+15551234567`, so the patch writes `+` before the stored digits. Bindings peer id for WhatsApp: *open*. |
 | 2 | `plugins` keys to load and enable a local plugin | `plugins.load.paths` and `plugins.entries.<id>.enabled` (shipped `docs/tools/plugin.md`). Also `plugins.enabled` (global, default true) and `plugins.allow`: when set, only listed ids load, so `lms-control` must be added to it if it is set. Workspace-origin plugins are off until enabled or allowlisted. Current `plugins.allow` and `plugins.load`: *open* (the patch replaces arrays). |
-| 3 | Plugin entry file and manifest fields | Native plugin = `openclaw.plugin.json` + a runtime module loaded in process; manifest has at least `id`, `name`. Entry file name and whether plain `.js` ESM loads: *open* (read from a bundled plugin). |
-| 4 | `registerCommand` options; handler context fields; empty reply behaviour | `registerCommand(command: OpenClawPluginCommandDefinition)`; plugin commands are listed among slash commands in `docs/tools/slash-commands.md`. Field names: *open*. |
-| 5 | `lms` / `halt` free? | *open* |
+| 3 | Plugin entry file and manifest fields | Native plugin = `openclaw.plugin.json` + a runtime module loaded in process; manifest has at least `id`, `name`. Entry file name and whether plain `.js` ESM with `export default function register(api)` loads: *open*. No bundled plugin calls `registerCommand`, so there is no example to copy; the SDK ships `dist/plugin-sdk/plugin-entry.d.ts` (likely a `definePluginEntry` helper) to read next. |
+| 4 | `registerCommand` options; handler context fields; empty reply behaviour | **Plugin commands bypass the LLM** (shipped `docs/plugins/sdk-overview.md`: "Custom command (bypasses the LLM)"), so the design holds. Definition: `name`, `description`, `acceptsArgs?`, `requireAuth?` (default true), `channels?`, `handler`, plus native/guidance extras we do not use. Context (`PluginCommandContext`): `channel`, `senderId?`, `args?` (raw text after the name), `isAuthorizedSender`, `senderIsOwner?`, `from?`, `to?`, `commandBody`. Result: `ReplyPayload & { continueAgent?, suppressReply? }`; `continueAgent` is off unless set, so the agent never sees a command. For "send nothing" the plugin returns `{ suppressReply: true }`, not `{ text: "" }`. |
+| 5 | `lms` / `halt` free? | Both free: neither is in the built-in list (`/stop`, `/status`, `/approve`, `/tasks`, `/plugins`, `/config` … are). Core-reserved names can be claimed only by bundled plugins, which does not affect us. |
 | 6 | Injected workspace files; per-file character limit | `AGENTS.md`, `BOOTSTRAP.md`, `HEARTBEAT.md`, `IDENTITY.md`, `MEMORY.md`, `SOUL.md`, `TOOLS.md`, `USER.md`. `agents.defaults.bootstrapMaxChars` default 20,000 per file; `bootstrapTotalMaxChars` default 60,000. The workspace's files total 11,649 bytes today, so `USER.md` + a 15,000-char block stays under both. `USER.md` (537 bytes) as planned. |
 | 7 | WhatsApp link command | `openclaw channels login --channel whatsapp` (options `--account`, `--verbose`), as planned. |
