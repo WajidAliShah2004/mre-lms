@@ -166,12 +166,102 @@ def cmd_coverage(env, conn, args, channel):
             else "\n".join(gaps))
 
 
+JOBS = {"mail": "com.lms.mail", "whatsapp": "com.lms.whatsapp",
+        "backup": "com.lms.backup"}
+
+
+def _halted_reply(flag: dict) -> str:
+    return (f"Halted since {flag.get('ts')}. Nothing runs until it is resumed "
+            f"at the Mac: ./ops/halt.py --resume")
+
+
+def cmd_run_now(name: str):
+    def run_now(env, conn, args, channel):
+        flag = agent_context.read_halt_flag(env.flag)
+        if flag:
+            return _halted_reply(flag)
+        label = JOBS[name]
+        r = env.run(["launchctl", "kickstart", f"gui/{env.uid}/{label}"])
+        if r.returncode != 0:
+            return f"{name} is not installed on this Mac ({label})."
+        return f"Started {name} now. /lms status shows it."
+    return run_now
+
+
+def cmd_halt(env, conn, args, channel):
+    flag = agent_context.read_halt_flag(env.flag)
+    if flag:
+        return f"Already halted since {flag.get('ts')} (by {flag.get('by')})."
+    env.spawn_halt(channel)
+    return ("Halting in 2 seconds. Everything stops, including this chat. "
+            "@MREOC18bot /status shows the result. Resume is at the Mac only.")
+
+
+def _shown_task_title(conn, task_id: int, title: str) -> str:
+    from core.reports import brief as reports
+    return (reports.private_line(task_id)
+            if task_id in reports.private_task_ids(conn) else title)
+
+
+def cmd_done(env, conn, args, channel):
+    from core.pipeline import ledger, tasks as task_ops
+    tid = int(args[0])
+    try:
+        row = ledger.get(conn, tid)
+    except ledger.LedgerError:
+        return f"No task #{tid}."
+    title = _shown_task_title(conn, tid, row["title"])
+    if args[1:] != ["yes"]:
+        return (f"#{tid} {title} ({row['status']}, due {row['due_date'] or 'none'}).\n"
+                f"Send /lms done {tid} yes to close it.")
+    r = task_ops.close_task(conn, tid, note=f"via {channel}", by="matthew")
+    env.refresh(conn)
+    if r.was_already:
+        return f"#{tid} was already {r.was_already.lower()}: {title}"
+    return f"Closed #{tid}: {title}"
+
+
+def cmd_answer(answer: str):
+    def respond(env, conn, args, channel):
+        from core.pipeline import approvals
+        from core.reports import brief as reports
+        n = args[0]
+        ref = f"AP-{n}"
+        try:
+            a = approvals.get(conn, ref)
+        except approvals.ApprovalError:
+            return f"No approval {ref}."
+        if args[1:] != ["yes"]:
+            private = int(a["task_id"]) in reports.private_task_ids(conn)
+            who = "(private)" if private else (a["recipient"] or "")
+            return (f"{ref} {a['kind']} {who} {agent_context.money(a['amount_cents'])}"
+                    f" · {a['status']} · expires {a['expires_at'][:16]}\n"
+                    f"Send /lms {answer} {n} yes to {answer} it.").replace("  ", " ")
+        try:
+            res = approvals.decide(conn, ref, answer, by="matthew", note=f"via {channel}")
+        except approvals.ApprovalError as exc:
+            return str(exc)
+        env.refresh(conn)
+        word = {"approve": "approved", "deny": "denied"}[answer]
+        extra = ("" if answer == "deny" or res.authorizes
+                 else " (recorded as agreement only: a hard stop still applies)")
+        return f"{ref} {word}.{extra}"
+    return respond
+
+
 COMMANDS: dict[str, Callable] = {
     "help": cmd_help,
     "status": cmd_status,
     "brief": cmd_brief,
     "tasks": cmd_tasks,
     "coverage": cmd_coverage,
+    "mail": cmd_run_now("mail"),
+    "whatsapp": cmd_run_now("whatsapp"),
+    "backup": cmd_run_now("backup"),
+    "halt": cmd_halt,
+    "done": cmd_done,
+    "approve": cmd_answer("approve"),
+    "deny": cmd_answer("deny"),
 }
 NO_ARGS = {"help", "status", "brief", "coverage", "mail", "whatsapp", "backup", "halt"}
 TWO_STEP = {"done", "approve", "deny"}

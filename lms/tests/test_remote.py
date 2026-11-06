@@ -207,3 +207,147 @@ def test_a_crash_is_logged_not_shown(env):
     text = remote.handle(["tasks"], "telegram", TG, env)
     assert text == "Failed. See ~/LMS/logs/remote.log."
     assert any("secret detail" in m for m in env.calls["log"])
+
+
+# --- run now -----------------------------------------------------------------
+
+@pytest.mark.parametrize("name,label", [("mail", "com.lms.mail"),
+                                        ("whatsapp", "com.lms.whatsapp"),
+                                        ("backup", "com.lms.backup")])
+def test_run_now_kickstarts_the_existing_job(env, name, label):
+    text = remote.handle([name], "telegram", TG, env)
+    assert env.calls["run"] == [["launchctl", "kickstart", f"gui/501/{label}"]]
+    assert text.startswith(f"Started {name} now.")
+
+
+def test_run_now_reports_a_job_that_is_not_installed(env):
+    env.run = lambda argv: subprocess.CompletedProcess(argv, 113, "", "not found")
+    assert "not installed" in remote.handle(["whatsapp"], "telegram", TG, env)
+
+
+def test_run_now_is_refused_while_halted(env):
+    env.flag.write_text('{"ts": "2026-11-05T08:00", "by": "telegram"}')
+    text = remote.handle(["mail"], "telegram", TG, env)
+    assert text.startswith("Halted since 2026-11-05T08:00")
+    assert "./ops/halt.py --resume" in text
+    assert env.calls["run"] == []
+
+
+# --- halt ----------------------------------------------------------------------
+
+def test_halt_starts_the_detached_halt_and_says_so(env):
+    text = remote.handle(["halt"], "whatsapp", WA, env)
+    assert env.calls["halt"] == ["whatsapp"]
+    assert "Halting in 2 seconds" in text and "@MREOC18bot" in text
+    action, _, by = actions(env)[-1]
+    assert action == "remote:halt" and by == "matthew"
+
+
+def test_halt_when_already_halted_does_nothing(env):
+    env.flag.write_text('{"ts": "2026-11-05T08:00", "by": "local"}')
+    text = remote.handle(["halt"], "telegram", TG, env)
+    assert text.startswith("Already halted since 2026-11-05T08:00")
+    assert env.calls["halt"] == []
+
+
+# --- done ----------------------------------------------------------------------
+
+def test_done_without_yes_only_shows(env):
+    tid = task(env, "Pay Con Edison", due="2026-11-01")
+    text = remote.handle(["done", str(tid)], "telegram", TG, env)
+    assert f"#{tid} Pay Con Edison" in text
+    assert f"/lms done {tid} yes" in text
+    c = db.connect(env.dbfile)
+    assert c.execute("SELECT status FROM tasks WHERE id=?", (tid,)).fetchone()[0] == "TRIAGED"
+    c.close()
+    assert env.calls["refresh"] == 0
+
+
+def test_done_yes_closes_it_as_matthew_and_refreshes(env):
+    tid = task(env, "Pay Con Edison", due="2026-11-01")
+    text = remote.handle(["done", str(tid), "yes"], "whatsapp", WA, env)
+    assert text == f"Closed #{tid}: Pay Con Edison"
+    c = db.connect(env.dbfile)
+    assert c.execute("SELECT status FROM tasks WHERE id=?", (tid,)).fetchone()[0] == "CLOSED"
+    c.close()
+    assert env.calls["refresh"] == 1
+    assert actions(env)[-1][2] == "matthew"
+
+
+def test_done_private_task_is_not_named(env):
+    tid = task(env, "Dr. Patel follow-up", sensitivity="private")
+    assert "Patel" not in remote.handle(["done", str(tid)], "telegram", TG, env)
+    assert "Patel" not in remote.handle(["done", str(tid), "yes"], "telegram", TG, env)
+
+
+def test_done_unknown_task(env):
+    assert remote.handle(["done", "999"], "telegram", TG, env) == "No task #999."
+
+
+def test_done_twice_says_it_was_already(env):
+    tid = task(env, "Pay Con Edison")
+    remote.handle(["done", str(tid), "yes"], "telegram", TG, env)
+    assert "already" in remote.handle(["done", str(tid), "yes"], "telegram", TG, env)
+
+
+# --- approve / deny -----------------------------------------------------------------
+
+def approval(env, ref="AP-7", hours=5, recipient="Con Edison", sensitivity="normal"):
+    # approvals.decide checks expiry against the real clock, so these times
+    # are relative to it, not to NOW.
+    from datetime import timedelta
+    base = datetime.now(db.TZ)
+    tid = task(env, "Con Edison bill", status="AWAITING_APPROVAL",
+               sensitivity=sensitivity)
+    c = db.connect(env.dbfile)
+    c.execute(
+        "INSERT INTO approvals (ref, task_id, basis, kind, action_json, fingerprint,"
+        " recipient, amount_cents, policy_verdict, requested_by, requested_at,"
+        " expires_at, status) VALUES (?, ?, 'HUMAN', 'pay_bill', '{}', ?, ?, 18250,"
+        " 'NEEDS_APPROVAL', 'finance', ?, ?, 'PENDING')",
+        (ref, tid, ref, recipient, base.isoformat(),
+         (base + timedelta(hours=hours)).isoformat()))
+    c.close()
+    return tid
+
+
+def test_approve_without_yes_only_shows(env):
+    approval(env)
+    text = remote.handle(["approve", "7"], "telegram", TG, env)
+    assert "AP-7" in text and "pay_bill" in text and "Con Edison" in text
+    assert "$182.50" in text and "/lms approve 7 yes" in text
+    c = db.connect(env.dbfile)
+    assert c.execute("SELECT status FROM approvals WHERE ref='AP-7'").fetchone()[0] == "PENDING"
+    c.close()
+
+
+def test_approve_yes_decides_as_matthew(env):
+    approval(env)
+    text = remote.handle(["approve", "7", "yes"], "whatsapp", WA, env)
+    assert text.startswith("AP-7 approved")
+    c = db.connect(env.dbfile)
+    row = c.execute("SELECT status, decided_by, decision_note FROM approvals"
+                    " WHERE ref='AP-7'").fetchone()
+    c.close()
+    assert tuple(row) == ("APPROVED", "matthew", "via whatsapp")
+    assert env.calls["refresh"] == 1
+
+
+def test_deny_yes_denies(env):
+    approval(env)
+    assert remote.handle(["deny", "7", "yes"], "telegram", TG, env).startswith("AP-7 denied")
+
+
+def test_approve_unknown(env):
+    assert remote.handle(["approve", "8"], "telegram", TG, env) == "No approval AP-8."
+
+
+def test_approve_private_hides_the_recipient(env):
+    approval(env, recipient="Dr. Patel", sensitivity="private")
+    assert "Patel" not in remote.handle(["approve", "7"], "telegram", TG, env)
+
+
+def test_an_approval_error_is_shown(env):
+    approval(env, hours=-1)
+    text = remote.handle(["approve", "7", "yes"], "telegram", TG, env)
+    assert "expired" in text

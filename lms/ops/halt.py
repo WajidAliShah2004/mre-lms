@@ -31,6 +31,8 @@ def main() -> int:
     g = p.add_mutually_exclusive_group()
     g.add_argument("--status", action="store_true")
     g.add_argument("--resume", action="store_true")
+    p.add_argument("--by", default="local", choices=["local", "telegram", "whatsapp"],
+                   help="who asked (ops/remote.py passes the chat it came from)")
     args = p.parse_args()
 
     if args.status:
@@ -56,7 +58,7 @@ def main() -> int:
         print("\nResumed. Run ./ops/verify_setup.py before trusting it.")
         return 0
 
-    result = _halt.halt(by="local")
+    result = _halt.halt(by=args.by)
     print(_halt.describe(result))
     record("SYSTEM_HALTED",
            f"at the Mac in {result.elapsed:.2f}s; targets={result.targets}; "
