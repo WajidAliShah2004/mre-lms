@@ -92,8 +92,9 @@ SKILLS_DIR = REPO / "openclaw" / "skills"
 # 2026-09-08 after the 2026.6.34 -> 2026.7.1-2 upgrade. Raised to 4 on Oct 6
 # for the Telegram plugin (Phase 7b, D-060), in the same commit as the patch
 # that enables it, so a fourth plugin that is NOT telegram still fails here.
-# Raised to 6 on Nov 6 for `whatsapp` (D-015 had turned the channel plugins
-# off) and `lms-control` (D-080), in the same commit as remote.patch.json5.
+# Raised to 6 on Nov 6 for `whatsapp` (the separate @openclaw/whatsapp plugin,
+# pinned to 2026.7.1) and `lms-control` (D-080), in the same commit as
+# remote.patch.json5.
 D015_PLUGINS = 6
 D015_SKILLS_READY = 0
 

@@ -60,8 +60,8 @@
 
   plugins: {
     load: { paths: ["/Users/mleca/lms-repo/lms/openclaw-plugin/lms-control"] },
-    // D-015 turned OpenClaw's channel plugins off by name, so the WhatsApp
-    // channel needs its plugin enabled here (D015_PLUGINS 4 -> 6, D-080).
+    // WhatsApp is a separate plugin, @openclaw/whatsapp@2026.7.1, installed in
+    // CHAT_CONTROL_APPLY.md step 3; enabled here (D015_PLUGINS 4 -> 6, D-080).
     entries: { "lms-control": { enabled: true }, whatsapp: { enabled: true } },
   },
 }

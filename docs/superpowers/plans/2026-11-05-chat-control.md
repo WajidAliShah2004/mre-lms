@@ -1713,8 +1713,8 @@ Whether OpenClaw loads it is checked right after the restart in `CHAT_CONTROL_AP
 
   plugins: {
     load: { paths: ["/Users/mleca/lms-repo/lms/openclaw-plugin/lms-control"] },
-    // D-015 turned OpenClaw's channel plugins off by name, so the WhatsApp
-    // channel needs its plugin enabled here (D015_PLUGINS 4 -> 6, D-080).
+    // WhatsApp is a separate plugin, @openclaw/whatsapp@2026.7.1, installed in
+    // CHAT_CONTROL_APPLY.md step 3; enabled here (D015_PLUGINS 4 -> 6, D-080).
     entries: { "lms-control": { enabled: true }, whatsapp: { enabled: true } },
   },
 }
@@ -1864,23 +1864,39 @@ cd ~/lms-repo/lms && git pull
 cp ~/.openclaw/openclaw.json ~/.openclaw/openclaw.json.pre-chatcontrol
 ```
 
-## 3. Enable the WhatsApp plugin, then link WhatsApp to OpenClaw
+## 3. Install the WhatsApp plugin, then link WhatsApp to OpenClaw
 
-D-015 turned OpenClaw's channel plugins off, so WhatsApp cannot be linked until its plugin is on. The patch in step 4 also enables it, but the patch needs his number, which only exists after the link. So enable the plugin by hand first:
+WhatsApp is not part of OpenClaw 2026.7.1-2: it is a separate plugin, `@openclaw/whatsapp`. Its newest version (2026.11.1) needs OpenClaw 2026.11.1 or later, so install the version built for this OpenClaw, 2026.7.1 (done on the Mac Nov 6: installed and loaded). Without it, the QR login would install the newest version itself. Skip the install if `openclaw plugins inspect whatsapp` already shows `Version: 2026.7.1`.
 
 ```bash
-openclaw plugins enable whatsapp
+openclaw plugins install @openclaw/whatsapp@2026.7.1
+```
+
+```bash
+openclaw plugins inspect whatsapp
+```
+
+It must show `Version: 2026.7.1`. Do not run `openclaw plugins update` on it while OpenClaw is 2026.7.x.
+
+Until step 4 writes the allowlist, WhatsApp must answer no one: by default it replies to unknown senders with a pairing code, and this is his own number. Switch its messages off before linking:
+
+```bash
+openclaw config set channels.whatsapp.dmPolicy disabled
+```
+
+```bash
+openclaw config set channels.whatsapp.groupPolicy disabled
 ```
 
 ```bash
 openclaw gateway restart
 ```
 
-Check it shows as enabled:
-
 ```bash
-openclaw plugins list | grep -i whatsapp
+openclaw config get channels.whatsapp --json
 ```
+
+It must show `"dmPolicy": "disabled"` and `"groupPolicy": "disabled"`. If not, stop here.
 
 Matthew's phone is needed for one QR scan: WhatsApp → Settings → Linked Devices → Link a Device.
 
@@ -2023,7 +2039,7 @@ While halted nothing answers on WhatsApp or @MREOCbot and the snapshot job write
 cp ~/.openclaw/openclaw.json.pre-chatcontrol ~/.openclaw/openclaw.json && openclaw gateway restart
 ```
 
-That puts the config back. If you instead switch chat control off in place, disable both plugin entries:
+That puts the config back. The WhatsApp plugin stays installed but, with the old config, is not used. If you instead switch chat control off in place, disable both plugin entries:
 
 ```bash
 openclaw plugins disable whatsapp
@@ -2054,7 +2070,7 @@ launchctl bootout gui/$(id -u)/com.lms.agentcontext
 Matthew asked to control OpenClaw and the Mac from WhatsApp and Telegram. D-056 kept the chat agent tool-less; that stays true, and control is added beside it:
 
 - **Fixed commands, carried out by code.** An OpenClaw plugin (`lms/openclaw-plugin/lms-control`) registers `/lms`, which runs before the agent; `ops/remote.py` does the work. The list: status, brief, tasks, coverage, mail, whatsapp, backup, done, approve, deny, halt. `done`, `approve`, `deny` act only with `yes` in the same message.
-- **D-015 baseline 4 → 6.** The patch enables `whatsapp` (D-015 had turned the channel plugins off) and `lms-control`; `D015_PLUGINS` is 6 in the same commit. Approved Nov 6.
+- **D-015 baseline 4 → 6.** The patch enables `whatsapp` and `lms-control`; `D015_PLUGINS` is 6 in the same commit. Approved Nov 6. WhatsApp is not part of OpenClaw 2026.7.1-2: it is the separate plugin `@openclaw/whatsapp`, pinned to 2026.7.1 because its newest version needs OpenClaw 2026.11.1 (installed on the Mac Nov 6). Until the allowlist is written, its messages are switched off (`dmPolicy` and `groupPolicy` `disabled`), because its default answers unknown senders with a pairing code.
 - **`/lms halt` always halts**, even if a halt flag already exists (the reply says so), so a stale or half-applied halt can be forced again.
 - **The `[openclaw]` reply prefix in self-chat stays.** It is part of the safety: it stops a reply that begins with `/lms …` from ever being read back as a command. `messages.responsePrefix` is not to be emptied.
 - **No resume from a phone** (D-059 unchanged). @MREOC18bot stays the separate kill switch.
@@ -2100,3 +2116,4 @@ From `ops/chat_control_facts.sh` (Nov 5) and `ops/plugin_api_facts.sh` (Nov 6), 
 | 5 | `lms` / `halt` free? | Both free: neither is in the built-in list (`/stop`, `/status`, `/approve`, `/tasks`, `/plugins`, `/config` … are). Core-reserved names can be claimed only by bundled plugins, which does not affect us. |
 | 6 | Injected workspace files; per-file character limit | `AGENTS.md`, `BOOTSTRAP.md`, `HEARTBEAT.md`, `IDENTITY.md`, `MEMORY.md`, `SOUL.md`, `TOOLS.md`, `USER.md`. `agents.defaults.bootstrapMaxChars` default 20,000 per file; `bootstrapTotalMaxChars` default 60,000. The workspace's files total 11,649 bytes today, so `USER.md` + a 15,000-char block stays under both. `USER.md` (537 bytes) as planned. |
 | 7 | WhatsApp link command | `openclaw channels login --channel whatsapp` (options `--account`, `--verbose`), as planned. |
+| 8 | WhatsApp plugin | Not part of OpenClaw 2026.7.1-2 (`plugins enable whatsapp`: "Plugin not found"). Separate plugin `@openclaw/whatsapp`; its newest (2026.11.1) needs OpenClaw >=2026.11.1. `openclaw plugins install @openclaw/whatsapp@2026.7.1` installed and loaded it (Nov 6). |

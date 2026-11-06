@@ -29,23 +29,39 @@ cd ~/lms-repo/lms && git pull
 cp ~/.openclaw/openclaw.json ~/.openclaw/openclaw.json.pre-chatcontrol
 ```
 
-## 3. Enable the WhatsApp plugin, then link WhatsApp to OpenClaw
+## 3. Install the WhatsApp plugin, then link WhatsApp to OpenClaw
 
-D-015 turned OpenClaw's channel plugins off, so WhatsApp cannot be linked until its plugin is on. The patch in step 4 also enables it, but the patch needs his number, which only exists after the link. So enable the plugin by hand first:
+WhatsApp is not part of OpenClaw 2026.7.1-2: it is a separate plugin, `@openclaw/whatsapp`. Its newest version (2026.11.1) needs OpenClaw 2026.11.1 or later, so install the version built for this OpenClaw, 2026.7.1 (done on the Mac Nov 6: installed and loaded). Without it, the QR login would install the newest version itself. Skip the install if `openclaw plugins inspect whatsapp` already shows `Version: 2026.7.1`.
 
 ```bash
-openclaw plugins enable whatsapp
+openclaw plugins install @openclaw/whatsapp@2026.7.1
+```
+
+```bash
+openclaw plugins inspect whatsapp
+```
+
+It must show `Version: 2026.7.1`. Do not run `openclaw plugins update` on it while OpenClaw is 2026.7.x.
+
+Until step 4 writes the allowlist, WhatsApp must answer no one: by default it replies to unknown senders with a pairing code, and this is his own number. Switch its messages off before linking:
+
+```bash
+openclaw config set channels.whatsapp.dmPolicy disabled
+```
+
+```bash
+openclaw config set channels.whatsapp.groupPolicy disabled
 ```
 
 ```bash
 openclaw gateway restart
 ```
 
-Check it shows as enabled:
-
 ```bash
-openclaw plugins list | grep -i whatsapp
+openclaw config get channels.whatsapp --json
 ```
+
+It must show `"dmPolicy": "disabled"` and `"groupPolicy": "disabled"`. If not, stop here.
 
 Matthew's phone is needed for one QR scan: WhatsApp → Settings → Linked Devices → Link a Device.
 
@@ -188,7 +204,7 @@ While halted nothing answers on WhatsApp or @MREOCbot and the snapshot job write
 cp ~/.openclaw/openclaw.json.pre-chatcontrol ~/.openclaw/openclaw.json && openclaw gateway restart
 ```
 
-That puts the config back. If you instead switch chat control off in place, disable both plugin entries:
+That puts the config back. The WhatsApp plugin stays installed but, with the old config, is not used. If you instead switch chat control off in place, disable both plugin entries:
 
 ```bash
 openclaw plugins disable whatsapp
