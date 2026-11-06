@@ -28,6 +28,8 @@ DB_NAME = "ChatStorage.sqlite"
 MEDIA_DIR = "Message"
 STATUS_JID = "status@broadcast"
 GROUP_SESSION = 1               # ZSESSIONTYPE of a group (Mac probe Nov 6: all 14 @g.us chats)
+# Only 0 (direct) and 1 (group) are read: 2 is a broadcast list, 3 the status
+# feed (Mac probe Nov 6); _SQL filters on these two values.
 COPY_ATTEMPTS = 3
 APPLE_EPOCH = datetime(2001, 1, 1, tzinfo=timezone.utc)
 ME = "Matthew"
@@ -84,7 +86,9 @@ def apple_time(seconds: float) -> datetime:
 
 
 def number(jid: str) -> str:
-    local = (jid or "").split("@", 1)[0]
+    local, _, domain = (jid or "").partition("@")
+    if domain == "lid":             # WhatsApp's linked ID: not a phone number
+        return "number hidden"
     return f"+{local}" if local.isdigit() else local
 
 
@@ -143,6 +147,7 @@ SELECT m.ZSTANZAID, m.ZMESSAGEDATE, m.ZISFROMME, m.ZTEXT, m.ZMESSAGETYPE,
   LEFT JOIN ZWAGROUPMEMBER g ON g.Z_PK = m.ZGROUPMEMBER
   LEFT JOIN ZWAMEDIAITEM i ON i.Z_PK = m.ZMEDIAITEM
  WHERE m.ZMESSAGEDATE >= ? AND s.ZCONTACTJID != ?
+   AND s.ZSESSIONTYPE IN (0, 1)
    AND m.ZSTANZAID IS NOT NULL
  ORDER BY s.ZCONTACTJID, m.ZMESSAGEDATE, m.Z_PK
 """
@@ -208,7 +213,22 @@ def probe(conn: sqlite3.Connection) -> dict:
             ext = (Path(rel).suffix.lower() or "(none)") if rel else "(no file)"
             e = exts.setdefault(t, {})
             e[ext] = e.get(ext, 0) + 1
+    # media column -> how many rows fill it: where a path might live instead.
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(ZWAMEDIAITEM)")]
+    media_cols = {c: conn.execute(
+        f'SELECT COUNT(*) FROM ZWAMEDIAITEM WHERE "{c}" IS NOT NULL '
+        f"AND \"{c}\" != ''").fetchone()[0] for c in cols}
     return {"missing": missing, "tables": tables, "counts": counts,
             "message_types": types, "session_types": sessions,
             "type_shape": shape, "session_domains": domains,
-            "media_ext": exts}
+            "media_ext": exts, "media_columns": media_cols}
+
+
+def media_files(root: Path) -> dict[str, int]:
+    """File extension -> count under the media folder; no names."""
+    out: dict[str, int] = {}
+    for dirpath, _, names in os.walk(root):
+        for n in names:
+            ext = Path(n).suffix.lower() or "(none)"
+            out[ext] = out.get(ext, 0) + 1
+    return out

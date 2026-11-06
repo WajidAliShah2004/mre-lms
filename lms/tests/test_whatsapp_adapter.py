@@ -28,6 +28,34 @@ def test_apple_time_and_numbers():
     assert wa.number("15550100@s.whatsapp.net") == "+15550100"
     assert wa.number("1203630@g.us") == "+1203630"
     assert wa.number("status@broadcast") == "status"
+    # Mac probe Nov 6: 22 direct chats use WhatsApp's linked IDs, not numbers.
+    assert wa.number("185432112345678@lid") == "number hidden"
+
+
+def test_read_skips_broadcast_and_status_sessions(box):
+    # Mac probe Nov 6: session type 2 is a broadcast list, 3 the status feed.
+    t = datetime(2026, 11, 4, 14, tzinfo=UTC)
+    box.message(box.chat("15550100@s.whatsapp.net", "Acme"), t, "kept")
+    box.message(box.chat("1699999999@broadcast", "My list", stype=2), t, "list")
+    box.message(box.chat("0@status", None, stype=3), t, "feed")
+    chats = wa.read(box.conn, datetime(2026, 11, 1, tzinfo=UTC),
+                    box.container / "Message")
+    assert [c.jid for c in chats] == ["15550100@s.whatsapp.net"]
+
+
+def test_probe_shows_where_media_could_be(box):
+    # Mac probe Nov 6: no media item had ZMEDIALOCALPATH. Which columns are
+    # filled, and what files the media folder holds, say where media is.
+    c = box.chat("15550100@s.whatsapp.net", "Acme")
+    when = datetime(2026, 11, 4, tzinfo=UTC)
+    box.message(c, when, None, kind=8, media=box.media(None, title="Lease.pdf"))
+    box.message(c, when, None, kind=1, media=box.media("a/b/secret.jpg"))
+    p = wa.probe(box.conn)
+    assert p["media_columns"]["ZMEDIALOCALPATH"] == 1
+    assert p["media_columns"]["ZTITLE"] == 1
+    assert p["media_columns"]["Z_PK"] == 2
+    assert wa.media_files(box.container / "Message") == {".jpg": 1}
+    assert "Lease" not in repr(p) and "secret" not in repr(p)
 
 
 def test_snapshot_reads_a_copy_and_never_changes_the_original(box, tmp_path):
@@ -198,6 +226,8 @@ def test_probe_command_reports_shape_and_exit_status(box, capsys):
     assert "ZWAMESSAGE: 1" in out and "private words" not in out
     assert "session types: 0=1 (0 groups; s.whatsapp.net 1)" in out
     assert "0=1 (text), with text 1, with media 0" in out
+    assert "media item columns filled: \n" in out   # no media rows at all
+    assert "media folder files: 0" in out
     box.conn.execute("DROP TABLE ZWAGROUPMEMBER")
     assert job.do_probe(box.container) == 1
     assert "MISSING: ZWAGROUPMEMBER" in capsys.readouterr().out

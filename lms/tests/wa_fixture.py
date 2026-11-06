@@ -36,10 +36,12 @@ class WA:
         self.conn.executescript(SCHEMA)
         self._n = 0
 
-    def chat(self, jid: str, name: str, group: bool = False) -> int:
+    def chat(self, jid: str, name: str, group: bool = False,
+             stype: int | None = None) -> int:
+        stype = (1 if group else 0) if stype is None else stype
         cur = self.conn.execute(
             "INSERT INTO ZWACHATSESSION (ZCONTACTJID, ZPARTNERNAME, ZSESSIONTYPE) "
-            "VALUES (?, ?, ?)", (jid, name, 1 if group else 0))
+            "VALUES (?, ?, ?)", (jid, name, stype))
         self.conn.commit()
         return cur.lastrowid
 

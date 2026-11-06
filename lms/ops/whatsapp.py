@@ -53,7 +53,13 @@ def do_probe(src_dir: Path) -> int:
             print(f"  type {t}={p['message_types'][t]} ({wa.KINDS.get(t, 'other')}), "
                   f"with text {x}, with media {m}"
                   + (f"; files: {tally(files)}" if files else ""))
+        print("media item columns filled: " + ", ".join(
+            f"{c} {n}" for c, n in p["media_columns"].items() if n))
         print(f"media folder readable: {media.is_dir()}")
+        if media.is_dir():
+            files = wa.media_files(media)
+            print(f"media folder files: {sum(files.values())}"
+                  + (f" ({tally(files)})" if files else ""))
         for m in p["missing"]:
             print(f"MISSING: {m}")
         return 1 if p["missing"] else 0
