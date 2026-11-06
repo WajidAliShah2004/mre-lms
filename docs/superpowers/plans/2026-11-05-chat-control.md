@@ -1082,11 +1082,12 @@ def test_halt_starts_the_detached_halt_and_says_so(env):
     assert action == "remote:halt" and by == "matthew"
 
 
-def test_halt_when_already_halted_does_nothing(env):
+def test_halt_when_already_halted_still_halts_and_mentions_it(env):
     env.flag.write_text('{"ts": "2026-11-05T08:00", "by": "local"}')
     text = remote.handle(["halt"], "telegram", TG, env)
-    assert text.startswith("Already halted since 2026-11-05T08:00")
-    assert env.calls["halt"] == []
+    assert env.calls["halt"] == ["telegram"]
+    assert "Was already halted since 2026-11-05T08:00 (by local)" in text
+    assert "halting again in 2 seconds" in text
 
 
 # --- done ----------------------------------------------------------------------
@@ -1224,11 +1225,22 @@ def cmd_run_now(name: str):
 
 def cmd_halt(env, conn, args, channel):
     flag = agent_context.read_halt_flag(env.flag)
-    if flag:
-        return f"Already halted since {flag.get('ts')} (by {flag.get('by')})."
     env.spawn_halt(channel)
+    if flag:
+        return (f"Was already halted since {flag.get('ts')} (by {flag.get('by')}); "
+                "halting again in 2 seconds. Everything stops, including this chat. "
+                "@MREOC18bot /status shows the result. Resume is at the Mac only.")
     return ("Halting in 2 seconds. Everything stops, including this chat. "
             "@MREOC18bot /status shows the result. Resume is at the Mac only.")
+
+
+def _refresh_best_effort(env, conn) -> None:
+    """The change is already committed; a failed snapshot refresh must not
+    change the reply or the audit result. The hourly job refreshes it anyway."""
+    try:
+        env.refresh(conn)
+    except Exception as exc:   # noqa: BLE001
+        env.log(f"snapshot refresh failed after commit: {type(exc).__name__}: {exc}")
 
 
 def _shown_task_title(conn, task_id: int, title: str) -> str:
@@ -1249,7 +1261,7 @@ def cmd_done(env, conn, args, channel):
         return (f"#{tid} {title} ({row['status']}, due {row['due_date'] or 'none'}).\n"
                 f"Send /lms done {tid} yes to close it.")
     r = task_ops.close_task(conn, tid, note=f"via {channel}", by="matthew")
-    env.refresh(conn)
+    _refresh_best_effort(env, conn)
     if r.was_already:
         return f"#{tid} was already {r.was_already.lower()}: {title}"
     return f"Closed #{tid}: {title}"
@@ -1275,7 +1287,7 @@ def cmd_answer(answer: str):
             res = approvals.decide(conn, ref, answer, by="matthew", note=f"via {channel}")
         except approvals.ApprovalError as exc:
             return str(exc)
-        env.refresh(conn)
+        _refresh_best_effort(env, conn)
         word = {"approve": "approved", "deny": "denied"}[answer]
         extra = ("" if answer == "deny" or res.authorizes
                  else " (recorded as agreement only: a hard stop still applies)")
@@ -1407,7 +1419,8 @@ def test_dangerous_chat_commands_stay_off(patch):
 def test_only_our_plugin_is_loaded_from_the_repo(patch):
     p = patch["plugins"]
     assert p["load"]["paths"] == ["/Users/mleca/lms-repo/lms/openclaw-plugin/lms-control"]
-    assert p["entries"] == {"lms-control": {"enabled": True}}
+    assert p["entries"] == {"lms-control": {"enabled": True},
+                            "whatsapp": {"enabled": True}}
 
 
 def test_the_plugin_runs_remote_py_without_a_shell():
@@ -1534,6 +1547,8 @@ const SILENT = { suppressReply: true };
 async function handle(ctx, argWords) {
   const channel = ctx.channel;
   if (!CHANNELS.has(channel)) return SILENT;
+  // OpenClaw says this sender may not run commands: no reply, no process.
+  if (ctx.isAuthorizedSender === false) return SILENT;
   const text = await runRemote(channel, ctx.senderId ?? ctx.from, argWords);
   return text ? { text } : SILENT;
 }
@@ -1651,7 +1666,9 @@ Whether OpenClaw loads it is checked right after the restart in `CHAT_CONTROL_AP
 
   plugins: {
     load: { paths: ["/Users/mleca/lms-repo/lms/openclaw-plugin/lms-control"] },
-    entries: { "lms-control": { enabled: true } },
+    // D-015 turned OpenClaw's channel plugins off by name, so the WhatsApp
+    // channel needs its plugin enabled here (D015_PLUGINS 4 -> 6, D-080).
+    entries: { "lms-control": { enabled: true }, whatsapp: { enabled: true } },
   },
 }
 ```
@@ -1663,14 +1680,19 @@ def whatsapp_problems(cfg: dict, owner: str) -> list[str]:
     """What is wrong with channels.whatsapp for chat control (D-080). [] = fine."""
     digits = lambda s: "".join(ch for ch in str(s) if ch.isdigit())   # noqa: E731
     problems = []
-    if not owner:
+    if not digits(owner):
         problems.append("no WhatsApp owner in Keychain (lms/whatsapp-owner)")
     if cfg.get("dmPolicy") != "allowlist":
         problems.append(f"dmPolicy is {cfg.get('dmPolicy')!r}, not 'allowlist'")
-    allow = [digits(a) for a in cfg.get("allowFrom") or []]
-    if len(allow) != 1:
-        problems.append(f"allowFrom has {len(allow)} entries, not exactly one")
-    elif owner and allow[0] != digits(owner):
+    raw_allow = cfg.get("allowFrom")
+    if not isinstance(raw_allow, list):
+        problems.append(f"allowFrom is not a list ({type(raw_allow).__name__})")
+        allow = []
+    else:
+        allow = [digits(a) for a in raw_allow]
+        if len(allow) != 1:
+            problems.append(f"allowFrom has {len(allow)} entries, not exactly one")
+    if len(allow) == 1 and digits(owner) and allow[0] != digits(owner):
         problems.append("allowFrom is not the Keychain owner's number")
     if cfg.get("groupPolicy") != "disabled":
         problems.append(f"groupPolicy is {cfg.get('groupPolicy')!r}, not 'disabled'")
@@ -1783,13 +1805,35 @@ cd ~/lms-repo/lms && git pull
 .venv/bin/python -m pytest -q tests/test_remote.py tests/test_agent_context.py tests/test_remote_patch.py
 ```
 
+`halt.py` changed, and its tests are skipped on Windows, so run them here too:
+
+```bash
+.venv/bin/python -m pytest -q tests/test_halt.py
+```
+
 ## 2. Back up the OpenClaw config
 
 ```bash
 cp ~/.openclaw/openclaw.json ~/.openclaw/openclaw.json.pre-chatcontrol
 ```
 
-## 3. Link WhatsApp to OpenClaw
+## 3. Enable the WhatsApp plugin, then link WhatsApp to OpenClaw
+
+D-015 turned OpenClaw's channel plugins off, so WhatsApp cannot be linked until its plugin is on. The patch in step 4 also enables it, but the patch needs his number, which only exists after the link. So enable the plugin by hand first:
+
+```bash
+openclaw plugins enable whatsapp
+```
+
+```bash
+openclaw gateway restart
+```
+
+Check it shows as enabled:
+
+```bash
+openclaw plugins list | grep -i whatsapp
+```
 
 Matthew's phone is needed for one QR scan: WhatsApp → Settings → Linked Devices → Link a Device.
 
@@ -1797,7 +1841,7 @@ Matthew's phone is needed for one QR scan: WhatsApp → Settings → Linked Devi
 openclaw channels login --channel whatsapp
 ```
 
-(If the Mac facts in the plan named a different command, use that.) Then:
+Then:
 
 ```bash
 openclaw channels status
@@ -1814,15 +1858,35 @@ security add-generic-password -U -a lms -s lms/whatsapp-owner -w
 ## 4. Patch the config, with his number filled in
 
 ```bash
-N=$(security find-generic-password -a lms -s lms/whatsapp-owner -w); sed "s/__WHATSAPP_OWNER__/$N/g" ops/remote.patch.json5 > /tmp/remote.patch.json5; unset N
+N=$(security find-generic-password -a lms -s lms/whatsapp-owner -w)
+```
+
+Refuse a number that is empty or not all digits (this must print nothing):
+
+```bash
+case "$N" in ''|*[!0-9]*) echo "lms/whatsapp-owner must be digits only"; false;; esac
+```
+
+If it printed that message, stop and store the number again (step 3). Otherwise:
+
+```bash
+sed "s/__WHATSAPP_OWNER__/$N/g" ops/remote.patch.json5 > /tmp/remote.patch.json5; unset N
 ```
 
 ```bash
 openclaw config patch --file /tmp/remote.patch.json5 --dry-run
 ```
 
+Read the dry-run output: his number must appear with a leading `+` (for example `+15551234567`), once in `allowFrom`, in the WhatsApp binding and in the two command lists. If it does not, stop.
+
 ```bash
-openclaw config patch --file /tmp/remote.patch.json5 && rm /tmp/remote.patch.json5
+openclaw config patch --file /tmp/remote.patch.json5
+```
+
+Remove the temporary file whether the patch worked or failed:
+
+```bash
+rm -f /tmp/remote.patch.json5
 ```
 
 ```bash
@@ -1840,6 +1904,8 @@ openclaw plugins doctor
 ```
 
 `inspect` must show it enabled with the `lms` and `halt` commands; `doctor` must report no load issue for `lms-control`.
+
+The patch enables two plugins, `whatsapp` and `lms-control`, so `verify_setup` check [5] now expects 6 enabled plugins (it was 4).
 
 ## 5. Install the snapshot job
 
@@ -1865,7 +1931,9 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.lms.agentcontext.pli
 ./ops/agent_tools.py
 ```
 
-`[12] Chat control` must pass, and `agent_tools.py` must still show no tools for the lms-* agents.
+Check [5] must report 6 enabled plugins. `[12] Chat control` must pass (it fails, not warns, if OpenClaw's WhatsApp config is unreadable or not an object, if the plugin is not enabled, or if `com.lms.agentcontext` is not loaded), and `agent_tools.py` must still show no tools for the lms-* agents.
+
+Replies in WhatsApp's "Message yourself" chat start with `[openclaw]`. Leave that alone: it stops a reply that begins with `/lms ...` from ever being read back as a command. Do not set `messages.responsePrefix` to empty.
 
 On Matthew's phone, in WhatsApp's "Message yourself" chat and in @MREOCbot:
 
@@ -1876,13 +1944,53 @@ On Matthew's phone, in WhatsApp's "Message yourself" chat and in @MREOCbot:
 5. A plain question, "what's overdue?": an answer that names the snapshot time.
 6. From **another phone**, a WhatsApp to his number saying `/lms status`: **no reply**, and `tail -3 ~/LMS/logs/remote.log` shows nothing new or `remote:refused`. OpenClaw's log shows the message dropped.
 
-Leave `/lms halt` for a planned test: it stops everything, and resume is `./ops/halt.py --resume` at the Mac.
+Leave `/lms halt` for the planned test below: it stops everything.
+
+## 7. Planned halt test
+
+While halted nothing answers on WhatsApp or @MREOCbot and the snapshot job writes nothing. Resume is only at the Mac (no remote resume, D-059).
+
+1. From the phone, send `/lms halt` in WhatsApp's "Message yourself" chat or in @MREOCbot. Expect the "Halting in 2 seconds" reply, then those chats go quiet.
+2. From the phone, send `/status` to @MREOC18bot. Expect it to report HALTED (it is the independent kill switch and keeps answering).
+3. At the Mac, show the state (halted, by whatsapp or telegram):
+
+```bash
+./ops/halt.py --status
+```
+
+4. At the Mac, resume:
+
+```bash
+./ops/halt.py --resume
+```
+
+5. At the Mac, confirm it is running again:
+
+```bash
+./ops/halt.py --status
+```
+
+```bash
+./ops/verify_setup.py | tail -15
+```
 
 ## Undo
 
 ```bash
 cp ~/.openclaw/openclaw.json.pre-chatcontrol ~/.openclaw/openclaw.json && openclaw gateway restart
 ```
+
+That puts the config back. If you instead switch chat control off in place, disable both plugin entries:
+
+```bash
+openclaw plugins disable whatsapp
+```
+
+```bash
+openclaw plugins disable lms-control
+```
+
+If chat control is removed for good, set `D015_PLUGINS` in `ops/verify_setup.py` back to 4, or check [5] will fail.
 
 ```bash
 launchctl bootout gui/$(id -u)/com.lms.agentcontext
@@ -1899,6 +2007,9 @@ launchctl bootout gui/$(id -u)/com.lms.agentcontext
 Matthew asked to control OpenClaw and the Mac from WhatsApp and Telegram. D-056 kept the chat agent tool-less; that stays true, and control is added beside it:
 
 - **Fixed commands, carried out by code.** An OpenClaw plugin (`lms/openclaw-plugin/lms-control`) registers `/lms`, which runs before the agent; `ops/remote.py` does the work. The list: status, brief, tasks, coverage, mail, whatsapp, backup, done, approve, deny, halt. `done`, `approve`, `deny` act only with `yes` in the same message.
+- **D-015 baseline 4 → 6.** The patch enables `whatsapp` (D-015 had turned the channel plugins off) and `lms-control`; `D015_PLUGINS` is 6 in the same commit. Approved Nov 6.
+- **`/lms halt` always halts**, even if a halt flag already exists (the reply says so), so a stale or half-applied halt can be forced again.
+- **The `[openclaw]` reply prefix in self-chat stays.** It is part of the safety: it stops a reply that begins with `/lms …` from ever being read back as a command. `messages.responsePrefix` is not to be emptied.
 - **No resume from a phone** (D-059 unchanged). @MREOC18bot stays the separate kill switch.
 - **Plain text** goes to `lms-orchestrator`, still with no tools, which answers from an hourly snapshot (`ops/agent_context.py`).
 - **WhatsApp on his own number**, self-chat, allowlist of one. Accepted risk, his choice: OpenClaw's WhatsApp client is unofficial and WhatsApp can ban numbers using one; OpenClaw recommends a separate number. Recommended and declined.
@@ -1923,8 +2034,8 @@ git commit -m "D-080: chat control apply guide and records"
 The user runs `lms/ops/CHAT_CONTROL_APPLY.md` and pastes the output. Pushes to GitHub need the user's go-ahead first.
 
 - [ ] **Step 1:** Ask the user to push (`git push origin master`) once Tasks 2–6 are reviewed.
-- [ ] **Step 2:** Give the user `CHAT_CONTROL_APPLY.md` sections 1–6.
-- [ ] **Step 3:** Read the pasted output. All of these must hold: `[12]` passes; `agent_tools.py` shows no tools; each phone check behaves as written; the stranger test gets no reply.
+- [ ] **Step 2:** Give the user `CHAT_CONTROL_APPLY.md` sections 1–7.
+- [ ] **Step 3:** Read the pasted output. All of these must hold: `[12]` passes; `agent_tools.py` shows no tools; each phone check behaves as written; the stranger test gets no reply; `/lms halt` → @MREOC18bot `/status` reports HALTED → `./ops/halt.py --resume` → `[12]` passes; `tests/test_halt.py` passes; check [5] reports 6 enabled plugins.
 - [ ] **Step 4:** Record "Applied on the Mac <date>" in D-080's status line, and commit.
 
 ---
@@ -1935,7 +2046,7 @@ From `ops/chat_control_facts.sh` (Nov 5) and `ops/plugin_api_facts.sh` (Nov 6), 
 
 | # | Fact | Value on the Mac |
 |---|---|---|
-| 1 | `channels.whatsapp` keys | All the plan uses exist: `enabled`, `dmPolicy` (`pairing` default, `allowlist`, `open`, `disabled`), `allowFrom`, `selfChatMode`, `groupPolicy` (`open`, `disabled`, `allowlist`; default `allowlist`), `groupAllowFrom`, `configWrites`. Number format: E.164 with `+` everywhere: `allowFrom`, `commands.ownerAllowFrom` (`whatsapp:+…`) and bindings (`peer: { kind: "direct", id: "+…" }`, shipped `docs/channels/whatsapp.md`). The patch writes `+` before the stored digits. Self-chat: with the linked number in `allowFrom`, OpenClaw's self-chat safeguards turn on; under `dmPolicy: "allowlist"` only `allowFrom` senders are admitted, so strangers are dropped (this settles the docs' disagreement). Replies in self-chat are prefixed `[openclaw]` unless `messages.responsePrefix` is set; cosmetic, left as is. |
+| 1 | `channels.whatsapp` keys | All the plan uses exist: `enabled`, `dmPolicy` (`pairing` default, `allowlist`, `open`, `disabled`), `allowFrom`, `selfChatMode`, `groupPolicy` (`open`, `disabled`, `allowlist`; default `allowlist`), `groupAllowFrom`, `configWrites`. Number format: E.164 with `+` everywhere: `allowFrom`, `commands.ownerAllowFrom` (`whatsapp:+…`) and bindings (`peer: { kind: "direct", id: "+…" }`, shipped `docs/channels/whatsapp.md`). The patch writes `+` before the stored digits. Self-chat: with the linked number in `allowFrom`, OpenClaw's self-chat safeguards turn on; under `dmPolicy: "allowlist"` only `allowFrom` senders are admitted, so strangers are dropped (this settles the docs' disagreement). Replies in self-chat are prefixed `[openclaw]` unless `messages.responsePrefix` is set; left as is on purpose: the prefix stops a reply that begins with `/lms …` from being read back as a command (Nov 6). |
 | 2 | `plugins` keys to load and enable a local plugin | `plugins.load.paths` and `plugins.entries.<id>.enabled` (shipped `docs/tools/plugin.md`). Also `plugins.enabled` (global, default true) and `plugins.allow`: when set, only listed ids load, so `lms-control` must be added to it if it is set. Workspace-origin plugins are off until enabled or allowlisted. On the Mac (Nov 6) `plugins.allow` and `plugins.load` are both unset, so the patch adds `load.paths` without dropping anything and needs no `allow` entry. Enabled entries today: `lmstudio`, `telegram`; `entries` is an object, which a patch merges, so they stay. Current `commands` and `bindings` equal the Telegram half of the patch exactly, so repeating them loses nothing. Telegram rejects a plugin command whose name clashes with a Telegram native command; `/lms` and `/halt` are not among them. |
 | 3 | Plugin entry file and manifest fields | Native plugin = `openclaw.plugin.json` + a runtime module loaded in process; manifest has at least `id`, `name`. Entry: the shipped docs use `export default definePluginEntry({ id, name, register(api) {...} })` from `openclaw/plugin-sdk/plugin-entry` (the SDK also exports the `OpenClawPluginDefinition` type it builds). Our `index.js` exports that same object directly, with no import from OpenClaw, plus a `package.json` (`"type": "module"`, `"openclaw": { "extensions": ["./index.js"] }`). Not proven until the apply step's `openclaw plugins inspect lms-control`; the `definePluginEntry` import is the fallback (Task 5, Step 4b). | |
 | 4 | `registerCommand` options; handler context fields; empty reply behaviour | **Plugin commands bypass the LLM** (shipped `docs/plugins/sdk-overview.md`: "Custom command (bypasses the LLM)"), so the design holds. Definition: `name`, `description`, `acceptsArgs?`, `requireAuth?` (default true), `channels?`, `handler`, plus native/guidance extras we do not use. Context (`PluginCommandContext`): `channel`, `senderId?`, `args?` (raw text after the name), `isAuthorizedSender`, `senderIsOwner?`, `from?`, `to?`, `commandBody`. Result: `ReplyPayload & { continueAgent?, suppressReply? }`; `continueAgent` is off unless set, so the agent never sees a command. For "send nothing" the plugin returns `{ suppressReply: true }`, not `{ text: "" }`. |

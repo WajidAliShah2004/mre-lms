@@ -891,6 +891,9 @@ Matthew asked to control OpenClaw and the Mac from WhatsApp and Telegram. D-056 
 
 - **Fixed commands, carried out by code.** An OpenClaw plugin (`lms/openclaw-plugin/lms-control`) registers `/lms`, which runs before the agent; `ops/remote.py` does the work. The list: status, brief, tasks, coverage, mail, whatsapp, backup, done, approve, deny, halt. `done`, `approve`, `deny` act only with `yes` in the same message.
 - **A check that fails closed.** `verify_setup` [12] fails (it does not warn) when OpenClaw's WhatsApp config is unreadable or not an object, when the allowlist is not his one number, when `lms-control` is not enabled, or when `com.lms.agentcontext` is not loaded. Decided Nov 6.
+- **D-015 baseline 4 → 6.** The patch enables `whatsapp` (D-015 had turned the channel plugins off) and `lms-control`; `D015_PLUGINS` is 6 in the same commit. Approved Nov 6.
+- **`/lms halt` always halts**, even if a halt flag already exists (the reply says so), so a stale or half-applied halt can be forced again.
+- **The `[openclaw]` reply prefix in self-chat stays.** It is part of the safety: it stops a reply that begins with `/lms …` from ever being read back as a command. `messages.responsePrefix` is not to be emptied.
 - **No resume from a phone** (D-059 unchanged). @MREOC18bot stays the separate kill switch.
 - **Plain text** goes to `lms-orchestrator`, still with no tools, which answers from an hourly snapshot (`ops/agent_context.py`).
 - **WhatsApp on his own number**, self-chat, allowlist of one. Accepted risk, his choice: OpenClaw's WhatsApp client is unofficial and WhatsApp can ban numbers using one; OpenClaw recommends a separate number. Recommended and declined.

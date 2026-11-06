@@ -17,13 +17,35 @@ cd ~/lms-repo/lms && git pull
 .venv/bin/python -m pytest -q tests/test_remote.py tests/test_agent_context.py tests/test_remote_patch.py
 ```
 
+`halt.py` changed, and its tests are skipped on Windows, so run them here too:
+
+```bash
+.venv/bin/python -m pytest -q tests/test_halt.py
+```
+
 ## 2. Back up the OpenClaw config
 
 ```bash
 cp ~/.openclaw/openclaw.json ~/.openclaw/openclaw.json.pre-chatcontrol
 ```
 
-## 3. Link WhatsApp to OpenClaw
+## 3. Enable the WhatsApp plugin, then link WhatsApp to OpenClaw
+
+D-015 turned OpenClaw's channel plugins off, so WhatsApp cannot be linked until its plugin is on. The patch in step 4 also enables it, but the patch needs his number, which only exists after the link. So enable the plugin by hand first:
+
+```bash
+openclaw plugins enable whatsapp
+```
+
+```bash
+openclaw gateway restart
+```
+
+Check it shows as enabled:
+
+```bash
+openclaw plugins list | grep -i whatsapp
+```
 
 Matthew's phone is needed for one QR scan: WhatsApp → Settings → Linked Devices → Link a Device.
 
@@ -48,15 +70,35 @@ security add-generic-password -U -a lms -s lms/whatsapp-owner -w
 ## 4. Patch the config, with his number filled in
 
 ```bash
-N=$(security find-generic-password -a lms -s lms/whatsapp-owner -w); sed "s/__WHATSAPP_OWNER__/$N/g" ops/remote.patch.json5 > /tmp/remote.patch.json5; unset N
+N=$(security find-generic-password -a lms -s lms/whatsapp-owner -w)
+```
+
+Refuse a number that is empty or not all digits (this must print nothing):
+
+```bash
+case "$N" in ''|*[!0-9]*) echo "lms/whatsapp-owner must be digits only"; false;; esac
+```
+
+If it printed that message, stop and store the number again (step 3). Otherwise:
+
+```bash
+sed "s/__WHATSAPP_OWNER__/$N/g" ops/remote.patch.json5 > /tmp/remote.patch.json5; unset N
 ```
 
 ```bash
 openclaw config patch --file /tmp/remote.patch.json5 --dry-run
 ```
 
+Read the dry-run output: his number must appear with a leading `+` (for example `+15551234567`), once in `allowFrom`, in the WhatsApp binding and in the two command lists. If it does not, stop.
+
 ```bash
-openclaw config patch --file /tmp/remote.patch.json5 && rm /tmp/remote.patch.json5
+openclaw config patch --file /tmp/remote.patch.json5
+```
+
+Remove the temporary file whether the patch worked or failed:
+
+```bash
+rm -f /tmp/remote.patch.json5
 ```
 
 ```bash
@@ -74,6 +116,8 @@ openclaw plugins doctor
 ```
 
 `inspect` must show it enabled with the `lms` and `halt` commands; `doctor` must report no load issue for `lms-control`.
+
+The patch enables two plugins, `whatsapp` and `lms-control`, so `verify_setup` check [5] now expects 6 enabled plugins (it was 4).
 
 ## 5. Install the snapshot job
 
@@ -99,7 +143,9 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.lms.agentcontext.pli
 ./ops/agent_tools.py
 ```
 
-`[12] Chat control` must pass (it fails, not warns, if OpenClaw's WhatsApp config is unreadable or not an object, if the plugin is not enabled, or if `com.lms.agentcontext` is not loaded), and `agent_tools.py` must still show no tools for the lms-* agents.
+Check [5] must report 6 enabled plugins. `[12] Chat control` must pass (it fails, not warns, if OpenClaw's WhatsApp config is unreadable or not an object, if the plugin is not enabled, or if `com.lms.agentcontext` is not loaded), and `agent_tools.py` must still show no tools for the lms-* agents.
+
+Replies in WhatsApp's "Message yourself" chat start with `[openclaw]`. Leave that alone: it stops a reply that begins with `/lms ...` from ever being read back as a command. Do not set `messages.responsePrefix` to empty.
 
 On Matthew's phone, in WhatsApp's "Message yourself" chat and in @MREOCbot:
 
@@ -112,7 +158,7 @@ On Matthew's phone, in WhatsApp's "Message yourself" chat and in @MREOCbot:
 
 Leave `/lms halt` for the planned test below: it stops everything.
 
-## Planned halt test
+## 7. Planned halt test
 
 While halted nothing answers on WhatsApp or @MREOCbot and the snapshot job writes nothing. Resume is only at the Mac (no remote resume, D-059).
 
@@ -145,6 +191,18 @@ While halted nothing answers on WhatsApp or @MREOCbot and the snapshot job write
 ```bash
 cp ~/.openclaw/openclaw.json.pre-chatcontrol ~/.openclaw/openclaw.json && openclaw gateway restart
 ```
+
+That puts the config back. If you instead switch chat control off in place, disable both plugin entries:
+
+```bash
+openclaw plugins disable whatsapp
+```
+
+```bash
+openclaw plugins disable lms-control
+```
+
+If chat control is removed for good, set `D015_PLUGINS` in `ops/verify_setup.py` back to 4, or check [5] will fail.
 
 ```bash
 launchctl bootout gui/$(id -u)/com.lms.agentcontext
