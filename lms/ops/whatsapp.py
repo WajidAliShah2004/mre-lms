@@ -91,7 +91,7 @@ def do_dry_run(conn, now: datetime) -> int:
     tmp = Path(tempfile.mkdtemp(prefix="wa-dry-"))
     try:
         chats = w.read_chats(wa.CONTAINER, tmp, now - timedelta(days=3))
-    except wa.WhatsAppError as exc:
+    except (wa.WhatsAppError, OSError) as exc:
         print(f"FAIL  {exc}", file=sys.stderr)
         return 1
     finally:

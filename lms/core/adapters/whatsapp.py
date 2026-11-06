@@ -180,6 +180,12 @@ def read(conn: sqlite3.Connection, since: datetime, media_root: Path) -> list[Ch
     return list(chats.values())
 
 
+def newest(conn: sqlite3.Connection) -> datetime | None:
+    """The latest message time in the copy: when the Mac app last synced."""
+    s = conn.execute("SELECT MAX(ZMESSAGEDATE) FROM ZWAMESSAGE").fetchone()[0]
+    return None if s is None else apple_time(s)
+
+
 def probe(conn: sqlite3.Connection) -> dict:
     """The database's shape, never its content: for --probe on the Mac."""
     tables = [r[0] for r in conn.execute(

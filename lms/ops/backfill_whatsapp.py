@@ -35,7 +35,7 @@ def backfill(conn, roots, registry, classifier, *, src_dir: Path, tmp_root: Path
              now: datetime, days: int, batch: int, transcriber=asr.transcribe) -> int:
     Path(tmp_root).mkdir(parents=True, exist_ok=True)
     tmp = Path(tempfile.mkdtemp(prefix="backfill-", dir=tmp_root))
-    before = w.day_of(now - timedelta(days=1))
+    before = w.yesterday(now)
     total = 0
     try:
         chats = w.read_chats(src_dir, tmp, now - timedelta(days=days))
@@ -47,6 +47,9 @@ def backfill(conn, roots, registry, classifier, *, src_dir: Path, tmp_root: Path
             total += n
             print(f"batch: {result.summary()}", flush=True)
             if n < batch:
+                return total
+            if _halt.read_flag() is not None:
+                print("HALTED: stopped between batches.", flush=True)
                 return total
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

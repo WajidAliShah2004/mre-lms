@@ -586,3 +586,59 @@ def test_hostile_message_ids_stay_inside_the_temp_dir(conn, pipe, tmp_path):
     for hostile in ("/abs/../../x", "../../x", "..", ""):
         slot = w._slot(hostile)
         assert len(slot) == 16 and slot.isalnum()
+
+
+# --- a stale sync, the DST change, the backfill halted -----------------------
+
+def test_a_sync_older_than_two_days_is_partial_not_a_quiet_hour(conn, pipe, tmp_path):
+    roots, registry, clf = pipe
+    box = WA(tmp_path / "container")
+    c = box.chat("15550100@s.whatsapp.net", "Acme Supply")
+    box.message(c, at(1, 9), "the last thing synced")
+    box.close()
+    r = w.run_pass(conn, roots, registry, clf, src_dir=box.container,
+                   tmp_root=tmp_path / "tmp", now=at(5, 1), transcriber=no_speech)
+    assert r.error is None and r.messages == 0
+    assert r.result == "PARTIAL"
+    assert "WhatsApp on the Mac has not synced since 2026-11-01 09:00" in r.summary()
+    assert conn.execute("SELECT result FROM source_checks").fetchone()[0] == "PARTIAL"
+
+
+def test_a_sync_within_two_days_is_ok(conn, pipe, tmp_path):
+    roots, registry, clf = pipe
+    box = WA(tmp_path / "container")
+    c = box.chat("15550100@s.whatsapp.net", "Acme Supply")
+    box.message(c, at(3, 2), "47 hours ago")
+    box.close()
+    r = w.run_pass(conn, roots, registry, clf, src_dir=box.container,
+                   tmp_root=tmp_path / "tmp", now=at(5, 1), transcriber=no_speech)
+    assert r.result == "OK" and "not synced" not in r.summary()
+
+
+def test_yesterday_is_the_eastern_calendar_day_across_the_dst_change(conn, tmp_path):
+    # ops passes a fixed-offset now; 24 hours before 00:15 EDT on Mar 9 is
+    # 23:15 EST on Mar 7, but yesterday is Mar 8.
+    now = datetime(2026, 3, 9, 0, 15, tzinfo=timezone(timedelta(hours=-4)))
+    assert w.yesterday(now) == "2026-03-08"
+    chat = direct(msg("A", datetime(2026, 3, 8, 20, tzinfo=ET), "pay today"))
+    w.record(conn, [chat])
+    clf = StubClassifier()
+    w.scan(conn, [chat], clf, now, tmp_path, no_speech, w.PassResult())
+    assert len(clf.seen) == 1
+
+
+def test_the_backfill_stops_between_batches_when_halted(conn, pipe, tmp_path, monkeypatch):
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ops"))
+    import backfill_whatsapp as bf
+    roots, registry, clf = pipe
+    box = WA(tmp_path / "container")
+    c = box.chat("15550100@s.whatsapp.net", "Acme Supply")
+    for d in (1, 2, 3):
+        box.message(c, at(d, 9), f"day {d}")
+    box.close()
+    monkeypatch.setattr(bf._halt, "read_flag", lambda: {"ts": "now", "by": "telegram"})
+    assert bf.backfill(conn, roots, registry, clf, src_dir=box.container,
+                       tmp_root=tmp_path / "tmp", now=at(5, 1), days=10, batch=1,
+                       transcriber=no_speech) == 1
+    assert list((tmp_path / "tmp").iterdir()) == []

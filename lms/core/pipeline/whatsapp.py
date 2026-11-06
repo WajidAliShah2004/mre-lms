@@ -42,6 +42,7 @@ RECIPIENT = "Matthew (WhatsApp)"
 CHECKED = "WHATSAPP_CHECKED"
 FAILED = "WHATSAPP_FAILED"
 FILED_KINDS = frozenset({"document", "image"})
+STALE_AFTER = timedelta(hours=48)       # no message newer: the Mac app is not syncing
 
 Transcriber = Callable[[Path, Path], str]
 
@@ -52,6 +53,12 @@ Transcriber = Callable[[Path, Path], str]
 
 def day_of(dt: datetime) -> str:
     return dt.astimezone(TZ).date().isoformat()
+
+
+def yesterday(now: datetime) -> str:
+    """The Eastern calendar day before now's: not 24 hours ago, which is the
+    wrong day just after a DST change when now has a fixed offset."""
+    return (now.astimezone(TZ).date() - timedelta(days=1)).isoformat()
 
 
 def closed(day: str, now: datetime) -> bool:
@@ -122,13 +129,15 @@ class PassResult:
     voice_missing: int = 0
     media_missing: int = 0
     messages: int = 0
+    stale_since: datetime | None = None     # newest message, when too old
     error: str | None = None
 
     @property
     def result(self) -> str:
         if self.error:
             return "FAILED"
-        if self.failed or self.voice_missing or self.media_missing:
+        if (self.failed or self.voice_missing or self.media_missing
+                or self.stale_since):
             return "PARTIAL"
         return "OK"
 
@@ -143,6 +152,9 @@ class PassResult:
             s += f", {self.voice_missing} voice note(s) not transcribed"
         if self.media_missing:
             s += f", {self.media_missing} file(s) not downloaded on the Mac"
+        if self.stale_since:
+            s += (", WhatsApp on the Mac has not synced since "
+                  f"{self.stale_since.astimezone(TZ):%Y-%m-%d %H:%M} (is it running?)")
         return s
 
 
@@ -218,7 +230,7 @@ def scan(conn: sqlite3.Connection, chats: list[Chat], classifier, now: datetime,
 
     A chat day that fails (the model down included) is logged, counted, and
     left unscanned for the next hour; the other chats go on."""
-    recent = {day_of(now), day_of(now - timedelta(days=1))}
+    recent = {day_of(now), yesterday(now)}
     for chat in chats:
         new = [m for m in chat.messages if day_of(m.sent_at) in recent
                and _row(conn, m.stanza_id)["scanned_at"] is None]
@@ -381,13 +393,20 @@ def _file_day(conn, roots, registry, classifier, chat: Chat, day: str,
 # ---------------------------------------------------------------------------
 
 def read_chats(src_dir: Path, tmp: Path, since: datetime) -> list[Chat]:
+    return _read(src_dir, tmp, since)[0]
+
+
+def _read(src_dir: Path, tmp: Path,
+          since: datetime) -> tuple[list[Chat], datetime | None]:
+    """The chats since `since`, and the newest message time in the copy."""
     copy = wa.snapshot(src_dir, tmp / "db")
     rconn = sqlite3.connect(copy)
     try:
         missing = wa.check_schema(rconn)
         if missing:
             raise wa.WhatsAppError("schema changed, missing: " + ", ".join(missing))
-        return wa.read(rconn, since, Path(src_dir) / wa.MEDIA_DIR)
+        return (wa.read(rconn, since, Path(src_dir) / wa.MEDIA_DIR),
+                wa.newest(rconn))
     finally:
         rconn.close()
 
@@ -405,8 +424,11 @@ def run_pass(conn: sqlite3.Connection, roots, registry, classifier, *,
     Path(tmp_root).mkdir(parents=True, exist_ok=True)
     tmp = Path(tempfile.mkdtemp(prefix="pass-", dir=tmp_root))
     try:
-        chats = read_chats(src_dir, tmp, now - timedelta(days=since_days))
+        chats, newest = _read(src_dir, tmp, now - timedelta(days=since_days))
         result.messages = sum(len(c.messages) for c in chats)
+        if newest is not None and now - newest > STALE_AFTER:
+            # Not a quiet two days: the Mac app is closed or not syncing.
+            result.stale_since = newest
         record(conn, chats)
         scan(conn, chats, classifier, now, tmp, transcriber, result)
         close(conn, roots, registry, classifier, chats, now, tmp, transcriber,

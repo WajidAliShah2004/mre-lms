@@ -246,3 +246,22 @@ def test_probe_command_reports_shape_and_exit_status(box, capsys):
     box.conn.execute("DROP TABLE ZWAGROUPMEMBER")
     assert job.do_probe(box.container) == 1
     assert "MISSING: ZWAGROUPMEMBER" in capsys.readouterr().out
+
+
+def test_newest_is_the_latest_message_in_the_copy(box):
+    assert wa.newest(box.conn) is None
+    c = box.chat("15550100@s.whatsapp.net", "Acme")
+    box.message(c, datetime(2026, 11, 4, 9, tzinfo=UTC), "older")
+    box.message(c, datetime(2026, 11, 4, 14, tzinfo=UTC), "newest")
+    assert wa.newest(box.conn) == datetime(2026, 11, 4, 14, tzinfo=UTC)
+
+
+def test_dry_run_reports_an_unreadable_container_without_a_traceback(monkeypatch, capsys):
+    import whatsapp as job
+    from core.pipeline import whatsapp as w
+
+    def denied(*a, **k):
+        raise PermissionError("Operation not permitted")
+    monkeypatch.setattr(w, "read_chats", denied)
+    assert job.do_dry_run(None, datetime(2026, 11, 5, tzinfo=UTC)) == 1
+    assert "FAIL  Operation not permitted" in capsys.readouterr().err
