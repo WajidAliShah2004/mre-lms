@@ -194,9 +194,10 @@ def _by_day(msgs: list[Message]) -> dict[str, list[Message]]:
     return out
 
 
-def _artifact(chat: Chat, day: str, body: str) -> Artifact:
-    return Artifact(source=SOURCE, subject=chat.name, sender=chat_label(chat),
-                    recipient=RECIPIENT, body=body, received_date=day)
+def _artifact(chat: Chat, day: str, body: str, subject: str | None = None) -> Artifact:
+    return Artifact(source=SOURCE, subject=subject or chat.name,
+                    sender=chat_label(chat), recipient=RECIPIENT, body=body,
+                    received_date=day)
 
 
 # ---------------------------------------------------------------------------
@@ -318,10 +319,14 @@ def _file_day(conn, roots, registry, classifier, chat: Chat, day: str,
         try:
             copy = _copy(m.media.local_path, work / "media" / m.stanza_id,
                          _media_name(m.media.title, m.media.local_path))
+            # A fresh Artifact with an EMPTY body, as mail does: the file's
+            # own text fills it in. The caption ("here you go") stays in the
+            # transcript; handed down, it would classify the document and
+            # defeat ingest_file's emptiness check (D-024).
             ingest(conn, roots, registry, classifier, copy, source="attachment",
                    source_ref=f"whatsapp:{m.stanza_id}", parent_id=parent,
-                   artifact=_artifact(chat, day, m.text or ""), run_ocr=ocr,
-                   alert_key=key)
+                   artifact=_artifact(chat, day, "", m.media.title or chat_label(chat)),
+                   run_ocr=ocr, alert_key=key)
         except Exception as exc:                              # noqa: BLE001
             failures.append(f"{m.stanza_id}: {type(exc).__name__}: {exc}")
     if failures:

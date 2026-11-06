@@ -453,3 +453,32 @@ def test_backfill_files_old_days_in_batches_and_leaves_yesterday(conn, pipe, tmp
     assert notify.pending(conn) == []
     assert conn.execute("SELECT COUNT(*) FROM whatsapp_messages WHERE scanned_at IS NULL "
                         "AND artifact_id IS NOT NULL").fetchone()[0] == 0
+
+
+def test_an_attachment_is_classified_from_its_own_text_not_its_caption(conn, pipe, tmp_path):
+    """As mail does (mail.py): the caption stays in the transcript; the file
+    is classified from what it says, or a "here you go" routes an invoice."""
+    roots, registry, real = pipe
+    media = tmp_path / "container" / "notes.txt"
+    media.parent.mkdir()
+    media.write_text("Invoice 2291 from Acme Supply, due Friday", encoding="utf-8")
+    chat = direct(msg("D", at(4, 9), "here you go", kind="document",
+                      media=Media(media, "Invoice.txt", 41, None)))
+    w.record(conn, [chat])
+
+    class Seeing:
+        def __init__(self):
+            self.seen = []
+
+        def classify(self, art):
+            self.seen.append(art)
+            return real.classify(art)
+    clf = Seeing()
+    w.close(conn, roots, registry, clf, [chat], at(5, 1), tmp_path, no_speech,
+            w.PassResult(), ocr=True)
+    transcript, attachment = clf.seen
+    assert "here you go" in transcript.body
+    assert attachment.body == "Invoice 2291 from Acme Supply, due Friday"
+    assert attachment.subject == "Invoice.txt"
+    assert (attachment.sender, attachment.recipient, attachment.received_date) == \
+        ("Acme Supply (+15550100)", w.RECIPIENT, "2026-11-04")
