@@ -1386,7 +1386,7 @@ def test_both_chats_route_to_the_tool_less_agent_only(patch):
     routes = {(b["match"]["channel"], b["match"]["peer"]["id"]): b["agentId"]
               for b in patch["bindings"]}
     assert routes == {("telegram", TG): "lms-orchestrator",
-                      ("whatsapp", WA): "lms-orchestrator"}
+                      ("whatsapp", WA_E164): "lms-orchestrator"}
     for b in patch["bindings"]:
         assert b["match"]["peer"]["kind"] == "direct"
 
@@ -1602,7 +1602,8 @@ If Task 1 found `/halt` reserved, set `REGISTER_HALT = false` and leave the bloc
       type: "route",
       agentId: "lms-orchestrator",
       comment: "D-080: Matthew's WhatsApp self-chat. No tools (D-056).",
-      match: { channel: "whatsapp", peer: { kind: "direct", id: "__WHATSAPP_OWNER__" } },
+      // Direct chats match E.164 numbers (shipped docs/channels/whatsapp.md).
+      match: { channel: "whatsapp", peer: { kind: "direct", id: "+__WHATSAPP_OWNER__" } },
     },
   ],
 
@@ -1786,6 +1787,18 @@ openclaw config patch --file /tmp/remote.patch.json5 && rm /tmp/remote.patch.jso
 openclaw gateway restart
 ```
 
+Confirm the plugin loaded and registered its commands (a wrong entry file shows here, not as silence on the phone):
+
+```bash
+openclaw plugins inspect lms-control
+```
+
+```bash
+openclaw plugins doctor
+```
+
+`inspect` must show it enabled with the `lms` and `halt` commands; `doctor` must report no load issue for `lms-control`.
+
 ## 5. Install the snapshot job
 
 ```bash
@@ -1880,8 +1893,8 @@ From `ops/chat_control_facts.sh` on Nov 5 (OpenClaw 2026.7.1-2, installed at `/o
 
 | # | Fact | Value on the Mac |
 |---|---|---|
-| 1 | `channels.whatsapp` keys | All the plan uses exist: `enabled`, `dmPolicy` (`pairing` default, `allowlist`, `open`, `disabled`), `allowFrom`, `selfChatMode`, `groupPolicy` (`open`, `disabled`, `allowlist`; default `allowlist`), `groupAllowFrom`, `configWrites`. Number format: the schema's own example is `whatsapp:+15551234567`, so the patch writes `+` before the stored digits. Bindings peer id for WhatsApp: *open*. |
-| 2 | `plugins` keys to load and enable a local plugin | `plugins.load.paths` and `plugins.entries.<id>.enabled` (shipped `docs/tools/plugin.md`). Also `plugins.enabled` (global, default true) and `plugins.allow`: when set, only listed ids load, so `lms-control` must be added to it if it is set. Workspace-origin plugins are off until enabled or allowlisted. Current `plugins.allow` and `plugins.load`: *open* (the patch replaces arrays). |
+| 1 | `channels.whatsapp` keys | All the plan uses exist: `enabled`, `dmPolicy` (`pairing` default, `allowlist`, `open`, `disabled`), `allowFrom`, `selfChatMode`, `groupPolicy` (`open`, `disabled`, `allowlist`; default `allowlist`), `groupAllowFrom`, `configWrites`. Number format: E.164 with `+` everywhere: `allowFrom`, `commands.ownerAllowFrom` (`whatsapp:+…`) and bindings (`peer: { kind: "direct", id: "+…" }`, shipped `docs/channels/whatsapp.md`). The patch writes `+` before the stored digits. Self-chat: with the linked number in `allowFrom`, OpenClaw's self-chat safeguards turn on; under `dmPolicy: "allowlist"` only `allowFrom` senders are admitted, so strangers are dropped (this settles the docs' disagreement). Replies in self-chat are prefixed `[openclaw]` unless `messages.responsePrefix` is set; cosmetic, left as is. |
+| 2 | `plugins` keys to load and enable a local plugin | `plugins.load.paths` and `plugins.entries.<id>.enabled` (shipped `docs/tools/plugin.md`). Also `plugins.enabled` (global, default true) and `plugins.allow`: when set, only listed ids load, so `lms-control` must be added to it if it is set. Workspace-origin plugins are off until enabled or allowlisted. On the Mac (Nov 6) `plugins.allow` and `plugins.load` are both unset, so the patch adds `load.paths` without dropping anything and needs no `allow` entry. Enabled entries today: `lmstudio`, `telegram`; `entries` is an object, which a patch merges, so they stay. Current `commands` and `bindings` equal the Telegram half of the patch exactly, so repeating them loses nothing. Telegram rejects a plugin command whose name clashes with a Telegram native command; `/lms` and `/halt` are not among them. |
 | 3 | Plugin entry file and manifest fields | Native plugin = `openclaw.plugin.json` + a runtime module loaded in process; manifest has at least `id`, `name`. Entry file name and whether plain `.js` ESM with `export default function register(api)` loads: *open*. No bundled plugin calls `registerCommand`, so there is no example to copy; the SDK ships `dist/plugin-sdk/plugin-entry.d.ts` (likely a `definePluginEntry` helper) to read next. |
 | 4 | `registerCommand` options; handler context fields; empty reply behaviour | **Plugin commands bypass the LLM** (shipped `docs/plugins/sdk-overview.md`: "Custom command (bypasses the LLM)"), so the design holds. Definition: `name`, `description`, `acceptsArgs?`, `requireAuth?` (default true), `channels?`, `handler`, plus native/guidance extras we do not use. Context (`PluginCommandContext`): `channel`, `senderId?`, `args?` (raw text after the name), `isAuthorizedSender`, `senderIsOwner?`, `from?`, `to?`, `commandBody`. Result: `ReplyPayload & { continueAgent?, suppressReply? }`; `continueAgent` is off unless set, so the agent never sees a command. For "send nothing" the plugin returns `{ suppressReply: true }`, not `{ text: "" }`. |
 | 5 | `lms` / `halt` free? | Both free: neither is in the built-in list (`/stop`, `/status`, `/approve`, `/tasks`, `/plugins`, `/config` … are). Core-reserved names can be claimed only by bundled plugins, which does not affect us. |
