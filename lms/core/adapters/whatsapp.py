@@ -224,6 +224,16 @@ def probe(conn: sqlite3.Connection) -> dict:
             "media_ext": exts, "media_columns": media_cols}
 
 
+def local_paths_found(conn: sqlite3.Connection, media_root: Path) -> tuple[int, int]:
+    """(found, filled): of the media items with ZMEDIALOCALPATH, how many
+    resolve to a file the way read() resolves them."""
+    rows = [r[0] for r in conn.execute(
+        "SELECT ZMEDIALOCALPATH FROM ZWAMEDIAITEM "
+        "WHERE ZMEDIALOCALPATH IS NOT NULL AND ZMEDIALOCALPATH != ''")]
+    found = sum(1 for rel in rows if (Path(media_root) / rel).is_file())
+    return found, len(rows)
+
+
 def media_files(root: Path) -> dict[str, int]:
     """File extension -> count under the media folder; no names."""
     out: dict[str, int] = {}

@@ -58,6 +58,20 @@ def test_probe_shows_where_media_could_be(box):
     assert "Lease" not in repr(p) and "secret" not in repr(p)
 
 
+def test_local_paths_found_counts_what_the_reader_can_open(box):
+    # Mac, Nov 6: auto-download filled ZMEDIALOCALPATH for a new PDF. This
+    # says whether read() would find it under the media folder.
+    c = box.chat("15550100@s.whatsapp.net", "Acme")
+    when = datetime(2026, 11, 4, tzinfo=UTC)
+    box.message(c, when, None, kind=8, media=box.media("a/inv.pdf"))
+    gone = box.media(None)
+    box.conn.execute("UPDATE ZWAMEDIAITEM SET ZMEDIALOCALPATH='b/missing.pdf' "
+                     "WHERE Z_PK=?", (gone,))
+    box.conn.commit()
+    box.message(c, when, None, kind=8, media=gone)
+    assert wa.local_paths_found(box.conn, box.container / "Message") == (1, 2)
+
+
 def test_snapshot_reads_a_copy_and_never_changes_the_original(box, tmp_path):
     c = box.chat("15550100@s.whatsapp.net", "Acme Supply")
     box.message(c, datetime(2026, 11, 4, 14, tzinfo=UTC), "hello")
@@ -228,6 +242,7 @@ def test_probe_command_reports_shape_and_exit_status(box, capsys):
     assert "0=1 (text), with text 1, with media 0" in out
     assert "media item columns filled: \n" in out   # no media rows at all
     assert "media folder files: 0" in out
+    assert "local paths the reader can open: 0 of 0" in out
     box.conn.execute("DROP TABLE ZWAGROUPMEMBER")
     assert job.do_probe(box.container) == 1
     assert "MISSING: ZWAGROUPMEMBER" in capsys.readouterr().out

@@ -60,6 +60,12 @@ def do_probe(src_dir: Path) -> int:
             files = wa.media_files(media)
             print(f"media folder files: {sum(files.values())}"
                   + (f" ({tally(files)})" if files else ""))
+            conn = sqlite3.connect(copy)
+            try:
+                found, filled = wa.local_paths_found(conn, media)
+            finally:
+                conn.close()
+            print(f"local paths the reader can open: {found} of {filled}")
         for m in p["missing"]:
             print(f"MISSING: {m}")
         return 1 if p["missing"] else 0
