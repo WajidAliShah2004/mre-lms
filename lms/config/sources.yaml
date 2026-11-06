@@ -192,9 +192,9 @@ sources:
     status: blocked
     requirement: R40
     blocked_on: >-
-      Install com.lms.whatsapp per ops/WHATSAPP_APPLY.md steps 5-6 (speech
-      model, dry run, backfill, job). The Mac app is linked and the probe
-      passed (Nov 6).
+      Install com.lms.whatsapp per ops/WHATSAPP_APPLY.md steps 5-7 (speech
+      model, WhatsApp in Login Items, dry run, backfill, job). The Mac app
+      is linked and the probe passed (Nov 6).
     gaps: >-
       Only the history the Mac app synced when linked. Videos are listed, not
       filed. Files the Mac app never downloaded are listed, not filed. The
@@ -202,7 +202,11 @@ sources:
       new media only), so older documents are listed, not filed, unless
       Matthew opens those chats in the Mac app before the backfill or
       exports them. A message
-      deleted in WhatsApp after filing stays filed.
+      deleted in WhatsApp after filing stays filed. Reads only while the Mac
+      app runs and syncs (a pass with nothing newer than 48 hours is
+      PARTIAL). The hourly job reads only messages sent in the last 3 days,
+      so one that reaches the Mac later than that is filed only by a
+      backfill run.
 
   # -------------------------------------------------------------------------
   # Calendar

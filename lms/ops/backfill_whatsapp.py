@@ -5,8 +5,9 @@
     ./ops/backfill_whatsapp.py --days 365 --batch 50
 
 Files every chat day before yesterday; yesterday and today are the hourly
-job's, so its urgency check still sees them. Old days raise no alerts: they
-are marked checked when filed, and notify's 2-day rule drops them anyway.
+job's, so its urgency check still sees them. Days older than 2 days raise no
+alerts: notify's 2-day rule drops them. The day before yesterday is still
+fresh, so an urgent one alerts once as it is filed.
 Not a check of the source: nothing goes to source_checks.
 """
 

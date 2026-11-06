@@ -132,7 +132,7 @@ launchd runs the job every hour (`StartInterval 3600`), logging to `~/LMS/logs/w
 
 **Backfill** — `ops/backfill_whatsapp.py --days N [--batch 20]`:
 - Closes every day before yesterday that the Mac app holds, in batches of `--batch` chat days (default 20), with a summary after each. `--days N` limits it to the last N days.
-- No urgency check runs on backfilled days: their messages are marked scanned. Yesterday and today are left to the hourly job, so its urgency check still sees them. `notify`'s 2-day freshness rule stops alerts for old days in any case.
+- No urgency check runs on backfilled days: their messages are marked scanned. Yesterday and today are left to the hourly job, so its urgency check still sees them. `notify`'s 2-day freshness rule stops alerts for days older than 2 days; the day before yesterday is still fresh, so an urgent one alerts once as it is filed.
 
 ### 6. Results and failures
 
@@ -178,7 +178,7 @@ All tests are on Windows except where marked. They use a fixture database built 
 - Media ingested from a copy with the right `parent_id`; videos and stickers not filed; an undownloaded file is listed and counted as `PARTIAL`.
 - The voice transcription is cached and not repeated. `ASRUnavailable` gives `PARTIAL` and a marker.
 - The hourly check queues one alert per chat day, and the closing filing does not queue a second.
-- The halt flag stops the pass. Backfill queues no alerts.
+- The halt flag stops the pass. Backfill queues no alerts for days older than 2 days.
 - The brief's `WATCHED_JOBS` and `JOB_FAILURES` strings are ones this job writes (the D-027 trap, as in `test_notify.py`).
 - **On the Mac only:** the probe against the real database, and one real voice note through `ffmpeg` and `mlx-whisper`.
 

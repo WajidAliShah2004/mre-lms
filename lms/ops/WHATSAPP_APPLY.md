@@ -48,6 +48,9 @@ readable: True`. Anything else: copy the output to the developer and stop.
 ## 5. Speech
 
 ```bash
+cd ~/lms-repo/lms && git pull
+```
+```bash
 brew install ffmpeg
 ```
 ```bash
@@ -59,7 +62,17 @@ brew install ffmpeg
 
 The last command downloads about 1.6 GB once; after it, speech runs offline.
 
-## 6. Dry run, backfill, install
+## 6. Keep WhatsApp running
+
+System Settings → General → Login Items (on newer macOS, Login Items &
+Extensions) → Open at Login → `+`, choose WhatsApp in Applications, Open.
+
+The reader reads only what the Mac app has synced, and the app syncs only
+while it is running. If it is closed, nothing new arrives; after 48 hours
+without a new message the pass reports PARTIAL, "WhatsApp on the Mac has not
+synced since ...".
+
+## 7. Dry run, backfill, install
 
 ```bash
 ./ops/whatsapp.py --dry-run
@@ -82,6 +95,17 @@ one line a batch and ends with `N chat day(s) filed.` The log line is the
 pass summary, for example `412 message(s) seen, 0 chat day(s) filed, 0
 alert(s)`.
 
+- **The first pass takes a while.** It starts as soon as the job is loaded
+  and checks two days of chats with the model. Wait about 15 minutes before
+  the `tail`; until the pass ends the log can be empty.
+- **`PermissionError` (or `no ChatStorage.sqlite`) in the log** means the
+  job's Python lacks Full Disk Access: redo step 3 for exactly
+  `/Users/mleca/lms-repo/lms/.venv/bin/python`. The probe in step 4 can pass
+  anyway, because Terminal's own Full Disk Access lets it through.
+- **A few alerts are expected now.** Urgent chat days from the last 2 days
+  alert once, from the first pass and from the backfill (the day before
+  yesterday is still fresh for alerts). Days older than 2 days raise none.
+
 Then in `config/sources.yaml` set `chat:whatsapp` to `status: active` and
 remove its `blocked_on` (the developer commits that).
 
@@ -93,7 +117,7 @@ downloaded to the Mac. The backfill files those days' text, and lists those
 files as "not downloaded on the Mac". Bringing them in is Matthew's choice,
 either way:
 
-1. **Before the backfill (step 6):** open the chats that matter in the Mac
+1. **Before the backfill (step 7):** open the chats that matter in the Mac
    app and let their files download; the backfill then files them with
    their day. A day already filed does not pick up files downloaded later:
    once a chat day is filed, only newly arrived messages make a later part.
