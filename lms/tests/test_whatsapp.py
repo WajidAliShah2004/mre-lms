@@ -1,7 +1,7 @@
 """WhatsApp chat days: formatting, the hourly check, closing, the pass (D-079)."""
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
@@ -162,3 +162,148 @@ def test_no_speech_model_counts_as_missing_not_failure(conn, tmp_path):
     result = w.PassResult()
     assert w.voice_text(conn, chat.messages[0], tmp_path, no_speech, result) is None
     assert result.voice_missing == 1 and result.result == "PARTIAL"
+
+
+from core.adapters.lmstudio import Completion
+from core.pipeline import filing
+from core.pipeline.classify import Classifier
+from core.pipeline.registry import load_registry
+
+CONFIG = Path(__file__).resolve().parents[1] / "config"
+
+
+class FakeModel:
+    def __init__(self, response):
+        self._response = response
+
+    def complete(self, **kw):
+        return Completion(text=json.dumps(self._response), model="fake",
+                          elapsed_s=0.01, finish_reason="stop")
+
+
+def answer(urgency="NORMAL"):
+    return {"domain": "BUSINESS", "entity_id": "B_MRE", "category": "VENDORS",
+            "subcategory": "invoices-received", "urgency": urgency,
+            "confidence": 0.93, "requires_reply": False, "due_date": None,
+            "counterparty": "acme-supply", "descriptor": "invoice chat",
+            "amount_cents": None, "rationale": "vendor"}
+
+
+@pytest.fixture
+def pipe(tmp_path):
+    roots = filing.StorageRoots(archive=tmp_path / "archive",
+                                originals=tmp_path / "_originals",
+                                quarantine=tmp_path / "quarantine")
+    roots.ensure()
+    registry = load_registry(CONFIG)
+    return roots, registry, Classifier(registry, client=FakeModel(answer()))
+
+
+def filed_ids(conn, *stanzas):
+    return [conn.execute("SELECT artifact_id FROM whatsapp_messages WHERE stanza_id=?",
+                         (s,)).fetchone()[0] for s in stanzas]
+
+
+def test_a_closed_day_is_filed_as_one_transcript(conn, pipe, tmp_path):
+    roots, registry, clf = pipe
+    chat = direct(msg("A", at(4, 9), "Can you resend the invoice?", from_me=True),
+                  msg("B", at(4, 9, 20), "Sent it"))
+    w.record(conn, [chat])
+    result = w.PassResult()
+    assert w.close(conn, roots, registry, clf, [chat], at(5, 0, 29), tmp_path,
+                   no_speech, result) == 0
+    assert w.close(conn, roots, registry, clf, [chat], at(5, 0, 30), tmp_path,
+                   no_speech, result) == 1
+    a, b = filed_ids(conn, "A", "B")
+    assert a == b and a is not None
+    row = conn.execute("SELECT source, source_ref FROM artifacts WHERE id=?", (a,)).fetchone()
+    assert row["source"] == "whatsapp"
+    assert row["source_ref"] == "whatsapp:15550100@s.whatsapp.net:2026-11-04:1"
+
+
+def test_a_late_message_is_filed_as_part_2(conn, pipe, tmp_path):
+    roots, registry, clf = pipe
+    chat = direct(msg("A", at(4, 9), "first"))
+    w.record(conn, [chat])
+    w.close(conn, roots, registry, clf, [chat], at(5, 1), tmp_path, no_speech, w.PassResult())
+    chat.messages.append(msg("L", at(4, 22), "synced late"))
+    w.record(conn, [chat])
+    assert w.close(conn, roots, registry, clf, [chat], at(5, 2), tmp_path,
+                   no_speech, w.PassResult()) == 1
+    first, late = filed_ids(conn, "A", "L")
+    assert first != late
+    ref = conn.execute("SELECT source_ref FROM artifacts WHERE id=?", (late,)).fetchone()[0]
+    assert ref.endswith(":2026-11-04:2")
+
+
+def test_documents_and_photos_are_filed_under_the_transcript(conn, pipe, tmp_path):
+    roots, registry, clf = pipe
+    media = tmp_path / "container" / "INV.pdf"
+    media.parent.mkdir()
+    media.write_bytes(b"%PDF-1.4 invoice 2291")
+    chat = direct(msg("D", at(4, 9), kind="document",
+                      media=Media(media, "INV-2291.pdf", 20, None)),
+                  msg("N", at(4, 9, 5), kind="document",
+                      media=Media(None, "scan.pdf", None, None)),
+                  msg("V", at(4, 9, 6), kind="video", media=Media(media, None, None, 5)))
+    w.record(conn, [chat])
+    result = w.PassResult()
+    w.close(conn, roots, registry, clf, [chat], at(5, 1), tmp_path, no_speech, result,
+            ocr=False)
+    assert media.read_bytes() == b"%PDF-1.4 invoice 2291", "WhatsApp's file was moved"
+    parent = filed_ids(conn, "D")[0]
+    kids = conn.execute("SELECT source, source_ref FROM artifacts WHERE parent_id=?",
+                        (parent,)).fetchall()
+    assert [(k["source"], k["source_ref"]) for k in kids] == [("attachment", "whatsapp:D")]
+    assert result.media_missing == 1 and result.result == "PARTIAL"
+
+
+def test_backfill_limits_by_day_and_count(conn, pipe, tmp_path):
+    roots, registry, clf = pipe
+    chat = direct(msg("A", at(1, 9), "one"), msg("B", at(2, 9), "two"),
+                  msg("C", at(3, 9), "three"), msg("D", at(4, 9), "four"))
+    w.record(conn, [chat])
+    n = w.close(conn, roots, registry, clf, [chat], at(5, 1), tmp_path, no_speech,
+                w.PassResult(), before="2026-11-04", limit=2)
+    assert n == 2
+    assert [x is not None for x in filed_ids(conn, "A", "B", "C", "D")] == \
+        [True, True, False, False]
+
+
+def test_filing_does_not_repeat_the_hourly_alert(conn, tmp_path):
+    roots = filing.StorageRoots(archive=tmp_path / "archive",
+                                originals=tmp_path / "_originals",
+                                quarantine=tmp_path / "quarantine")
+    roots.ensure()
+    registry = load_registry(CONFIG)
+    clf = Classifier(registry, client=FakeModel(answer("CRITICAL")))
+    now = datetime.now(ET)
+    yesterday = now - timedelta(days=1)
+    chat = direct(msg("A", yesterday.replace(hour=9), "Final notice, pay today"))
+    w.record(conn, [chat])
+    w.scan(conn, [chat], StubClassifier("CRITICAL"), yesterday.replace(hour=10),
+           tmp_path, no_speech, w.PassResult())
+    w.close(conn, roots, registry, clf, [chat], now.replace(hour=1), tmp_path,
+            no_speech, w.PassResult())
+    assert len(notify.pending(conn)) == 1
+
+
+def test_one_bad_chat_day_does_not_stop_the_others(conn, pipe, tmp_path):
+    roots, registry, clf = pipe
+    good = direct(msg("G", at(4, 9), "fine"))
+    bad = Chat("15550199@s.whatsapp.net", "Broken", False, [msg("X", at(4, 9), "boom")])
+    w.record(conn, [good, bad])
+
+    from core.pipeline.ingest import ingest_file
+
+    def flaky(conn_, roots_, registry_, clf_, path, **kw):
+        if "Broken" in path.name:
+            raise RuntimeError("disk full")
+        return ingest_file(conn_, roots_, registry_, clf_, path, **kw)
+    result = w.PassResult()
+    assert w.close(conn, roots, registry, clf, [bad, good], at(5, 1), tmp_path,
+                   no_speech, result, ingest=flaky) == 1
+    assert result.failed == 1
+    assert filed_ids(conn, "X") == [None]
+    assert conn.execute("SELECT COUNT(*) FROM actions_log WHERE action='WHATSAPP_DAY_FAILED'"
+                        ).fetchone()[0] == 1

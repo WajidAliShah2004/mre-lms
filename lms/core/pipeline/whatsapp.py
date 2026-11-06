@@ -29,6 +29,7 @@ from ..adapters.whatsapp import Chat, Message, number
 from ..db import database as db
 from . import notify
 from .classify import Artifact
+from .ingest import ingest_file
 
 TZ = ZoneInfo("America/New_York")
 CLOSE_AT = time(0, 30)
@@ -230,3 +231,93 @@ def scan(conn: sqlite3.Connection, chats: list[Chat], classifier, now: datetime,
 
 def _safe(name: str) -> str:
     return re.sub(r"[^\w\- ]+", "", name).strip()[:60] or "chat"
+
+
+# ---------------------------------------------------------------------------
+# Closing a day
+# ---------------------------------------------------------------------------
+
+def _part(conn, jid: str, day: str) -> int:
+    n = conn.execute(
+        "SELECT COUNT(DISTINCT artifact_id) FROM whatsapp_messages "
+        "WHERE chat_jid = ? AND day = ? AND artifact_id IS NOT NULL",
+        (jid, day)).fetchone()[0]
+    return n + 1
+
+
+def _copy(src: Path, dest_dir: Path, name: str) -> Path:
+    """A copy to hand to ingest: filing MOVES what it is given (filing.py)."""
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / name
+    shutil.copyfile(src, dest)
+    return dest
+
+
+def close(conn: sqlite3.Connection, roots, registry, classifier,
+          chats: list[Chat], now: datetime, tmp_dir: Path,
+          transcriber: Transcriber, result: PassResult, *,
+          before: str | None = None, limit: int | None = None,
+          ocr: bool = True, ingest=ingest_file) -> int:
+    """File every closed chat day's unfiled messages. Returns chat days filed."""
+    done = 0
+    for chat in chats:
+        unfiled = [m for m in chat.messages
+                   if _row(conn, m.stanza_id)["artifact_id"] is None]
+        for day, msgs in sorted(_by_day(unfiled).items()):
+            if not closed(day, now) or (before and day >= before):
+                continue
+            if limit is not None and done >= limit:
+                return done
+            try:
+                _file_day(conn, roots, registry, classifier, chat, day, msgs,
+                          tmp_dir, transcriber, result, ingest, ocr)
+            except Exception as exc:                          # noqa: BLE001
+                result.failed += 1
+                db.log_action(conn, "WHATSAPP_DAY_FAILED",
+                              detail=f"{chat.jid} {day}: {type(exc).__name__}: {exc}"[:400])
+                conn.commit()
+                continue
+            done += 1
+            result.filed += 1
+    return done
+
+
+def _file_day(conn, roots, registry, classifier, chat: Chat, day: str,
+              msgs: list[Message], tmp_dir: Path, transcriber: Transcriber,
+              result: PassResult, ingest, ocr: bool) -> None:
+    part = _part(conn, chat.jid, day)
+    voices = {m.stanza_id: voice_text(conn, m, tmp_dir, transcriber, result)
+              for m in msgs if m.kind == "voice"}
+    text = transcript(chat, day, part, msgs, voices)
+    work = Path(tmp_dir) / "days" / f"{_safe(chat.name)} {day} part {part}"
+    work.mkdir(parents=True, exist_ok=True)
+    path = work / f"WhatsApp {_safe(chat.name)} {day} part {part}.txt"
+    path.write_text(text, encoding="utf-8")
+    key = alert_key(chat, day)
+    r = ingest(conn, roots, registry, classifier, path, source=SOURCE,
+               source_ref=f"whatsapp:{chat.jid}:{day}:{part}",
+               artifact=_artifact(chat, day, text), run_ocr=False, alert_key=key)
+    parent = int(db.find_artifact_by_hash(conn, r.sha256)["id"])
+    for m in msgs:
+        if m.kind not in FILED_KINDS:
+            continue
+        if m.media is None or m.media.local_path is None:
+            result.media_missing += 1
+            continue
+        name = m.media.title or m.media.local_path.name
+        copy = _copy(m.media.local_path, work / "media" / m.stanza_id, name)
+        try:
+            ingest(conn, roots, registry, classifier, copy, source="attachment",
+                   source_ref=f"whatsapp:{m.stanza_id}", parent_id=parent,
+                   artifact=_artifact(chat, day, m.text or ""), run_ocr=ocr,
+                   alert_key=key)
+        except Exception as exc:                              # noqa: BLE001
+            result.failed += 1
+            db.log_action(conn, "WHATSAPP_DAY_FAILED",
+                          detail=f"{chat.jid} {day} {m.stanza_id}: "
+                                 f"{type(exc).__name__}: {exc}"[:400])
+    conn.executemany(
+        "UPDATE whatsapp_messages SET artifact_id = ?, "
+        "scanned_at = COALESCE(scanned_at, ?) WHERE stanza_id = ?",
+        [(parent, db.now_iso(), m.stanza_id) for m in msgs])
+    conn.commit()
