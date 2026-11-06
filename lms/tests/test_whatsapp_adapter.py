@@ -99,6 +99,26 @@ def test_own_chat_is_found_by_content_under_a_hidden_number(box):
     assert "15550100@s.whatsapp.net" in {c.jid for c in chats}
 
 
+def test_own_chat_allows_a_whatsapp_notice_not_a_conversation(box):
+    # Mac, Nov 6: his own chat had 77 messages, 76 marked his (the other a
+    # WhatsApp notice), 8 /lms all his; a real conversation with /lms text
+    # was 60% his. The first is his own chat, the second is not.
+    t = datetime(2026, 11, 4, 14, tzinfo=UTC)
+    me = box.chat("185432112345678@lid", "Matthew")
+    box.message(me, t, None, kind=10)                       # notice, not his
+    for i in range(30):
+        box.message(me, t, "/lms tasks" if i % 4 == 0 else f"reply {i}",
+                    from_me=True)
+    talk = box.chat("15550100@s.whatsapp.net", "Jo")
+    for i in range(30):
+        box.message(talk, t, "/lms status" if i == 0 else f"line {i}",
+                    from_me=i % 5 != 0)                     # 6 of 30 from Jo
+    near = box.chat("15550111@s.whatsapp.net", "Pat")       # 2 from Pat of 10
+    for i in range(10):
+        box.message(near, t, "/lms help" if i == 0 else "ok", from_me=i >= 2)
+    assert wa.own_chats_by_content(box.conn) == frozenset({"185432112345678@lid"})
+
+
 def test_probe_describes_lms_chats_when_it_cannot_find_his_own(box, capsys,
                                                                monkeypatch):
     # Mac, Nov 6: no chat matched; this says why, in counts only.

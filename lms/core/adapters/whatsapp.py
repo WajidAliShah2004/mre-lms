@@ -187,17 +187,20 @@ def own_chat_count(conn: sqlite3.Connection, jids: frozenset[str]) -> int:
 
 # His own chat by what is in it. On the Mac (Nov 6) "Message yourself" is not
 # stored under his number but under a hidden-number @lid id, which nothing
-# here can map to the number. It is the one direct chat where every message
-# is his (no message from anyone else, ever) and where he sends /lms
-# commands; D-080 answers /lms only there.
+# here can map to the number. It is the direct chat where he sends /lms
+# commands (D-080 answers /lms only there) and nearly every message is his:
+# on the Mac 76 of 77, the other one a WhatsApp notice. So: at most 2
+# messages not marked his, and under 5% of the chat. A conversation with
+# anyone else fails that (the one other chat with /lms text: 60% his).
 _OWN_BY_CONTENT = """
 SELECT s.ZCONTACTJID FROM ZWACHATSESSION s
+  JOIN ZWAMESSAGE m ON m.ZCHATSESSION = s.Z_PK
  WHERE s.ZSESSIONTYPE = 0 AND s.ZCONTACTJID IS NOT NULL
-   AND EXISTS (SELECT 1 FROM ZWAMESSAGE m WHERE m.ZCHATSESSION = s.Z_PK
-               AND m.ZISFROMME = 1
-               AND (m.ZTEXT = '/lms' OR m.ZTEXT LIKE '/lms %'))
-   AND NOT EXISTS (SELECT 1 FROM ZWAMESSAGE m WHERE m.ZCHATSESSION = s.Z_PK
-                   AND COALESCE(m.ZISFROMME, 0) = 0)
+ GROUP BY s.Z_PK
+HAVING SUM(COALESCE(m.ZISFROMME, 0) = 1
+           AND (m.ZTEXT = '/lms' OR m.ZTEXT LIKE '/lms %')) > 0
+   AND SUM(COALESCE(m.ZISFROMME, 0) = 0) <= 2
+   AND SUM(COALESCE(m.ZISFROMME, 0) = 0) * 20 < COUNT(*)
 """
 
 
