@@ -50,7 +50,7 @@ Nothing in Tasks 2–6 is final until this returns. The engineer does not run an
 **Files:**
 - Modify: this plan, section "Mac facts (filled in by Task 1)" at the end.
 
-- [ ] **Step 1: Send the user these commands** (from `~/lms-repo/lms`, after `git pull`):
+- [x] **Step 1: Send the user these commands** (from `~/lms-repo/lms`, after `git pull`):
 
 ```bash
 openclaw --version
@@ -78,7 +78,7 @@ ls -la ~/.openclaw/workspace-lms-orchestrator/
 
 (If `schema_dump.py` takes arguments, use `--help` first; it was used for Phase 7b on Oct 6.)
 
-- [ ] **Step 2: From the output, fill in "Mac facts" at the end of this plan:**
+- [x] **Step 2: From the output, fill in "Mac facts" at the end of this plan:**
   1. The exact `channels.whatsapp` keys for allowlist, own number, self-chat, groups, config writes.
   2. The `plugins` keys to load a local folder and enable it.
   3. The plugin entry file names and manifest fields OpenClaw expects, and whether `.js` ESM with `export default function register(api)` loads.
@@ -86,8 +86,8 @@ ls -la ~/.openclaw/workspace-lms-orchestrator/
   5. Whether `lms` and `halt` are free names.
   6. Which workspace files OpenClaw injects into the prompt, and the per-file character limit.
   Done Nov 5 with `ops/chat_control_facts.sh`; rows 4, 5 and parts of 1–3 were left open (its greps for the handler context and reserved names found nothing). Second pass: `ops/plugin_api_facts.sh`, which reads the `.d.ts` types, a bundled plugin that calls `registerCommand`, the current `plugins`/`commands`/`bindings` config and the WhatsApp doc.
-- [ ] **Step 3: Adjust before Task 2.** If any fact differs from what Tasks 2–6 assume (`USER.md` injected, ≥15,000 chars allowed; context fields `channel`, `senderId`, `args`; `plugins.load.paths` and `plugins.entries.<id>.enabled`; `channels.whatsapp.{dmPolicy,allowFrom,selfChatMode,groupPolicy,groupAllowFrom,configWrites}`), edit those tasks' code in this plan first. If plugin commands do not bypass the agent at all, **stop** and report to the user: the design depends on it.
-- [ ] **Step 4: Commit** the filled-in plan.
+- [x] **Step 3: Adjust before Task 2.** If any fact differs from what Tasks 2–6 assume (`USER.md` injected, ≥15,000 chars allowed; context fields `channel`, `senderId`, `args`; `plugins.load.paths` and `plugins.entries.<id>.enabled`; `channels.whatsapp.{dmPolicy,allowFrom,selfChatMode,groupPolicy,groupAllowFrom,configWrites}`), edit those tasks' code in this plan first. If plugin commands do not bypass the agent at all, **stop** and report to the user: the design depends on it.
+- [x] **Step 4: Commit** the filled-in plan.
 
 ```bash
 git add docs/superpowers/plans/2026-11-05-chat-control.md
@@ -1323,6 +1323,7 @@ git commit -m "D-080: remote run-now, halt and the two-step done/approve/deny"
 **Files:**
 - Create: `lms/openclaw-plugin/lms-control/openclaw.plugin.json`
 - Create: `lms/openclaw-plugin/lms-control/index.js`
+- Create: `lms/openclaw-plugin/lms-control/package.json`
 - Create: `lms/ops/remote.patch.json5`
 - Modify: `lms/ops/verify_setup.py` (new `check_chat_control`, `whatsapp_problems`, call in `main`)
 - Test: `lms/tests/test_remote_patch.py`
@@ -1437,6 +1438,11 @@ def test_the_manifest_names_the_plugin():
     import json
     m = json.loads((PLUGIN / "openclaw.plugin.json").read_text(encoding="utf-8"))
     assert m["id"] == "lms-control"
+    js = (PLUGIN / "index.js").read_text(encoding="utf-8")
+    assert 'id: "lms-control"' in js and "register," in js
+    pkg = json.loads((PLUGIN / "package.json").read_text(encoding="utf-8"))
+    assert pkg["type"] == "module"
+    assert pkg["openclaw"]["extensions"] == ["./index.js"]
 
 
 @pytest.mark.parametrize("cfg,owner,expect_ok", [
@@ -1532,7 +1538,17 @@ async function handle(ctx, argWords) {
   return text ? { text } : SILENT;
 }
 
-export default function register(api) {
+// The shape definePluginEntry() returns (shipped docs/plugins/*.md), written
+// out so the plugin has no import from OpenClaw's own install: a plugin
+// outside node_modules/openclaw may not resolve "openclaw/plugin-sdk/...".
+export default {
+  id: "lms-control",
+  name: "LMS control",
+  description: "Matthew's fixed /lms commands (D-080). Runs ops/remote.py; no AI involved.",
+  register,
+};
+
+function register(api) {
   api.registerCommand({
     name: "lms",
     description: "Matthew's LMS commands (/lms help)",
@@ -1553,7 +1569,22 @@ export default function register(api) {
 }
 ```
 
-If Task 1 found `/halt` reserved, set `REGISTER_HALT = false` and leave the block in place; the tests still hold.
+If a later OpenClaw reserves `/halt`, set `REGISTER_HALT = false` and leave the block in place; the tests still hold.
+
+- [ ] **Step 4b: Write `lms/openclaw-plugin/lms-control/package.json`** (marks the folder as ESM and names the entry file for the loader):
+
+```json
+{
+  "name": "lms-control",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./index.js",
+  "openclaw": { "extensions": ["./index.js"] }
+}
+```
+
+Whether OpenClaw loads it is checked right after the restart in `CHAT_CONTROL_APPLY.md` §4 (`openclaw plugins inspect lms-control`, `openclaw plugins doctor`). If it does not load, the fallback is `import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry"` and `export default definePluginEntry({...same object...})`.
 
 - [ ] **Step 5: Write `lms/ops/remote.patch.json5`**
 
@@ -1889,13 +1920,13 @@ The user runs `lms/ops/CHAT_CONTROL_APPLY.md` and pastes the output. Pushes to G
 
 ## Mac facts (filled in by Task 1)
 
-From `ops/chat_control_facts.sh` on Nov 5 (OpenClaw 2026.7.1-2, installed at `/opt/homebrew/lib/node_modules/openclaw`). Rows marked *open* are settled by `ops/plugin_api_facts.sh`.
+From `ops/chat_control_facts.sh` (Nov 5) and `ops/plugin_api_facts.sh` (Nov 6), OpenClaw 2026.7.1-2 installed at `/opt/homebrew/lib/node_modules/openclaw`. Task 1 is complete; the corrections are already in Tasks 3 and 5.
 
 | # | Fact | Value on the Mac |
 |---|---|---|
 | 1 | `channels.whatsapp` keys | All the plan uses exist: `enabled`, `dmPolicy` (`pairing` default, `allowlist`, `open`, `disabled`), `allowFrom`, `selfChatMode`, `groupPolicy` (`open`, `disabled`, `allowlist`; default `allowlist`), `groupAllowFrom`, `configWrites`. Number format: E.164 with `+` everywhere: `allowFrom`, `commands.ownerAllowFrom` (`whatsapp:+…`) and bindings (`peer: { kind: "direct", id: "+…" }`, shipped `docs/channels/whatsapp.md`). The patch writes `+` before the stored digits. Self-chat: with the linked number in `allowFrom`, OpenClaw's self-chat safeguards turn on; under `dmPolicy: "allowlist"` only `allowFrom` senders are admitted, so strangers are dropped (this settles the docs' disagreement). Replies in self-chat are prefixed `[openclaw]` unless `messages.responsePrefix` is set; cosmetic, left as is. |
 | 2 | `plugins` keys to load and enable a local plugin | `plugins.load.paths` and `plugins.entries.<id>.enabled` (shipped `docs/tools/plugin.md`). Also `plugins.enabled` (global, default true) and `plugins.allow`: when set, only listed ids load, so `lms-control` must be added to it if it is set. Workspace-origin plugins are off until enabled or allowlisted. On the Mac (Nov 6) `plugins.allow` and `plugins.load` are both unset, so the patch adds `load.paths` without dropping anything and needs no `allow` entry. Enabled entries today: `lmstudio`, `telegram`; `entries` is an object, which a patch merges, so they stay. Current `commands` and `bindings` equal the Telegram half of the patch exactly, so repeating them loses nothing. Telegram rejects a plugin command whose name clashes with a Telegram native command; `/lms` and `/halt` are not among them. |
-| 3 | Plugin entry file and manifest fields | Native plugin = `openclaw.plugin.json` + a runtime module loaded in process; manifest has at least `id`, `name`. Entry file name and whether plain `.js` ESM with `export default function register(api)` loads: *open*. No bundled plugin calls `registerCommand`, so there is no example to copy; the SDK ships `dist/plugin-sdk/plugin-entry.d.ts` (likely a `definePluginEntry` helper) to read next. |
+| 3 | Plugin entry file and manifest fields | Native plugin = `openclaw.plugin.json` + a runtime module loaded in process; manifest has at least `id`, `name`. Entry: the shipped docs use `export default definePluginEntry({ id, name, register(api) {...} })` from `openclaw/plugin-sdk/plugin-entry` (the SDK also exports the `OpenClawPluginDefinition` type it builds). Our `index.js` exports that same object directly, with no import from OpenClaw, plus a `package.json` (`"type": "module"`, `"openclaw": { "extensions": ["./index.js"] }`). Not proven until the apply step's `openclaw plugins inspect lms-control`; the `definePluginEntry` import is the fallback (Task 5, Step 4b). | |
 | 4 | `registerCommand` options; handler context fields; empty reply behaviour | **Plugin commands bypass the LLM** (shipped `docs/plugins/sdk-overview.md`: "Custom command (bypasses the LLM)"), so the design holds. Definition: `name`, `description`, `acceptsArgs?`, `requireAuth?` (default true), `channels?`, `handler`, plus native/guidance extras we do not use. Context (`PluginCommandContext`): `channel`, `senderId?`, `args?` (raw text after the name), `isAuthorizedSender`, `senderIsOwner?`, `from?`, `to?`, `commandBody`. Result: `ReplyPayload & { continueAgent?, suppressReply? }`; `continueAgent` is off unless set, so the agent never sees a command. For "send nothing" the plugin returns `{ suppressReply: true }`, not `{ text: "" }`. |
 | 5 | `lms` / `halt` free? | Both free: neither is in the built-in list (`/stop`, `/status`, `/approve`, `/tasks`, `/plugins`, `/config` … are). Core-reserved names can be claimed only by bundled plugins, which does not affect us. |
 | 6 | Injected workspace files; per-file character limit | `AGENTS.md`, `BOOTSTRAP.md`, `HEARTBEAT.md`, `IDENTITY.md`, `MEMORY.md`, `SOUL.md`, `TOOLS.md`, `USER.md`. `agents.defaults.bootstrapMaxChars` default 20,000 per file; `bootstrapTotalMaxChars` default 60,000. The workspace's files total 11,649 bytes today, so `USER.md` + a 15,000-char block stays under both. `USER.md` (537 bytes) as planned. |
