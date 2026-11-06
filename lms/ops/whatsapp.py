@@ -41,6 +41,12 @@ def do_probe(src_dir: Path) -> int:
         print("message types: " + ", ".join(
             f"{t}={n} ({wa.KINDS.get(t, 'other')})"
             for t, n in p["message_types"].items()))
+        print("session types: " + ", ".join(
+            f"{t}={n} ({g} groups)" for t, (n, g) in p["session_types"].items())
+            + f"; the reader takes {wa.GROUP_SESSION} as group")
+        for t, (x, m) in p["type_shape"].items():
+            print(f"  type {t}={p['message_types'][t]} ({wa.KINDS.get(t, 'other')}), "
+                  f"with text {x}, with media {m}")
         print(f"media folder readable: {media.is_dir()}")
         for m in p["missing"]:
             print(f"MISSING: {m}")

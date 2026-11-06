@@ -679,6 +679,8 @@ Expected: `ZWAMESSAGE: <n>` with n > 0, no `MISSING:` lines, and `media folder r
 - **Message types other than 0/1/2/3/8/15** with large counts: paste them. Extend `KINDS`, and the matching test, to the real values.
 - **`file is not a database` after 3 tries:** the database is encrypted on this version. **Stop the plan.** Record it in D-079 and fall back to chat export (spec, "Decisions").
 
+**Result on the Mac, Nov 6 2026: the gate passes.** The copy opened and checked (not encrypted); no `MISSING:` lines; `media folder readable: True`. Counts: `ZWACHATSESSION` 91, `ZWAMESSAGE` 15,931, `ZWAMEDIAITEM` 15,798, `ZWAGROUPMEMBER` 1,293. Message types: 0=13,912 (text), 1=346 (image), 2=17 (video), 3=4 (voice), 8=643 (document); not in `KINDS`: 7=618, 14=172, 59=87, 10=74, 66=24, 6=16, 43=10, 23=5, 19=2, 12=1; no 15 (sticker). Still open: which `ZSESSIONTYPE` is a group (`GROUP_SESSION = 1` was a guess) and which unknown types carry text or media. The probe was extended to print both (session types with how many have `@g.us` JIDs; per message type, how many have text and how many have media, counts only), and is run again before `KINDS` and `GROUP_SESSION` are settled. Tasks 3–8 do not wait on it.
+
 ---
 
 ### Task 3: Speech adapter

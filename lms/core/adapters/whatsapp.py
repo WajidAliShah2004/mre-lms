@@ -180,9 +180,20 @@ def probe(conn: sqlite3.Connection) -> dict:
         "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")]
     counts = {t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
               for t in REQUIRED if t in tables}
-    types = {}
-    if "ZWAMESSAGE" in tables:
+    missing = check_schema(conn)
+    types, sessions, shape = {}, {}, {}
+    if not missing:
         types = {t: n for t, n in conn.execute(
             "SELECT ZMESSAGETYPE, COUNT(*) FROM ZWAMESSAGE GROUP BY 1 ORDER BY 1")}
-    return {"missing": check_schema(conn), "tables": tables, "counts": counts,
-            "message_types": types}
+        # session type -> (chats, of which group JIDs): confirms GROUP_SESSION.
+        sessions = {t: (n, g) for t, n, g in conn.execute(
+            "SELECT ZSESSIONTYPE, COUNT(*), "
+            "SUM(ZCONTACTJID LIKE '%@g.us') FROM ZWACHATSESSION "
+            "GROUP BY 1 ORDER BY 1")}
+        # message type -> (with text, with media): which unknown types matter.
+        shape = {t: (x, m) for t, x, m in conn.execute(
+            "SELECT ZMESSAGETYPE, SUM(COALESCE(ZTEXT, '') != ''), "
+            "SUM(ZMEDIAITEM IS NOT NULL) FROM ZWAMESSAGE GROUP BY 1 ORDER BY 1")}
+    return {"missing": missing, "tables": tables, "counts": counts,
+            "message_types": types, "session_types": sessions,
+            "type_shape": shape}
