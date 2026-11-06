@@ -7,6 +7,8 @@ Matthew controls the LMS from WhatsApp ("Message yourself") and Telegram
 
 Run from `~/lms-repo/lms`. No `#` comments after commands: zsh runs them.
 
+Applied and tested on the Mac Nov 6 2026: every check in step 6 and the halt test in step 7 passed. `/lms` commands are chat messages; typed in the Terminal, zsh only says `no such file or directory: /lms`.
+
 ## 1. Pull and test
 
 ```bash
@@ -75,13 +77,19 @@ Then:
 openclaw channels status
 ```
 
-It shows the linked number. Store it (digits only, with the country code, for example 15551234567):
+It shows the linked number. Copy it (Cmd-C; a `+` or spaces are fine), then store it. This keeps only the digits of what you copied, and the number does not land in shell history:
 
 ```bash
-security add-generic-password -U -a lms -s lms/whatsapp-owner -w
+security add-generic-password -U -a lms -s lms/whatsapp-owner -w "$(pbpaste | tr -cd '0-9')"
 ```
 
-(It asks for the value twice; paste the number. Nothing lands in shell history.)
+Check it: this prints how many digits were stored (with the country code; 11 for a US number):
+
+```bash
+security find-generic-password -a lms -s lms/whatsapp-owner -w | tr -d '\n' | wc -c
+```
+
+(Do not use the hidden prompt, `-w` with no value: on the Mac on Nov 6 it asked twice, refused, and once stored a wrong 5-character value.)
 
 ## 4. Patch the config, with his number filled in
 
@@ -117,7 +125,7 @@ rm -f /tmp/remote.patch.json5
 openclaw gateway restart
 ```
 
-Confirm the plugin loaded and registered its commands (a wrong entry file shows here, not as silence on the phone):
+Confirm the plugin loaded (a wrong entry file shows here, not as silence on the phone):
 
 ```bash
 openclaw plugins inspect lms-control
@@ -127,7 +135,7 @@ openclaw plugins inspect lms-control
 openclaw plugins doctor
 ```
 
-`inspect` must show it enabled with the `lms` and `halt` commands; `doctor` must report no load issue for `lms-control`.
+`inspect` must show it loaded and enabled; `doctor` must report no load issue for `lms-control`. OpenClaw 2026.7.1-2 does not list a plugin's commands in `inspect`: the phone test in step 6 is what shows `/lms` works.
 
 The patch enables two plugins, `whatsapp` and `lms-control`, so `verify_setup` check [5] now expects 6 enabled plugins (it was 4).
 
@@ -157,7 +165,7 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.lms.agentcontext.pli
 
 Check [5] must report 6 enabled plugins. `[12] Chat control` must pass (it fails, not warns, if OpenClaw's WhatsApp config is unreadable or not an object, if the plugin is not enabled, or if `com.lms.agentcontext` is not loaded), and `agent_tools.py` must still show no tools for the lms-* agents.
 
-Replies in WhatsApp's "Message yourself" chat start with `[openclaw]`. Leave that alone: it stops a reply that begins with `/lms ...` from ever being read back as a command. Do not set `messages.responsePrefix` to empty.
+Each message must get exactly one reply. OpenClaw does not take its own replies in "Message yourself" as new messages; if a reply is ever answered again, run `/lms halt` and report it. (The `[openclaw]` reply prefix the OpenClaw docs describe does not appear with WhatsApp plugin 2026.7.1.)
 
 On Matthew's phone, in WhatsApp's "Message yourself" chat and in @MREOCbot:
 

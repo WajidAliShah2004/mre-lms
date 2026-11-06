@@ -28,14 +28,58 @@ def task(conn, title, *, due=None, entity="B_MRE", sensitivity="normal"):
                           sensitivity=sensitivity)
 
 
+def section(text, heading):
+    """The lines under a heading, up to the next blank line."""
+    _, rest = text.split(heading, 1)
+    return rest.split("\n\n", 1)[0]
+
+
 def test_snapshot_lists_open_tasks_with_numbers_and_overdue(conn):
     late = task(conn, "Pay Con Edison", due="2026-11-01")
     soon = task(conn, "File NY biennial", due="2026-11-20")
     text = ac.snapshot(conn, NOW, gaps=[])
-    assert f"#{late} OVERDUE Pay Con Edison" in text
+    assert f"#{late} Pay Con Edison" in text
     assert f"#{soon} File NY biennial" in text
     assert "Open tasks: 2 (1 overdue)." in text
     assert "generated Thu Nov 05 09:00" in text
+
+
+def test_snapshot_keeps_overdue_and_not_overdue_apart(conn):
+    # Nov 6: asked "what's overdue?", the agent listed about 37 tasks, most
+    # not overdue, from one mixed list. Two sections leave nothing to sort.
+    late = task(conn, "Pay Con Edison", due="2026-11-01")
+    soon = task(conn, "File NY biennial", due="2026-11-20")
+    undated = task(conn, "Read the Hiscox policy")
+    text = ac.snapshot(conn, NOW, gaps=[])
+    over = section(text, "Overdue (1), the complete list:")
+    rest = section(text, "Not overdue (2):")
+    assert f"#{late} " in over
+    assert f"#{soon} " not in over and f"#{undated} " not in over
+    assert f"#{soon} " in rest and f"#{undated} " in rest
+    assert f"#{late} " not in rest
+
+
+def test_snapshot_says_when_nothing_is_overdue(conn):
+    task(conn, "File NY biennial", due="2026-11-20")
+    text = ac.snapshot(conn, NOW, gaps=[])
+    assert "Overdue: none." in text
+    assert "Open tasks: 1 (0 overdue)." in text
+
+
+def test_snapshot_says_when_the_overdue_list_is_cut(conn):
+    for i in range(ac.TASK_LIMIT + 3):
+        task(conn, f"Late bill {i}", due="2026-10-01")
+    text = ac.snapshot(conn, NOW, gaps=[])
+    n = ac.TASK_LIMIT + 3
+    assert f"Overdue ({n}), the first {ac.TASK_LIMIT}:" in text
+    assert "the complete list" not in text
+    assert "- … 3 more overdue (/lms tasks overdue)" in text
+
+
+def test_snapshot_sends_lists_to_the_exact_command(conn):
+    text = ac.snapshot(conn, NOW, gaps=[])
+    assert "/lms tasks overdue" in text
+    assert "no tables" in text
 
 
 def test_snapshot_never_names_a_private_task(conn):

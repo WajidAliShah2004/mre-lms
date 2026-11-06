@@ -98,6 +98,8 @@ git commit -m "Chat control plan: Mac facts recorded"
 
 ### Task 2: The read-only snapshot (`ops/agent_context.py`)
 
+> **Changed Nov 6, after the Mac test:** the code below is the original. `snapshot()` now lists overdue and not-overdue tasks in separate sections (`Overdue (N), the complete list:` / `Not overdue (N):`, or `Overdue: none.`) and tells the agent to copy a section's lines as they are, with no tables, and to name `/lms tasks overdue` and `/lms tasks` as the exact lists. Asked "what's overdue?" from the mixed list, the agent once listed 37 tasks, most not overdue. See `lms/ops/agent_context.py` and its tests.
+
 **Files:**
 - Create: `lms/ops/agent_context.py`
 - Create: `lms/ops/com.lms.agentcontext.plist`
@@ -1910,13 +1912,19 @@ Then:
 openclaw channels status
 ```
 
-It shows the linked number. Store it (digits only, with the country code, for example 15551234567):
+It shows the linked number. Copy it (Cmd-C; a `+` or spaces are fine), then store it. This keeps only the digits of what you copied, and the number does not land in shell history:
 
 ```bash
-security add-generic-password -U -a lms -s lms/whatsapp-owner -w
+security add-generic-password -U -a lms -s lms/whatsapp-owner -w "$(pbpaste | tr -cd '0-9')"
 ```
 
-(It asks for the value twice; paste the number. Nothing lands in shell history.)
+Check it: this prints how many digits were stored (with the country code; 11 for a US number):
+
+```bash
+security find-generic-password -a lms -s lms/whatsapp-owner -w | tr -d '\n' | wc -c
+```
+
+(Do not use the hidden prompt, `-w` with no value: on the Mac on Nov 6 it asked twice, refused, and once stored a wrong 5-character value.)
 
 ## 4. Patch the config, with his number filled in
 
@@ -1952,7 +1960,7 @@ rm -f /tmp/remote.patch.json5
 openclaw gateway restart
 ```
 
-Confirm the plugin loaded and registered its commands (a wrong entry file shows here, not as silence on the phone):
+Confirm the plugin loaded (a wrong entry file shows here, not as silence on the phone):
 
 ```bash
 openclaw plugins inspect lms-control
@@ -1962,7 +1970,7 @@ openclaw plugins inspect lms-control
 openclaw plugins doctor
 ```
 
-`inspect` must show it enabled with the `lms` and `halt` commands; `doctor` must report no load issue for `lms-control`.
+`inspect` must show it loaded and enabled; `doctor` must report no load issue for `lms-control`. OpenClaw 2026.7.1-2 does not list a plugin's commands in `inspect`: the phone test in step 6 is what shows `/lms` works.
 
 The patch enables two plugins, `whatsapp` and `lms-control`, so `verify_setup` check [5] now expects 6 enabled plugins (it was 4).
 
@@ -1992,7 +2000,7 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.lms.agentcontext.pli
 
 Check [5] must report 6 enabled plugins. `[12] Chat control` must pass (it fails, not warns, if OpenClaw's WhatsApp config is unreadable or not an object, if the plugin is not enabled, or if `com.lms.agentcontext` is not loaded), and `agent_tools.py` must still show no tools for the lms-* agents.
 
-Replies in WhatsApp's "Message yourself" chat start with `[openclaw]`. Leave that alone: it stops a reply that begins with `/lms ...` from ever being read back as a command. Do not set `messages.responsePrefix` to empty.
+Each message must get exactly one reply. OpenClaw does not take its own replies in "Message yourself" as new messages; if a reply is ever answered again, run `/lms halt` and report it. (The `[openclaw]` reply prefix the OpenClaw docs describe does not appear with WhatsApp plugin 2026.7.1.)
 
 On Matthew's phone, in WhatsApp's "Message yourself" chat and in @MREOCbot:
 
@@ -2072,7 +2080,7 @@ Matthew asked to control OpenClaw and the Mac from WhatsApp and Telegram. D-056 
 - **Fixed commands, carried out by code.** An OpenClaw plugin (`lms/openclaw-plugin/lms-control`) registers `/lms`, which runs before the agent; `ops/remote.py` does the work. The list: status, brief, tasks, coverage, mail, whatsapp, backup, done, approve, deny, halt. `done`, `approve`, `deny` act only with `yes` in the same message.
 - **D-015 baseline 4 → 6.** The patch enables `whatsapp` and `lms-control`; `D015_PLUGINS` is 6 in the same commit. Approved Nov 6. WhatsApp is not part of OpenClaw 2026.7.1-2: it is the separate plugin `@openclaw/whatsapp`, pinned to 2026.7.1 because its newest version needs OpenClaw 2026.11.1 (installed on the Mac Nov 6). Until the allowlist is written, its messages are switched off (`dmPolicy` and `groupPolicy` `disabled`), because its default answers unknown senders with a pairing code.
 - **`/lms halt` always halts**, even if a halt flag already exists (the reply says so), so a stale or half-applied halt can be forced again.
-- **The `[openclaw]` reply prefix in self-chat stays.** It is part of the safety: it stops a reply that begins with `/lms …` from ever being read back as a command. `messages.responsePrefix` is not to be emptied.
+- **No reply is read back as a command.** OpenClaw does not take its own replies in the self-chat as new messages: in the Nov 6 test on the Mac every command and question got one reply and no reply was ever answered. The `[openclaw]` reply prefix the docs describe did not appear (WhatsApp plugin 2026.7.1), so it is not counted on; no reply from `ops/remote.py` starts with `/lms` either.
 - **No resume from a phone** (D-059 unchanged). @MREOC18bot stays the separate kill switch.
 - **Plain text** goes to `lms-orchestrator`, still with no tools, which answers from an hourly snapshot (`ops/agent_context.py`).
 - **WhatsApp on his own number**, self-chat, allowlist of one. Accepted risk, his choice: OpenClaw's WhatsApp client is unofficial and WhatsApp can ban numbers using one; OpenClaw recommends a separate number. Recommended and declined.
@@ -2109,7 +2117,7 @@ From `ops/chat_control_facts.sh` (Nov 5) and `ops/plugin_api_facts.sh` (Nov 6), 
 
 | # | Fact | Value on the Mac |
 |---|---|---|
-| 1 | `channels.whatsapp` keys | All the plan uses exist: `enabled`, `dmPolicy` (`pairing` default, `allowlist`, `open`, `disabled`), `allowFrom`, `selfChatMode`, `groupPolicy` (`open`, `disabled`, `allowlist`; default `allowlist`), `groupAllowFrom`, `configWrites`. Number format: E.164 with `+` everywhere: `allowFrom`, `commands.ownerAllowFrom` (`whatsapp:+…`) and bindings (`peer: { kind: "direct", id: "+…" }`, shipped `docs/channels/whatsapp.md`). The patch writes `+` before the stored digits. Self-chat: with the linked number in `allowFrom`, OpenClaw's self-chat safeguards turn on; under `dmPolicy: "allowlist"` only `allowFrom` senders are admitted, so strangers are dropped (this settles the docs' disagreement). Replies in self-chat are prefixed `[openclaw]` unless `messages.responsePrefix` is set; left as is on purpose: the prefix stops a reply that begins with `/lms …` from being read back as a command (Nov 6). |
+| 1 | `channels.whatsapp` keys | All the plan uses exist: `enabled`, `dmPolicy` (`pairing` default, `allowlist`, `open`, `disabled`), `allowFrom`, `selfChatMode`, `groupPolicy` (`open`, `disabled`, `allowlist`; default `allowlist`), `groupAllowFrom`, `configWrites`. Number format: E.164 with `+` everywhere: `allowFrom`, `commands.ownerAllowFrom` (`whatsapp:+…`) and bindings (`peer: { kind: "direct", id: "+…" }`, shipped `docs/channels/whatsapp.md`). The patch writes `+` before the stored digits. Self-chat: with the linked number in `allowFrom`, OpenClaw's self-chat safeguards turn on; under `dmPolicy: "allowlist"` only `allowFrom` senders are admitted, so strangers are dropped (this settles the docs' disagreement). The docs say replies in self-chat are prefixed `[openclaw]` unless `messages.responsePrefix` is set; on the Mac (Nov 6, WhatsApp plugin 2026.7.1) no prefix appeared, and OpenClaw did not take its own replies as new messages. |
 | 2 | `plugins` keys to load and enable a local plugin | `plugins.load.paths` and `plugins.entries.<id>.enabled` (shipped `docs/tools/plugin.md`). Also `plugins.enabled` (global, default true) and `plugins.allow`: when set, only listed ids load, so `lms-control` must be added to it if it is set. Workspace-origin plugins are off until enabled or allowlisted. On the Mac (Nov 6) `plugins.allow` and `plugins.load` are both unset, so the patch adds `load.paths` without dropping anything and needs no `allow` entry. Enabled entries today: `lmstudio`, `telegram`; `entries` is an object, which a patch merges, so they stay. Current `commands` and `bindings` equal the Telegram half of the patch exactly, so repeating them loses nothing. Telegram rejects a plugin command whose name clashes with a Telegram native command; `/lms` and `/halt` are not among them. |
 | 3 | Plugin entry file and manifest fields | Native plugin = `openclaw.plugin.json` + a runtime module loaded in process; manifest has at least `id`, `name`. Entry: the shipped docs use `export default definePluginEntry({ id, name, register(api) {...} })` from `openclaw/plugin-sdk/plugin-entry` (the SDK also exports the `OpenClawPluginDefinition` type it builds). Our `index.js` exports that same object directly, with no import from OpenClaw, plus a `package.json` (`"type": "module"`, `"openclaw": { "extensions": ["./index.js"] }`). Not proven until the apply step's `openclaw plugins inspect lms-control`; the `definePluginEntry` import is the fallback (Task 5, Step 4b). | |
 | 4 | `registerCommand` options; handler context fields; empty reply behaviour | **Plugin commands bypass the LLM** (shipped `docs/plugins/sdk-overview.md`: "Custom command (bypasses the LLM)"), so the design holds. Definition: `name`, `description`, `acceptsArgs?`, `requireAuth?` (default true), `channels?`, `handler`, plus native/guidance extras we do not use. Context (`PluginCommandContext`): `channel`, `senderId?`, `args?` (raw text after the name), `isAuthorizedSender`, `senderIsOwner?`, `from?`, `to?`, `commandBody`. Result: `ReplyPayload & { continueAgent?, suppressReply? }`; `continueAgent` is off unless set, so the agent never sees a command. For "send nothing" the plugin returns `{ suppressReply: true }`, not `{ text: "" }`. |

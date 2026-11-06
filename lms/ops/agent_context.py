@@ -64,6 +64,14 @@ def pending_approvals(conn: sqlite3.Connection, now: datetime) -> list[sqlite3.R
             if datetime.fromisoformat(a["expires_at"]) > now]
 
 
+def _task_lines(tasks: list, what: str, command: str) -> list[str]:
+    out = [f"- #{t.task_id} {t.shown_title} · due {t.row['due_date'] or 'no due date'}"
+           f" · {t.row['entity_id'] or '?'}" for t in tasks[:TASK_LIMIT]]
+    if len(tasks) > TASK_LIMIT:
+        out.append(f"- … {len(tasks) - TASK_LIMIT} more {what} ({command})")
+    return out
+
+
 def snapshot(conn: sqlite3.Connection, now: datetime, *,
              gaps: list[str] | None = None) -> str:
     from core.pipeline import coverage
@@ -74,20 +82,30 @@ def snapshot(conn: sqlite3.Connection, now: datetime, *,
         "Answer Matthew's questions about his tasks, approvals and sources only "
         "from this snapshot, and say when it was generated. You cannot do "
         "anything: for an action, give him the /lms command (/lms help lists them).",
+        "For a list of tasks, copy the lines of the one section that answers "
+        "the question, adding none and dropping none, as plain lines with no "
+        "tables; a task in Not overdue is never overdue. The exact lists are "
+        "/lms tasks overdue and /lms tasks: tell him so.",
         "",
     ]
 
     scored = reports.todo_list(conn, today=now.date())
-    overdue = sum(1 for t in scored if t.overdue)
-    lines.append(f"Open tasks: {len(scored)} ({overdue} overdue).")
-    for t in scored[:TASK_LIMIT]:
-        due = t.row["due_date"] or "no due date"
-        mark = "OVERDUE " if t.overdue else ""
-        lines.append(f"- #{t.task_id} {mark}{t.shown_title} · due {due} · "
-                     f"{t.row['entity_id'] or '?'}")
-    if len(scored) > TASK_LIMIT:
-        lines.append(f"- … {len(scored) - TASK_LIMIT} more (/lms tasks)")
+    late = [t for t in scored if t.overdue]
+    rest = [t for t in scored if not t.overdue]
+    lines.append(f"Open tasks: {len(scored)} ({len(late)} overdue).")
     lines.append("")
+    if not late:
+        lines.append("Overdue: none.")
+    else:
+        shown = ("the complete list" if len(late) <= TASK_LIMIT
+                 else f"the first {TASK_LIMIT}")
+        lines.append(f"Overdue ({len(late)}), {shown}:")
+        lines.extend(_task_lines(late, "overdue", "/lms tasks overdue"))
+    lines.append("")
+    if rest:
+        lines.append(f"Not overdue ({len(rest)}):")
+        lines.extend(_task_lines(rest, "not overdue", "/lms tasks"))
+        lines.append("")
 
     private = reports.private_task_ids(conn)
     waiting = pending_approvals(conn, now)
