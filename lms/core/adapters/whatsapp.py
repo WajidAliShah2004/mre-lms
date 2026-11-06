@@ -27,7 +27,7 @@ CONTAINER = Path("~/Library/Group Containers/"
 DB_NAME = "ChatStorage.sqlite"
 MEDIA_DIR = "Message"
 STATUS_JID = "status@broadcast"
-GROUP_SESSION = 1               # ZSESSIONTYPE of a group; confirm with --probe
+GROUP_SESSION = 1               # ZSESSIONTYPE of a group (Mac probe Nov 6: all 14 @g.us chats)
 COPY_ATTEMPTS = 3
 APPLE_EPOCH = datetime(2001, 1, 1, tzinfo=timezone.utc)
 ME = "Matthew"
@@ -42,9 +42,10 @@ REQUIRED: dict[str, set[str]] = {
     "ZWAGROUPMEMBER": {"Z_PK", "ZCONTACTNAME", "ZMEMBERJID"},
 }
 
-# ZMESSAGETYPE -> kind. Expected values; --probe lists what the Mac has.
+# ZMESSAGETYPE -> kind. --probe lists what the Mac has. 7 is a message with a
+# link preview: on the Mac (Nov 6) all 618 had text, so it reads as text.
 KINDS: dict[int, str] = {0: "text", 1: "image", 2: "video", 3: "voice",
-                         8: "document", 15: "sticker"}
+                         7: "text", 8: "document", 15: "sticker"}
 
 
 class WhatsAppError(RuntimeError):
@@ -181,7 +182,7 @@ def probe(conn: sqlite3.Connection) -> dict:
     counts = {t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
               for t in REQUIRED if t in tables}
     missing = check_schema(conn)
-    types, sessions, shape = {}, {}, {}
+    types, sessions, shape, domains, exts = {}, {}, {}, {}, {}
     if not missing:
         types = {t: n for t, n in conn.execute(
             "SELECT ZMESSAGETYPE, COUNT(*) FROM ZWAMESSAGE GROUP BY 1 ORDER BY 1")}
@@ -194,6 +195,20 @@ def probe(conn: sqlite3.Connection) -> dict:
         shape = {t: (x, m) for t, x, m in conn.execute(
             "SELECT ZMESSAGETYPE, SUM(COALESCE(ZTEXT, '') != ''), "
             "SUM(ZMEDIAITEM IS NOT NULL) FROM ZWAMESSAGE GROUP BY 1 ORDER BY 1")}
+        # session type -> {JID domain: chats}: the part after "@", no number.
+        for t, jid in conn.execute("SELECT ZSESSIONTYPE, ZCONTACTJID "
+                                   "FROM ZWACHATSESSION ORDER BY 1"):
+            dom = (jid or "").rpartition("@")[2] or "(none)"
+            d = domains.setdefault(t, {})
+            d[dom] = d.get(dom, 0) + 1
+        # message type -> {file extension: count}: says what unknown types hold.
+        for t, rel in conn.execute(
+                "SELECT m.ZMESSAGETYPE, i.ZMEDIALOCALPATH FROM ZWAMESSAGE m "
+                "JOIN ZWAMEDIAITEM i ON i.Z_PK = m.ZMEDIAITEM ORDER BY 1"):
+            ext = (Path(rel).suffix.lower() or "(none)") if rel else "(no file)"
+            e = exts.setdefault(t, {})
+            e[ext] = e.get(ext, 0) + 1
     return {"missing": missing, "tables": tables, "counts": counts,
             "message_types": types, "session_types": sessions,
-            "type_shape": shape}
+            "type_shape": shape, "session_domains": domains,
+            "media_ext": exts}

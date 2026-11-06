@@ -150,7 +150,27 @@ def test_probe_shows_which_session_type_is_a_group(box):
     box.chat("120363000000000002@g.us", "Co-op", group=True)
     p = wa.probe(box.conn)
     assert p["session_types"] == {0: (1, 0), 1: (2, 2)}
-    assert "Board" not in repr(p) and "g.us" not in repr(p)
+    assert p["session_domains"] == {0: {"s.whatsapp.net": 1}, 1: {"g.us": 2}}
+    assert "Board" not in repr(p) and "120363" not in repr(p)
+    assert "15550100" not in repr(p)
+
+
+def test_probe_lists_file_extensions_per_type(box):
+    # Unknown types with media and no text (14, 59, 66 on the Mac) may be
+    # photos or documents the reader would not file; the extension says.
+    c = box.chat("15550100@s.whatsapp.net", "Acme")
+    when = datetime(2026, 11, 4, tzinfo=UTC)
+    box.message(c, when, None, kind=14, media=box.media("a/secret-name.webp"))
+    box.message(c, when, None, kind=14, media=box.media("a/other.WEBP"))
+    box.message(c, when, None, kind=14, media=box.media(None, title="Lease.pdf"))
+    p = wa.probe(box.conn)
+    assert p["media_ext"] == {14: {".webp": 2, "(no file)": 1}}
+    assert "secret" not in repr(p) and "Lease" not in repr(p)
+
+
+def test_link_messages_are_text():
+    # Mac probe, Nov 6: all 618 messages of type 7 have text (a link preview).
+    assert wa.KINDS[7] == "text"
 
 
 def test_probe_shows_which_message_types_carry_text_or_media(box):
@@ -176,7 +196,7 @@ def test_probe_command_reports_shape_and_exit_status(box, capsys):
     assert job.do_probe(box.container) == 0
     out = capsys.readouterr().out
     assert "ZWAMESSAGE: 1" in out and "private words" not in out
-    assert "session types: 0=1 (0 groups)" in out
+    assert "session types: 0=1 (0 groups; s.whatsapp.net 1)" in out
     assert "0=1 (text), with text 1, with media 0" in out
     box.conn.execute("DROP TABLE ZWAGROUPMEMBER")
     assert job.do_probe(box.container) == 1

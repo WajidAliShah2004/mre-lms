@@ -356,7 +356,7 @@ CONTAINER = Path("~/Library/Group Containers/"
 DB_NAME = "ChatStorage.sqlite"
 MEDIA_DIR = "Message"
 STATUS_JID = "status@broadcast"
-GROUP_SESSION = 1               # ZSESSIONTYPE of a group; confirm with --probe
+GROUP_SESSION = 1               # ZSESSIONTYPE of a group (Mac probe Nov 6: all 14 @g.us chats)
 COPY_ATTEMPTS = 3
 APPLE_EPOCH = datetime(2001, 1, 1, tzinfo=timezone.utc)
 ME = "Matthew"
@@ -371,9 +371,10 @@ REQUIRED: dict[str, set[str]] = {
     "ZWAGROUPMEMBER": {"Z_PK", "ZCONTACTNAME", "ZMEMBERJID"},
 }
 
-# ZMESSAGETYPE -> kind. Expected values; --probe lists what the Mac has.
+# ZMESSAGETYPE -> kind. --probe lists what the Mac has. 7 is a message with a
+# link preview: on the Mac (Nov 6) all 618 had text, so it reads as text.
 KINDS: dict[int, str] = {0: "text", 1: "image", 2: "video", 3: "voice",
-                         8: "document", 15: "sticker"}
+                         7: "text", 8: "document", 15: "sticker"}
 
 
 class WhatsAppError(RuntimeError):
@@ -680,6 +681,8 @@ Expected: `ZWAMESSAGE: <n>` with n > 0, no `MISSING:` lines, and `media folder r
 - **`file is not a database` after 3 tries:** the database is encrypted on this version. **Stop the plan.** Record it in D-079 and fall back to chat export (spec, "Decisions").
 
 **Result on the Mac, Nov 6 2026: the gate passes.** The copy opened and checked (not encrypted); no `MISSING:` lines; `media folder readable: True`. Counts: `ZWACHATSESSION` 91, `ZWAMESSAGE` 15,931, `ZWAMEDIAITEM` 15,798, `ZWAGROUPMEMBER` 1,293. Message types: 0=13,912 (text), 1=346 (image), 2=17 (video), 3=4 (voice), 8=643 (document); not in `KINDS`: 7=618, 14=172, 59=87, 10=74, 66=24, 6=16, 43=10, 23=5, 19=2, 12=1; no 15 (sticker). Still open: which `ZSESSIONTYPE` is a group (`GROUP_SESSION = 1` was a guess) and which unknown types carry text or media. The probe was extended to print both (session types with how many have `@g.us` JIDs; per message type, how many have text and how many have media, counts only), and is run again before `KINDS` and `GROUP_SESSION` are settled. Tasks 3–8 do not wait on it.
+
+**Second probe, Nov 6:** session types 0=75 chats (no groups), 1=14 (all 14 `@g.us`), 2=1, 3=1 (no groups): `GROUP_SESSION = 1` confirmed. Per type (with text / with media): 0 text 13,912/13,857 (nearly every text message has a media row; harmless, text is rendered as text and only `document`/`image` are filed); 7: 618/618, a link preview, so `KINDS[7] = "text"`; 8: 606/643; 6: 9/0; 10: 4/12; 43: 10/10; 12, 14 (172), 19, 23, 59 (87), 66 (24): no text, all with media. Whether those media-only types hold photos or documents the reader should file is still open; the probe now prints each type's file extensions and each session type's JID domain (counts only), for a third run.
 
 ---
 

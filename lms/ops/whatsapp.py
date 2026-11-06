@@ -41,12 +41,18 @@ def do_probe(src_dir: Path) -> int:
         print("message types: " + ", ".join(
             f"{t}={n} ({wa.KINDS.get(t, 'other')})"
             for t, n in p["message_types"].items()))
+        def tally(d: dict) -> str:
+            return ", ".join(f"{k} {n}" for k, n in
+                             sorted(d.items(), key=lambda kv: -kv[1])[:5])
         print("session types: " + ", ".join(
-            f"{t}={n} ({g} groups)" for t, (n, g) in p["session_types"].items())
+            f"{t}={n} ({g} groups; {tally(p['session_domains'].get(t, {}))})"
+            for t, (n, g) in p["session_types"].items())
             + f"; the reader takes {wa.GROUP_SESSION} as group")
         for t, (x, m) in p["type_shape"].items():
+            files = p["media_ext"].get(t)
             print(f"  type {t}={p['message_types'][t]} ({wa.KINDS.get(t, 'other')}), "
-                  f"with text {x}, with media {m}")
+                  f"with text {x}, with media {m}"
+                  + (f"; files: {tally(files)}" if files else ""))
         print(f"media folder readable: {media.is_dir()}")
         for m in p["missing"]:
             print(f"MISSING: {m}")
