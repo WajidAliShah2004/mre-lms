@@ -16,12 +16,14 @@ prints the real ones on the Mac.
 from __future__ import annotations
 
 import os
-import shutil
+import shutil  # noqa: F401  (test_whatsapp_adapter patches wa.shutil.copyfile)
 import sqlite3
 import subprocess
-from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+from . import chat as _chat
+from .chat import Chat, Media, Message   # noqa: F401  (re-exported: existing imports)
 
 CONTAINER = Path("~/Library/Group Containers/"
                  "group.net.whatsapp.WhatsApp.shared").expanduser()
@@ -52,35 +54,8 @@ KINDS: dict[int, str] = {0: "text", 1: "image", 2: "video", 3: "voice",
                          7: "text", 8: "document", 15: "sticker"}
 
 
-class WhatsAppError(RuntimeError):
+class WhatsAppError(_chat.ChatDBError):
     pass
-
-
-@dataclass(frozen=True)
-class Media:
-    local_path: Path | None         # None: the Mac app never downloaded it
-    title: str | None
-    size: int | None
-    duration_s: float | None
-
-
-@dataclass(frozen=True)
-class Message:
-    stanza_id: str                  # WhatsApp's own id; survives a re-link
-    sent_at: datetime
-    from_me: bool
-    sender_name: str
-    text: str | None
-    kind: str
-    media: Media | None
-
-
-@dataclass
-class Chat:
-    jid: str
-    name: str
-    is_group: bool
-    messages: list[Message] = field(default_factory=list)
 
 
 def apple_time(seconds: float) -> datetime:
@@ -95,36 +70,9 @@ def number(jid: str) -> str:
 
 
 def snapshot(src_dir: Path, tmp_dir: Path, attempts: int = COPY_ATTEMPTS) -> Path:
-    """Copy the database and its WAL into tmp_dir; return the checked copy.
-
-    WhatsApp may be writing while the three files are copied, so a copy can be
-    torn. quick_check catches that; the copy is retried, then the pass fails."""
-    src = Path(src_dir) / DB_NAME
-    if not src.is_file():
-        raise WhatsAppError(f"no {DB_NAME} in {src_dir}")
-    tmp_dir = Path(tmp_dir)
-    tmp_dir.mkdir(parents=True, exist_ok=True)
-    os.chmod(tmp_dir, 0o700)
-    last = ""
-    for n in range(attempts):
-        dest = tmp_dir / f"copy{n}"
-        dest.mkdir(mode=0o700)
-        for suffix in ("", "-wal", "-shm"):
-            f = Path(src_dir) / (DB_NAME + suffix)
-            if f.exists():
-                shutil.copyfile(f, dest / f.name)
-        copy = dest / DB_NAME
-        try:
-            conn = sqlite3.connect(copy)
-            try:
-                last = conn.execute("PRAGMA quick_check").fetchone()[0]
-            finally:
-                conn.close()
-        except sqlite3.DatabaseError as exc:
-            last = str(exc)
-        if last == "ok":
-            return copy
-    raise WhatsAppError(f"copy failed quick_check {attempts} times: {last}")
+    """Copy ChatStorage.sqlite and its WAL into tmp_dir; return the checked
+    copy (core/adapters/chat.py)."""
+    return _chat.snapshot(src_dir, tmp_dir, DB_NAME, attempts, error=WhatsAppError)
 
 
 def check_schema(conn: sqlite3.Connection) -> list[str]:
