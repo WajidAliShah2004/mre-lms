@@ -1,6 +1,7 @@
 """ops/imessage.py and ops/backfill_imessage.py (R2, D-081)."""
 
 import json
+import os
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -20,8 +21,15 @@ from tests.im_fixture import IM, contacts
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ops"))
 
+# _halt binds os.killpg as a default argument, which Windows lacks; a
+# temporary stand-in lets it import there (as test_verify_kill_switch does).
+_SHIM = not hasattr(os, "killpg")
+if _SHIM:
+    os.killpg = None
 import backfill_imessage as bf      # noqa: E402
 import imessage as job              # noqa: E402
+if _SHIM:
+    del os.killpg
 
 ET = ZoneInfo("America/New_York")
 CONFIG = Path(__file__).resolve().parents[1] / "config"
