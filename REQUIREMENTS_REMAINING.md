@@ -23,7 +23,7 @@ Where the addendum and the spec disagree, the **addendum wins** (it is later). I
 | # | Item | Source | Blocked on |
 |---|---|---|---|
 | R1 | Mailbox `matthew@atlase.ai` | MTG "all my emails", SETUP | **Nov 7: its own mailbox, not an alias.** One read-only sign-in to it (`ops/authorise_gmail.py`, in a private window), then the mail job polls it |
-| R2 | iMessage / texts, read-only | MTG, SPEC Phase 10, ADD §6 | Full Disk Access; the Mac's Messages is on `mattyeps@gmail.com`, which is OpenClaw's Apple ID (D-078), so likely right; his iPhone's Send & Receive confirms it (D-068); Text Message Forwarding for SMS. Scope: **all chats, hourly** (D-065) |
+| R2 | iMessage / texts, read-only | MTG, SPEC Phase 10, ADD §6 | **Reader built Nov 7 (D-081)**, not installed: Messages on the Mac has been signed out since Oct 5 (D-068). Matthew signs it in with his iPhone's account and turns on Messages in iCloud and Text Message Forwarding; then `lms/ops/IMESSAGE_APPLY.md` (probe, 90-day backfill, hourly job). Scope: **all chats, hourly** (D-065) |
 | R3 | Call transcripts, voicemail, Google Voice, phone logs | MTG, SPEC DEC-5, ADD §6 | Matthew: where transcripts come from (C15) |
 | R4 | Photo Shortcut installed and used on his phone | MTG, SPEC Phase 5, ADD §0 | Matthew: install + first run. Apple ID is `mattyeps@gmail.com` (D-078); the Mac's iCloud must be moved to it first |
 | R5 | Google Drive, Dropbox, whole iCloud Drive, approved Mac folders — **read-only** | ADD §4, SPEC Q68 (Dropbox) | Scope = everything (D-065). Matthew: which Dropbox and Google accounts; one read-only grant each |

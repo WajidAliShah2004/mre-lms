@@ -884,6 +884,17 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 
 **302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
 
+### D-081 — iMessage and texts are read from the Mac's chat.db through a chat-day engine shared with WhatsApp
+**Status:** Decided Nov 7 2026 · designed and approved with the developer · R2, R7, R16 · spec [docs/superpowers/specs/2026-11-07-imessage-reader-design.md](docs/superpowers/specs/2026-11-07-imessage-reader-design.md) · plan [docs/superpowers/plans/2026-11-07-imessage-reader.md](docs/superpowers/plans/2026-11-07-imessage-reader.md)
+
+- **What is read.** Every iMessage, SMS and RCS text in Messages on the Mac, from a checked copy of `~/Library/Messages/chat.db` (D-009). Names come from a copy of Contacts. Nothing calls Messages; nothing is sent.
+- **One engine, two sources.** The WhatsApp pipeline became `core/pipeline/chatdays.py`, driven by a `ChatSource` settings object. WhatsApp and iMessage are two settings. The proof the refactor changed nothing is that WhatsApp's tests passed unedited. The one change for both is that a voice note of unknown length shows `[voice]`. Rejected: copying the pipeline (every fix twice), and one table for all sources (migrating a live table on the Mac).
+- **Same document as WhatsApp.** One chat, one Eastern-time day, one transcript, with photos and documents filed under it. Chats are keyed on `chat_identifier`, so one person's iMessage and SMS threads are one chat. Groups are included (D-065).
+- **The SMS line.** Each pass also records `messages:sms`. It is PARTIAL when iMessage arrives and no SMS or RCS has for 7 days, which means Text Message Forwarding is off.
+- **Stale is not quiet.** Nothing newer than 48 hours makes the pass PARTIAL with "is it signed in?". This would have caught the Oct 5 sign-out within two days.
+- **History.** The first load is 90 days (developer, Nov 7); older years can be loaded later with `--days`.
+- **Install waits on Matthew.** He signs Messages in on the Mac, turns on Messages in iCloud and turns on Text Message Forwarding (`ops/IMESSAGE_APPLY.md`). Until then `messages:imessage` and `messages:sms` stay `blocked`.
+
 ### D-080 — Chat control from WhatsApp and Telegram: fixed commands, run by code
 **Status:** Decided Nov 5 2026 · Matthew asked; designed and approved with the developer · changes D-056 · R10, R11 · spec [docs/superpowers/specs/2026-11-05-chat-control-design.md](docs/superpowers/specs/2026-11-05-chat-control-design.md)
 

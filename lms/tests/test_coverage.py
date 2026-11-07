@@ -69,6 +69,17 @@ def test_whatsapp_is_listed_with_its_reader_and_is_read_hourly():
     assert wa.status == "active" and not wa.blocked_on
 
 
+def test_imessage_and_sms_are_listed_with_their_reader_and_read_hourly():
+    reg = {s.id: s for s in coverage.load_register()}
+    im, sms = reg["messages:imessage"], reg["messages:sms"]
+    assert "chat.db" in im.method and "ops/imessage.py" in im.method
+    assert "chat.db" in sms.method
+    assert im.cadence_hours == sms.cadence_hours == 1
+    # Built, not installed: Messages on the Mac is signed out (D-068).
+    assert im.status == "blocked" and "signed out" in im.blocked_on
+    assert "Text Message Forwarding" in sms.blocked_on
+
+
 @pytest.mark.parametrize("raw,why", [
     ({"status": "pending"}, "blocked on"),
     ({"kind": "fax"}, "kind"),

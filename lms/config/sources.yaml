@@ -126,29 +126,50 @@ sources:
   - id: messages:imessage
     label: iMessage
     kind: messages
-    account: mattyeps@gmail.com, the Mac's Messages and OpenClaw's Apple ID (D-078)
-    method: read-only reads of ~/Library/Messages/chat.db on the Mac (D-009)
-    permissions: Full Disk Access for the reader, not yet granted
+    account: Matthew's Apple Account in Messages on the Mac (D-068, D-078)
+    method: >-
+      read-only copy of Messages' ~/Library/Messages/chat.db on the Mac
+      (ops/imessage.py, D-081). One transcript per chat per day, filed when
+      the day closes; documents and photos filed under it; voice messages
+      transcribed on the Mac; names from a read-only copy of Contacts
+    permissions: >-
+      Full Disk Access for Homebrew's python3.12 and Python.app (already
+      granted for WhatsApp); Messages on the Mac signed in to his account
+      with Messages in iCloud on. Nothing is written to Messages and nothing
+      is sent
     cadence_hours: 1
     status: blocked
     requirement: R2
     blocked_on: >-
-      Full Disk Access. His iPhone's iMessage is likely on mattyeps too
-      (D-078); its Send & Receive screen confirms it (D-068). Scope is all
-      chats, hourly (D-065).
-    gaps: No texts are read.
+      Messages on the Mac has been signed out since Oct 5 (D-068, Nov 7
+      probe). Matthew signs it in with the account his iPhone uses and turns
+      on Messages in iCloud; then ops/IMESSAGE_APPLY.md installs the reader.
+      Scope is all chats, hourly (D-065).
+    gaps: >-
+      Only what this Mac's Messages holds; nothing while it is signed out.
+      Videos are listed, not filed. Attachments not on the Mac are listed,
+      not filed. A message deleted after filing stays filed. The hourly job
+      reads the last 3 days; a message that reaches the Mac later is filed
+      only by a backfill run. A pass with nothing newer than 48 hours is
+      PARTIAL.
 
   - id: messages:sms
-    label: Text messages (SMS)
+    label: Text messages (SMS and RCS)
     kind: messages
     account: his iPhone, forwarded to the Mac
-    method: the same chat.db, once Text Message Forwarding is on
-    permissions: Text Message Forwarding on the iPhone; Full Disk Access
+    method: >-
+      the same chat.db and the same reader as iMessage (D-081), once Text
+      Message Forwarding is on; each iMessage pass records this line too
+    permissions: Text Message Forwarding on the iPhone for this Mac
     cadence_hours: 1
     status: blocked
     requirement: R2
-    blocked_on: D-068, and Matthew turning on Text Message Forwarding.
-    gaps: No SMS is read.
+    blocked_on: >-
+      The iMessage reader's install (messages:imessage), and Matthew turning
+      on Text Message Forwarding for the Mac Studio.
+    gaps: >-
+      SMS and RCS only while Text Message Forwarding is on: a pass where
+      iMessage arrives and no SMS or RCS has for 7 days is PARTIAL.
 
   - id: calls:google-voice
     label: Google Voice, voicemail, call transcripts
