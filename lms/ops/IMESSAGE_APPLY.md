@@ -84,8 +84,8 @@ tail -3 ~/LMS/logs/imessage.log
 ```
 
 The last line is a summary such as `41 message(s) seen, 3 chat day(s)
-filed, 0 alert(s)`. A `PermissionError` in `~/LMS/logs/imessage.err` means
-Full Disk Access is not effective for the job: redo `WHATSAPP_APPLY.md`
+filed, 0 alert(s)`. A last line of `~/LMS/logs/imessage.log` starting
+`PermissionError:` means Full Disk Access is not effective for the job: redo `WHATSAPP_APPLY.md`
 step 3 (a Homebrew Python update needs it again), then kickstart again.
 
 ## 7. Mark it active
