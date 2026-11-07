@@ -152,6 +152,12 @@ Automation permissions. Re-grant them, or the iMessage bridge and the watched
 folder stop working — silently, because a permission denial looks like an
 empty folder.
 
+**Homebrew Python updates too:** the WhatsApp job's Full Disk Access is held
+by Homebrew's `python3.12`, whose path carries the patch version
+(`.../Cellar/python@3.12/3.12.13_4/...`). After a `brew upgrade` that moves
+it, `~/LMS/logs/whatsapp.log` shows `PermissionError`: redo step 3 of
+`ops/WHATSAPP_APPLY.md`.
+
 ---
 
 # 4. Credential rotation

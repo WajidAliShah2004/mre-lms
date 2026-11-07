@@ -5,9 +5,8 @@ app's database, checks today's new messages for anything urgent (Telegram
 alert, D-077), and files each finished day of each chat as one transcript.
 It never writes to WhatsApp and never sends.
 
-Steps 1–4 were done on the Mac on Nov 6 (installed, linked, Full Disk Access,
-probe passed, auto-download on), so start at step 5. They stay here for a
-rebuild.
+Installed on the Mac on Nov 7: all steps done, and the first hourly pass
+read 158 messages and filed 11 chat days. The steps stay here for a rebuild.
 
 About 40 minutes. **Step 2 needs Matthew's phone, once.**
 
@@ -29,9 +28,33 @@ the QR code on the Mac. Let the Mac app finish syncing (the chat list fills).
 
 ## 3. Full Disk Access
 
-System Settings → Privacy & Security → Full Disk Access → `+`, press
-Cmd-Shift-G, paste `/Users/mleca/lms-repo/lms/.venv/bin/python`, Open, turn
-it on.
+The hourly job needs it for the two programs the venv's `python` actually
+runs. The venv's `.venv/bin/python` is only a link, and an entry for it does
+nothing. macOS names the one it blocks in a "Data Access Blocked" notice
+("python3.12").
+
+```bash
+cd ~/lms-repo/lms
+```
+```bash
+.venv/bin/python -c "import os,sys; print(os.path.realpath(sys.executable))"
+```
+```bash
+open -R "$(.venv/bin/python -c 'import os,sys; print(os.path.realpath(sys.executable))')"
+```
+```bash
+open -R /opt/homebrew/opt/python@3.12/Frameworks/Python.framework/Versions/3.12/Resources/Python.app
+```
+
+The first prints the `.../bin/python3.12` path (on Nov 7:
+`/opt/homebrew/Cellar/python@3.12/3.12.13_4/...`). The next two each open
+Finder with one program selected: drag **python3.12**, then **Python**, onto
+System Settings → Privacy & Security → Full Disk Access, and turn both on.
+The `+` file picker works too, but over RustDesk its Open button can ignore
+clicks; dragging does not.
+
+**After a Homebrew Python update** the `3.12.13_4` part of the path changes
+and the job fails with `PermissionError` again: repeat this step.
 
 ## 4. Probe: stop here if it fails
 
@@ -107,15 +130,14 @@ alert(s)`.
   and checks two days of chats with the model. Wait about 15 minutes before
   the `tail`; until the pass ends the log can be empty.
 - **`PermissionError` (or `no ChatStorage.sqlite`) in the log** means the
-  job's Python lacks Full Disk Access: redo step 3 for exactly
-  `/Users/mleca/lms-repo/lms/.venv/bin/python`. The probe in step 4 can pass
-  anyway, because Terminal's own Full Disk Access lets it through.
+  job's Python lacks Full Disk Access: redo step 3, then
+  `launchctl kickstart -k gui/$(id -u)/com.lms.whatsapp` to run it at once.
+  The probe, dry run and backfill pass anyway, because Terminal's own Full
+  Disk Access lets them through. Old error lines stay in the log; only the
+  last line is this run's.
 - **A few alerts are expected now.** Urgent chat days from the last 2 days
   alert once, from the first pass and from the backfill (the day before
   yesterday is still fresh for alerts). Days older than 2 days raise none.
-
-Then in `config/sources.yaml` set `chat:whatsapp` to `status: active` and
-remove its `blocked_on` (the developer commits that).
 
 ## Older files
 

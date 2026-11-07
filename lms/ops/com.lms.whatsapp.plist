@@ -8,8 +8,10 @@
 
   StartInterval: a pass missed while the Mac slept is made up by the next
   one, which reads the last three days. A LaunchAgent, because the WhatsApp
-  container is in Matthew's user Library (D-009). The interpreter below needs
-  Full Disk Access. A halt (D-059) disables this job with the rest.
+  container is in Matthew's user Library (D-009). The interpreter below is a
+  link: Full Disk Access goes to the Homebrew python3.12 and Python.app it
+  runs (WHATSAPP_APPLY.md step 3). A halt (D-059) disables this job with the
+  rest.
 -->
 <plist version="1.0">
 <dict>

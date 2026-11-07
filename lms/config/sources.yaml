@@ -186,22 +186,19 @@ sources:
       transcribed on the Mac. Unofficial: a WhatsApp update can change it,
       and the pass then fails loudly
     permissions: >-
-      Full Disk Access for the LMS Python; the WhatsApp Mac app linked to his
-      phone. Nothing is written to WhatsApp and nothing is sent
+      Full Disk Access for Homebrew's python3.12 and Python.app (the programs
+      the venv runs; ops/WHATSAPP_APPLY.md step 3); the WhatsApp Mac app
+      linked to his phone. Nothing is written to WhatsApp and nothing is sent
     cadence_hours: 1
-    status: blocked
+    status: active
     requirement: R40
-    blocked_on: >-
-      Install com.lms.whatsapp per ops/WHATSAPP_APPLY.md steps 5-7 (speech
-      model, WhatsApp in Login Items, dry run, backfill, job). The Mac app
-      is linked and the probe passed (Nov 6).
     gaps: >-
       Only the history the Mac app synced when linked. Videos are listed, not
       filed. Files the Mac app never downloaded are listed, not filed. The
       history's media was never downloaded to the Mac (auto-download covers
-      new media only), so older documents are listed, not filed, unless
-      Matthew opens those chats in the Mac app before the backfill or
-      exports them. A message
+      new media only), so the 30 days backfilled on Nov 7 list older files
+      without filing them; Matthew can export those chats from his phone
+      into the watch folder. A message
       deleted in WhatsApp after filing stays filed. Reads only while the Mac
       app runs and syncs (a pass with nothing newer than 48 hours is
       PARTIAL). The hourly job reads only messages sent in the last 3 days,

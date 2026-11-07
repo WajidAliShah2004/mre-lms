@@ -62,11 +62,11 @@ def test_every_mailbox_the_registry_routes_on_is_registered():
             assert f"email:{e.lower()}" in ids, f"{e} is not in config/sources.yaml"
 
 
-def test_whatsapp_is_listed_with_its_reader_and_what_it_waits_on():
+def test_whatsapp_is_listed_with_its_reader_and_is_read_hourly():
     wa = next(s for s in coverage.load_register() if s.id == "chat:whatsapp")
     assert "ChatStorage.sqlite" in wa.method
     assert wa.cadence_hours == 1
-    assert wa.status == "blocked" and "WHATSAPP_APPLY" in wa.blocked_on
+    assert wa.status == "active" and not wa.blocked_on
 
 
 @pytest.mark.parametrize("raw,why", [
