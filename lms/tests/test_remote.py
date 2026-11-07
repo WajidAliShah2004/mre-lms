@@ -114,7 +114,7 @@ def test_anything_else_gets_the_help_list(env, words):
 def test_help_lists_every_command_and_no_resume(env):
     text = remote.handle(["help"], "telegram", TG, env)
     for name in ("status", "brief", "tasks", "coverage", "mail", "whatsapp",
-                 "backup", "done", "approve", "deny", "halt"):
+                 "imessage", "backup", "done", "approve", "deny", "halt"):
         assert f"/lms {name}" in text
     assert "resume" in text.lower() and "at the Mac" in text
 
@@ -213,6 +213,7 @@ def test_a_crash_is_logged_not_shown(env):
 
 @pytest.mark.parametrize("name,label", [("mail", "com.lms.mail"),
                                         ("whatsapp", "com.lms.whatsapp"),
+                                        ("imessage", "com.lms.imessage"),
                                         ("backup", "com.lms.backup")])
 def test_run_now_kickstarts_the_existing_job(env, name, label):
     text = remote.handle([name], "telegram", TG, env)
@@ -373,3 +374,11 @@ def test_an_approval_error_is_shown(env):
     approval(env, hours=-1)
     text = remote.handle(["approve", "7", "yes"], "telegram", TG, env)
     assert "expired" in text
+
+
+def test_status_shows_the_last_good_imessage_check(env):
+    c = db.connect(env.dbfile)
+    c.execute("INSERT INTO source_checks (source_id, finished_at, result)"
+              " VALUES ('messages:imessage', '2026-11-07T09:00:00', 'OK')")
+    c.close()
+    assert "last good imessage: 2026-11-07T09:00" in         remote.handle(["status"], "telegram", TG, env)

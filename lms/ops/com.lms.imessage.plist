@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  iMessage and texts, hourly. R2, D-081. ops/imessage.py says what one pass does.
+
+  Install (ops/IMESSAGE_APPLY.md):
+    cp ops/com.lms.imessage.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.lms.imessage.plist
+
+  StartInterval: a pass missed while the Mac slept is made up by the next
+  one, which reads the last three days. A LaunchAgent, because chat.db is in
+  Matthew's user Library (D-009). The interpreter below is a link: Full Disk
+  Access goes to the Homebrew python3.12 and Python.app it runs, the same
+  grant WhatsApp uses (WHATSAPP_APPLY.md step 3). A halt (D-059) disables
+  this job with the rest.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.lms.imessage</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/mleca/lms-repo/lms/.venv/bin/python</string>
+        <string>/Users/mleca/lms-repo/lms/ops/imessage.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/mleca/lms-repo/lms</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>TZ</key>
+        <string>America/New_York</string>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <key>StartInterval</key>
+    <integer>3600</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/mleca/LMS/logs/imessage.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/mleca/LMS/logs/imessage.err</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>Nice</key>
+    <integer>10</integer>
+</dict>
+</plist>

@@ -9,7 +9,7 @@ Matthew, so a stranger gets no answer at all.
 
 Code carries out every command; the model never chooses one (D-056 still
 holds: lms-orchestrator has no tools). The list is fixed: help status brief
-tasks coverage mail whatsapp backup done approve deny halt. There is no
+tasks coverage mail whatsapp imessage backup done approve deny halt. There is no
 resume: a stolen phone can stop the Mac and never restart it (D-059).
 """
 
@@ -47,6 +47,7 @@ HELP = """LMS commands (send in this chat):
 /lms coverage – sources that are behind
 /lms mail – read all mailboxes now
 /lms whatsapp – read WhatsApp now
+/lms imessage – read iMessage and texts now
 /lms backup – back up now
 /lms done 12 – close task 12 (shows it; add yes to close)
 /lms approve 7 · /lms deny 7 – answer approval AP-7 (add yes)
@@ -114,9 +115,11 @@ def _last_good_checks(env) -> list[str]:
         try:
             rows = conn.execute(
                 "SELECT CASE WHEN source_id LIKE 'email:%' THEN 'mail' "
-                "ELSE 'whatsapp' END AS k, MAX(finished_at) FROM source_checks "
+                "WHEN source_id = 'chat:whatsapp' THEN 'whatsapp' "
+                "ELSE 'imessage' END AS k, MAX(finished_at) FROM source_checks "
                 "WHERE result = 'OK' AND (source_id LIKE 'email:%' "
-                "OR source_id = 'chat:whatsapp') GROUP BY k ORDER BY k").fetchall()
+                "OR source_id IN ('chat:whatsapp', 'messages:imessage')) "
+                "GROUP BY k ORDER BY k").fetchall()
         finally:
             conn.close()
     except (Exception, SystemExit):                          # noqa: BLE001
@@ -167,7 +170,7 @@ def cmd_coverage(env, conn, args, channel):
 
 
 JOBS = {"mail": "com.lms.mail", "whatsapp": "com.lms.whatsapp",
-        "backup": "com.lms.backup"}
+        "imessage": "com.lms.imessage", "backup": "com.lms.backup"}
 
 
 def _halted_reply(flag: dict) -> str:
@@ -268,13 +271,14 @@ COMMANDS: dict[str, Callable] = {
     "coverage": cmd_coverage,
     "mail": cmd_run_now("mail"),
     "whatsapp": cmd_run_now("whatsapp"),
+    "imessage": cmd_run_now("imessage"),
     "backup": cmd_run_now("backup"),
     "halt": cmd_halt,
     "done": cmd_done,
     "approve": cmd_answer("approve"),
     "deny": cmd_answer("deny"),
 }
-NO_ARGS = {"help", "status", "brief", "coverage", "mail", "whatsapp", "backup", "halt"}
+NO_ARGS = {"help", "status", "brief", "coverage", "mail", "whatsapp", "imessage", "backup", "halt"}
 TWO_STEP = {"done", "approve", "deny"}
 CHANGES = {"done", "approve", "deny", "halt"}
 NEEDS_DB = {"brief", "tasks", "coverage", "done", "approve", "deny"}
