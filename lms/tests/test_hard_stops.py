@@ -266,15 +266,16 @@ EXEMPT = {
         "leaving it to be rescanned forever, which grows the scan cost without "
         "bound and re-OCRs the same document nightly."
     ),
-    ("pipeline/whatsapp.py", "shutil.rmtree"): (
+    ("pipeline/chatdays.py", "shutil.rmtree"): (
         "run_pass removes only its own scratch directory: the exact path "
         "tempfile.mkdtemp returned under tmp_root in the same call. That "
-        "directory holds copies only: the database snapshot, the voice and "
+        "directory holds copies only: the database snapshot (WhatsApp's "
+        "ChatStorage.sqlite, Messages' chat.db, Contacts), the voice and "
         "media copies, and transcript files whose originals filing already "
         "moved into the archive or _originals. It never touches the archive, "
-        "_originals, or the WhatsApp container, which is read-only by "
-        "construction (D-079). Leaving it would grow disk use every hour and "
-        "keep plaintext copies of messages on disk."
+        "_originals, the WhatsApp container or ~/Library/Messages, which are "
+        "read-only by construction (D-079, D-081). Leaving it would grow disk "
+        "use every hour and keep plaintext copies of messages on disk."
     ),
 }
 

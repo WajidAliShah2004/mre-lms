@@ -542,3 +542,22 @@ CREATE TABLE IF NOT EXISTS whatsapp_messages (
 
 CREATE INDEX IF NOT EXISTS idx_whatsapp_unfiled
     ON whatsapp_messages(chat_jid, day) WHERE artifact_id IS NULL;
+
+-- ---------------------------------------------------------------------------
+-- imessage_messages — what the iMessage reader has seen (R2, D-081). The same
+-- columns as whatsapp_messages, so the chat-day engine's SQL is the same.
+-- stanza_id is Messages' own message.guid (a second attachment of one message
+-- is "<guid>#1"); chat_jid is chat.chat_identifier, which one person's
+-- iMessage and SMS threads share. No message text is kept here.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS imessage_messages (
+    stanza_id       TEXT    PRIMARY KEY,
+    chat_jid        TEXT    NOT NULL,
+    day             TEXT    NOT NULL,          -- YYYY-MM-DD, America/New_York
+    scanned_at      TEXT,                      -- hourly urgency check done
+    artifact_id     INTEGER REFERENCES artifacts(id),   -- transcript it is filed in
+    voice_text      TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_imessage_unfiled
+    ON imessage_messages(chat_jid, day) WHERE artifact_id IS NULL;
