@@ -54,6 +54,7 @@ class ReadResult:
     chats: list[Chat]
     newest: datetime | None                 # the latest message in the copy
     by_service: dict[str, datetime] = field(default_factory=dict)  # iMessage only
+    problems: tuple[str, ...] = ()          # what the read could not do
 
 
 @dataclass(frozen=True)
@@ -173,13 +174,14 @@ class PassResult:
     stale_since: datetime | None = None     # newest message, when too old
     by_service: dict[str, datetime] = field(default_factory=dict)
     error: str | None = None
+    problems: list[str] = field(default_factory=list)
 
     @property
     def result(self) -> str:
         if self.error:
             return "FAILED"
         if (self.failed or self.voice_missing or self.media_missing
-                or self.stale_since):
+                or self.stale_since or self.problems):
             return "PARTIAL"
         return "OK"
 
@@ -197,6 +199,8 @@ class PassResult:
         if self.stale_since:
             s += ", " + self.source.not_synced.format(
                 since=f"{self.stale_since.astimezone(TZ):%Y-%m-%d %H:%M}")
+        if self.problems:
+            s += ", " + "; ".join(self.problems)
         return s
 
 
@@ -463,6 +467,7 @@ def run_pass(src: ChatSource, conn: sqlite3.Connection, roots, registry,
         chats = got.chats
         result.messages = sum(len(c.messages) for c in chats)
         result.by_service = dict(got.by_service)
+        result.problems = list(got.problems)
         if got.newest is not None and now - got.newest > STALE_AFTER:
             # Not a quiet two days: the app is closed, signed out or not syncing.
             result.stale_since = got.newest

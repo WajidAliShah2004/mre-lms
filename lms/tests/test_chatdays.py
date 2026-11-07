@@ -120,6 +120,13 @@ def test_the_summary_uses_the_sources_words():
            "(is it signed in?)" in s
 
 
+def test_a_problem_makes_the_pass_partial_and_ends_the_summary():
+    r = cd.PassResult(texts_source(), problems=["x"])
+    assert r.result == "PARTIAL"
+    assert r.summary().endswith(", x")
+    assert cd.PassResult(texts_source()).result == "OK"
+
+
 def test_two_sources_with_the_same_ids_do_not_collide(conn, pipe, tmp_path):
     roots, registry, clf = pipe
     im = texts_source()

@@ -13,6 +13,7 @@ than reading nothing. `ops/imessage.py --probe` prints the real ones.
 
 from __future__ import annotations
 
+import mimetypes
 import os
 import sqlite3
 from datetime import datetime, timedelta, timezone
@@ -31,6 +32,7 @@ APPLE_EPOCH = datetime(2001, 1, 1, tzinfo=timezone.utc)
 SECONDS_LIMIT = 10**11          # a date under this is seconds (old rows), not ns
 ME = "Matthew"
 UNREADABLE = "[message not readable]"
+PLUGIN_SUFFIX = ".pluginpayloadattachment"     # a link preview, not a file
 
 REQUIRED: dict[str, set[str]] = {
     "message": {"ROWID", "guid", "text", "attributedBody", "date", "is_from_me",
@@ -130,16 +132,20 @@ def _person(first: str | None, last: str | None, org: str | None) -> str | None:
     return " ".join(p for p in (first, last) if p) or org or None
 
 
+def contact_databases(root: Path) -> list[Path]:
+    """Every Contacts database under root, sorted; [] if root cannot be read."""
+    try:
+        return sorted(Path(root).glob(f"**/{CONTACTS_DB}"))
+    except OSError:
+        return []
+
+
 def contact_names(root: Path, tmp: Path) -> dict[str, str]:
     """Phone key and case-folded email -> name, from a copy of every Contacts
     database under root. A database that cannot be read is skipped: names
     then fall back to numbers, which is not a failure of the pass."""
     names: dict[str, str] = {}
-    try:
-        found = sorted(Path(root).glob(f"**/{CONTACTS_DB}"))
-    except OSError:
-        return names
-    for n, path in enumerate(found):
+    for n, path in enumerate(contact_databases(root)):
         try:
             copy = _chat.snapshot(path.parent, Path(tmp) / f"contacts{n}",
                                   CONTACTS_DB, error=IMessageError)
@@ -207,6 +213,10 @@ def kind_of(mime: str | None, is_audio: bool) -> str:
     return "other"
 
 
+def is_link_preview(transfer: str | None, filename: str | None) -> bool:
+    return any((n or "").lower().endswith(PLUGIN_SUFFIX) for n in (transfer, filename))
+
+
 def _local(filename: str | None) -> Path | None:
     if not filename:
         return None
@@ -216,7 +226,7 @@ def _local(filename: str | None) -> Path | None:
 
 def _clean(text: str | None) -> str | None:
     """Without the U+FFFC placeholders Messages puts where attachments go."""
-    return (text or "").replace("￼", "").strip() or None
+    return (text or "").replace("\ufffc", "").strip() or None
 
 
 def _text(text: str | None, blob: bytes | None) -> tuple[str | None, bool]:
@@ -236,7 +246,7 @@ def _new_chat(ident: str, style: int | None, display: str | None,
     if style == GROUP_STYLE:
         if display:
             return Chat(ident, display, True)
-        who = [name_for(names, h) for h in handles[:3]]
+        who = [name_for(names, h) for h in list(dict.fromkeys(handles))[:3]]
         return Chat(ident, "Group with " + ", ".join(who) if who else "Group chat",
                     True)
     return Chat(ident, name_for(names, ident), False)
@@ -259,6 +269,7 @@ def _messages(guid: str, m: dict, chat: Chat,
                         text if text is not None else UNREADABLE, "text", None)]
     out = []
     for n, (filename, mime, transfer, size) in enumerate(m["atts"].values()):
+        mime = mime or mimetypes.guess_type(transfer or filename or "")[0]
         kind = kind_of(mime, m["audio"])
         body = (text if text is not None else (UNREADABLE if unreadable else None)
                 ) if n == 0 else None
@@ -287,7 +298,7 @@ def read(conn: sqlite3.Connection, since: datetime,
                 "text": text, "blob": blob, "date": date,
                 "from_me": bool(from_me), "audio": bool(audio), "handle": handle,
                 "style": style, "display": display, "atts": {}}
-        if att_id is not None:
+        if att_id is not None and not is_link_preview(transfer, filename):
             m["atts"].setdefault(att_id, (filename, mime, transfer, size))
     members: dict[str, list[str]] = {}
     for ident, handle in conn.execute(_MEMBERS, (GROUP_STYLE,)):
@@ -334,6 +345,9 @@ def probe(conn: sqlite3.Connection) -> dict:
         major = (mime or "(none)").split("/")[0]
         types[major] = types.get(major, 0) + 1
     out["attachment_types"] = types
+    out["plugin_payloads"] = sum(
+        1 for t, f in conn.execute("SELECT transfer_name, filename FROM attachment")
+        if is_link_preview(t, f))
     out["reactions"] = conn.execute(
         "SELECT COUNT(*) FROM message WHERE COALESCE(associated_message_type, 0) != 0"
     ).fetchone()[0]

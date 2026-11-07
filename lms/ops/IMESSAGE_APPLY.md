@@ -36,7 +36,9 @@ cd ~/lms-repo && git pull && cd lms
 ```
 
 The probe prints counts and dates only, never a message, number or name.
-Check:
+Run it twice, some minutes apart, and continue only when the `message: N`
+count has stopped growing: while it grows, Messages in iCloud is still
+bringing back Oct 5 to now. Check:
 - no `MISSING:` line;
 - `newest:` shows iMessage today or yesterday. If not, Messages is still not
   syncing: stop and go back to step 1;
@@ -85,10 +87,21 @@ tail -3 ~/LMS/logs/imessage.log
 
 The last line is a summary such as `41 message(s) seen, 3 chat day(s)
 filed, 0 alert(s)`. A last line of `~/LMS/logs/imessage.log` starting
-`PermissionError:` means Full Disk Access is not effective for the job: redo `WHATSAPP_APPLY.md`
-step 3 (a Homebrew Python update needs it again), then kickstart again.
+`PermissionError:` (or `IMessageError: no chat.db in …`, which is what
+macOS privacy blocking can also look like) means Full Disk Access is not
+effective for the job: redo `WHATSAPP_APPLY.md` step 3 (a Homebrew Python update needs it again), then kickstart again.
 
-## 7. Mark it active
+## 7. Re-run the backfill a day or two later
+
+```bash
+./ops/backfill_imessage.py --days 40
+```
+
+The hourly job reads only the last 3 days, so texts that Messages in iCloud
+syncs late would otherwise stay unfiled. This is safe to repeat: days already
+filed are skipped, and texts that synced late are filed as part 2 of their day.
+
+## 8. Mark it active
 
 Tell the developer. They set `messages:imessage` to `active` in
 `config/sources.yaml`, and `messages:sms` too once a text has arrived.
@@ -99,7 +112,8 @@ Tell the developer. They set `messages:imessage` to `active` in
   or the brief: Messages is signed out or closed. Step 1.
 - The brief's coverage section says `no SMS or RCS since … while iMessage
   arrives`: Text Message Forwarding is off. Step 2.
-- `FAILED … schema changed, missing: …`: a macOS update changed Messages'
+- `IMessageError: schema changed, missing: …` in the log (the brief shows it
+  as FAILED): a macOS update changed Messages'
   database. The pass fails loudly rather than reading nothing; run
   `--probe` and send the developer its output.
 - `/lms imessage` in WhatsApp or Telegram runs one pass now.

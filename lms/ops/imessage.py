@@ -59,7 +59,8 @@ def do_probe(src_dir: Path) -> int:
         print("messages by service: " + _tally(p["services"]))
         print("chats by style: " + ", ".join(f"{s}={n}" for s, n in p["styles"].items())
               + f"; the reader takes {im.GROUP_STYLE} as group")
-        print("attachments by type: " + _tally(p["attachment_types"]))
+        print("attachments by type: " + _tally(p["attachment_types"])
+              + f"; link previews (skipped): {p['plugin_payloads']}")
         print(f"skipped: {p['reactions']} reactions, {p['system']} system rows")
         need, decoded = p["attributed"]
         print(f"text only in attributedBody: {need}, decoded {decoded}")

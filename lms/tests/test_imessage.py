@@ -109,6 +109,22 @@ def test_a_whole_pass_files_the_day_under_imessage(conn, pipe, tmp_path, monkeyp
     assert list((tmp_path / "tmp").iterdir()) == [], "the copy was left behind"
 
 
+def test_contacts_that_cannot_be_read_make_the_pass_partial(conn, pipe, tmp_path,
+                                                            monkeypatch):
+    roots, registry, clf = pipe
+    bad = tmp_path / "ab" / "Sources" / "X"
+    bad.mkdir(parents=True)
+    (bad / "AddressBook-v22.abcddb").write_bytes(b"not a database" * 50)
+    monkeypatch.setattr(im, "CONTACTS_ROOT", tmp_path / "ab")
+    now = datetime.now(ET)
+    src = build(tmp_path, (now - timedelta(days=1)).replace(hour=9, minute=0))
+    r = i.run_pass(conn, roots, registry, clf, src_dir=src, tmp_root=tmp_path / "tmp",
+                   now=now.replace(hour=1, minute=0), transcriber=no_speech)
+    assert r.error is None and r.result == "PARTIAL"
+    assert "names from Contacts unavailable" in r.summary()
+    assert checks(conn)["messages:imessage"] == "PARTIAL"
+
+
 def test_messages_signed_out_is_partial_with_the_sign_in_hint(conn, pipe, tmp_path):
     roots, registry, clf = pipe
     src = build(tmp_path, datetime(2026, 10, 5, 9, tzinfo=ET))

@@ -44,8 +44,11 @@ def _read(src_dir: Path, tmp: Path, since: datetime) -> cd.ReadResult:
         missing = im.check_schema(rconn)
         if missing:
             raise im.IMessageError("schema changed, missing: " + ", ".join(missing))
+        problems = ()
+        if not names and im.contact_databases(im.CONTACTS_ROOT):
+            problems = ("names from Contacts unavailable (Contacts could not be read)",)
         return cd.ReadResult(im.read(rconn, since, names), im.newest(rconn),
-                             im.newest_by_service(rconn))
+                             im.newest_by_service(rconn), problems)
     finally:
         rconn.close()
 

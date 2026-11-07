@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from core.adapters import imessage as im
-from tests.im_fixture import IM, PREFIX, attributed, contacts
+from tests.im_fixture import CONTACTS_SCHEMA, IM, PREFIX, attributed, contacts
 
 UTC = timezone.utc
 SINCE = datetime(2026, 11, 1, tzinfo=UTC)
@@ -86,6 +86,21 @@ def test_unreadable_or_missing_contacts_fall_back_to_numbers(tmp_path):
     assert im.contact_names(tmp_path / "nowhere", tmp_path / "tmp") == {}
 
 
+def test_contacts_in_the_root_and_under_sources_are_both_read(tmp_path):
+    root = contacts(tmp_path / "ab", {"first": "Rhonda", "phones": ["555-010-0100"]})
+    c = sqlite3.connect(root / "AddressBook-v22.abcddb")
+    c.executescript(CONTACTS_SCHEMA)
+    pk = c.execute("INSERT INTO ZABCDRECORD (ZFIRSTNAME) VALUES ('Dee')").lastrowid
+    c.execute("INSERT INTO ZABCDPHONENUMBER (ZOWNER, ZFULLNUMBER) VALUES (?, ?)",
+              (pk, "555-010-0300"))
+    c.commit()
+    c.close()
+    names = im.contact_names(root, tmp_path / "tmp")
+    assert im.name_for(names, "+15550100100") == "Rhonda"
+    assert im.name_for(names, "+15550100300") == "Dee"
+    assert len(im.contact_databases(root)) == 2
+
+
 # --- chats and messages --------------------------------------------------------
 
 def read(box, names=None, since=SINCE):
@@ -158,12 +173,12 @@ def test_attachments_each_become_a_line_of_their_kind(box):
     c = box.chat("+15550100100")
     img = box.attachment("IMG_1.HEIC", mime="image/heic")
     pdf = box.attachment("INV-2291.pdf", mime="application/pdf", content=b"%PDF")
-    box.message(c, T, "￼￼Here you go", handle=h, guid="m",
+    box.message(c, T, "\ufffc\ufffcHere you go", handle=h, guid="m",
                 attachments=(img, pdf))
     vid = box.attachment("clip.mov", mime="video/quicktime")
     voice = box.attachment("Audio Message.caf", mime="audio/x-caf")
     gone = box.attachment("scan.pdf", mime="application/pdf", on_disk=False)
-    odd = box.attachment("card.vcf", mime=None)
+    odd = box.attachment("card.xyz", mime=None)
     box.message(c, T, None, handle=h, guid="v", attachments=(vid,))
     box.message(c, T, None, handle=h, guid="a", audio=True, attachments=(voice,))
     box.message(c, T, None, handle=h, guid="g", attachments=(gone,))
@@ -172,11 +187,54 @@ def test_attachments_each_become_a_line_of_their_kind(box):
     assert [(m.stanza_id, m.kind, m.text) for m in msgs] == [
         ("m", "image", "Here you go"), ("m#1", "document", None),
         ("v", "video", None), ("a", "voice", None), ("g", "document", None),
-        ("o", "other", "[file: card.vcf]")]
+        ("o", "other", "[file: card.xyz]")]
     assert msgs[1].media.local_path.read_bytes() == b"%PDF"
     assert msgs[1].media.title == "INV-2291.pdf"
     assert msgs[4].media.local_path is None and msgs[4].media.title == "scan.pdf"
     assert all(m.media.duration_s is None for m in msgs)
+
+
+def test_a_message_with_link_previews_is_one_text_line(box):
+    h = box.handle("+15550100100")
+    c = box.chat("+15550100100")
+    p1 = box.attachment("7F3A-1.pluginPayloadAttachment", mime=None)
+    p2 = box.attachment("7F3A-2.PLUGINPAYLOADATTACHMENT", mime=None)
+    box.message(c, T, "see https://example.com/x", handle=h, guid="l",
+                attachments=(p1, p2))
+    real = box.attachment("scan.pdf", mime=None, content=b"%PDF")
+    jpg = box.attachment("IMG_1.jpg", mime="")
+    pv = box.attachment("9-1.pluginPayloadAttachment", mime=None)
+    box.message(c, T, None, handle=h, guid="n", attachments=(pv, real, jpg))
+    msgs = read(box)[0].messages
+    assert [(m.stanza_id, m.kind, m.text) for m in msgs] == [
+        ("l", "text", "see https://example.com/x"),
+        ("n", "document", None), ("n#1", "image", None)]
+    assert "[file:" not in repr(msgs)
+
+
+def test_the_probe_counts_link_previews_only(box):
+    box.attachment("secret-1.pluginPayloadAttachment", mime=None)
+    box.attachment("a.pdf", mime="application/pdf")
+    p = im.probe(box.conn)
+    assert p["plugin_payloads"] == 1
+    assert "secret" not in repr(p)
+
+
+def test_a_group_with_two_rows_and_the_same_members_names_each_once(box):
+    hs = [box.handle(x) for x in ("+15550100100", "+15550100200",
+                                  "+15550100300", "+15550100400")]
+    c1 = box.chat("chat777", group=True, members=hs[:3])
+    c2 = box.chat("chat777", group=True, members=hs[:3], service="SMS")
+    box.message(c1, T, "hi", handle=hs[0])
+    box.message(c2, T, "hello", handle=hs[1])
+    [chat] = read(box)
+    assert chat.name == "Group with +15550100100, +15550100200, +15550100300"
+
+
+def test_no_invisible_object_character_is_left_in_the_source():
+    from pathlib import Path
+    for f in (im.__file__, __file__):
+        assert "\ufffc" not in Path(f).read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize("mime,audio,kind", [
