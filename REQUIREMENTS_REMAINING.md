@@ -22,7 +22,7 @@ Where the addendum and the spec disagree, the **addendum wins** (it is later). I
 ### Intake
 | # | Item | Source | Blocked on |
 |---|---|---|---|
-| R1 | 5th mailbox `matthew@atlase.ai` (separate mailbox or alias?) | MTG "all my emails", SETUP | Matthew: which it is |
+| R1 | Mailbox `matthew@atlase.ai` | MTG "all my emails", SETUP | **Nov 7: its own mailbox, not an alias.** One read-only sign-in to it (`ops/authorise_gmail.py`, in a private window), then the mail job polls it |
 | R2 | iMessage / texts, read-only | MTG, SPEC Phase 10, ADD §6 | Full Disk Access; the Mac's Messages is on `mattyeps@gmail.com`, which is OpenClaw's Apple ID (D-078), so likely right; his iPhone's Send & Receive confirms it (D-068); Text Message Forwarding for SMS. Scope: **all chats, hourly** (D-065) |
 | R3 | Call transcripts, voicemail, Google Voice, phone logs | MTG, SPEC DEC-5, ADD §6 | Matthew: where transcripts come from (C15) |
 | R4 | Photo Shortcut installed and used on his phone | MTG, SPEC Phase 5, ADD §0 | Matthew: install + first run. Apple ID is `mattyeps@gmail.com` (D-078); the Mac's iCloud must be moved to it first |
@@ -31,7 +31,7 @@ Where the addendum and the spec disagree, the **addendum wins** (it is later). I
 | R7 | ~~Coverage register: every source, its method, permissions, last checkpoint, gaps (WhatsApp listed as "no supported path")~~ **Built Nov 3 (D-069)**: `config/sources.yaml` (18 sources), `source_checks`, `ops/coverage.py`; mail records every pass. Shown in the brief since the merge (D-072) | ADD §4, §6 | — |
 | R8 | Strict read-only mode for every new source (no move, no rename) | ADD §0 | — |
 | R39 | Poll `mreconsultinginsurance@gmail.com` (business mail goes there) | Matthew, Oct 19 (D-065) | **Done Nov 5.** Routed to B_MRE (MRE Consulting & Insurance LLC); signed in through the External app, `--check` works, 21-day backfill filed 130 of 131 listed messages. The twice-daily mail job now polls it |
-| R40 | WhatsApp, hourly, read-only | Matthew, Oct 19 (D-065) | **Built (D-079)**: the Mac app's database, read from a copy; install per [lms/ops/WHATSAPP_APPLY.md](lms/ops/WHATSAPP_APPLY.md). Mac app linked and probed Nov 6; install steps 5-6 remain |
+| R40 | WhatsApp, hourly, read-only | Matthew, Oct 19 (D-065) | **Done Nov 7 (D-079)**: the Mac app's database, read from a copy, hourly ([lms/ops/WHATSAPP_APPLY.md](lms/ops/WHATSAPP_APPLY.md)); 30 days backfilled; first pass read 158 messages, filed 11 chat days |
 
 ### Email hygiene
 | # | Item | Source |

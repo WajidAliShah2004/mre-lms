@@ -101,8 +101,9 @@ sources:
     status: pending
     requirement: R1
     blocked_on: >-
-      Matthew: is it its own mailbox or an alias of mre@atlase.ai? If its own,
-      one sign-in in a private window (the Oct 6 attempt signed in as mre@).
+      Its own mailbox, not an alias (developer, Nov 7). One sign-in to it
+      through ops/authorise_gmail.py in a private window (the Oct 6 attempt
+      signed in as mre@), then the mail job polls it.
     gaps: Nothing sent only to this address is read.
 
   - id: email:mreconsultinginsurance@gmail.com

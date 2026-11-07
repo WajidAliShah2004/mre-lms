@@ -1724,6 +1724,8 @@ Do not sign Messages in or out without his answer: signing out of iMessage on th
 > **Answer (record here):**
 > **Date:**
 
+**Nov 7 2026 (probe from Terminal, counts and dates only):** the Mac's `chat.db` holds 238,307 messages from Oct 2014 (iMessage 209,641, SMS 25,089, RCS 3,577), about half his: this is his real history, so the Mac's Messages has been on his iMessage account. But **nothing has arrived since Oct 5** (2 messages typed on the Mac on Nov 4 aside), and Messages on the Mac shows "Sign in to iMessage": it has been **signed out since Oct 5**, the day before the Oct 6 terminal session that read the account database. Still open: which account his iPhone's Send & Receive shows, and Matthew signing the Mac in himself (Messages in iCloud on, Text Message Forwarding to this Mac). The R2 reader is designed in [docs/superpowers/specs/2026-11-07-imessage-reader-design.md](docs/superpowers/specs/2026-11-07-imessage-reader-design.md); its install waits on this.
+
 ### D-008 — Credential and MFA posture
 **Status:** OPEN · blocks Day 3 · client item **C9**
 The Aug 5 meeting agreed to shared email passwords with 2FA disabled. Written recommendation to the contrary sent as [client/CREDENTIALS_RECOMMENDATION.md](client/CREDENTIALS_RECOMMENDATION.md): keep 2FA on, use Google app passwords or an internal Workspace OAuth app.
