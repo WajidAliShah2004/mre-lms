@@ -154,3 +154,33 @@ def test_archive_roots_where_only_one_exists_still_list(tmp_path):
              ic.Root("iCloudDrive-iCloudDrive (7-30-26 5.55 PM)", tmp_path / "gone")]
     listing = ic.ICloudDrive("storage:archive", roots).list(None)
     assert {f.name for f in listing.files} == {"lease.pdf"}
+
+
+def test_a_package_document_is_one_entry_and_is_not_walked_into(tmp_path):
+    mobile = tree(tmp_path)
+    pkg = mobile / "com~apple~CloudDocs" / "Clients" / "Plan.pages"
+    (pkg / "Data").mkdir(parents=True)
+    (pkg / "preview.jpg").write_bytes(b"jpg")
+    (pkg / "Data" / "image.png").write_bytes(b"png")
+    listing = drive(mobile).list(None)
+    keys = {f.file_key for f in listing.files}
+    assert "iCloud Drive/Clients/Plan.pages" in keys
+    assert not [k for k in keys if "Plan.pages/" in k]
+    entry = next(f for f in listing.files if f.file_key == "iCloud Drive/Clients/Plan.pages")
+    assert (entry.name, entry.size, entry.path) == (
+        "Plan.pages", None, "iCloud Drive/Clients/Plan.pages")
+    assert entry.revision.endswith(":pkg")
+    assert not entry.is_document
+
+
+def test_a_folder_removed_mid_walk_does_not_fail_the_listing(tmp_path, monkeypatch):
+    d = drive(tree(tmp_path))
+    real_walk = os.walk
+
+    def walk(top, *a, onerror=None, **k):
+        if onerror is not None:
+            onerror(FileNotFoundError(2, "No such file", "<some path>"))
+        yield from real_walk(top, *a, onerror=onerror, **k)
+
+    monkeypatch.setattr(ic.os, "walk", walk)
+    assert d.list(None).files

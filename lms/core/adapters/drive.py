@@ -46,6 +46,8 @@ class DriveFile:
 
     @property
     def is_document(self) -> bool:
+        if self.mime and self.mime.startswith("application/vnd.google-apps.") and not self.native:
+            return False            # a shortcut, form, map...: nothing to download
         return self.native or Path(self.name).suffix.lower() in DOCUMENT_SUFFIXES
 
 
@@ -69,6 +71,8 @@ def safe_name(name: str) -> str:
     """A drive's file name as a file name on the Mac: no separators, not empty,
     at most 200 characters with the extension kept."""
     clean = "".join("_" if c in "/\\:\0" else c for c in name).strip() or "file"
+    if clean in {".", ".."}:
+        clean = "file"
     if len(clean) > 200:
         stem, dot, ext = clean.rpartition(".")
         clean = (stem[:190] + dot + ext[:9]) if dot else clean[:200]

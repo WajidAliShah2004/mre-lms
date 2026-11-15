@@ -161,7 +161,17 @@ def index(src: DriveSource, conn: sqlite3.Connection, now: datetime,
     known = {r["file_key"]: r for r in conn.execute(
         "SELECT file_key, revision, deleted_at FROM drive_files WHERE source_id = ?",
         (src.source_id,))}
-    for f in listing.files:
+    def mark_gone(keys) -> None:
+        for key in sorted(keys):
+            result.deleted += conn.execute(
+                "UPDATE drive_files SET deleted_at = ? WHERE source_id = ? "
+                "AND deleted_at IS NULL AND (file_key = ? OR file_key LIKE ? ESCAPE '\\')",
+                (stamp, src.source_id, key, _under(key))).rowcount
+
+    if not listing.full:
+        # Deletions first: a file listed in the same delta is live again below.
+        mark_gone(set(listing.deleted))
+    for f in {f.file_key: f for f in listing.files}.values():
         old = known.get(f.file_key)
         values = (f.path, f.name, f.area, f.mime, int(f.native), f.size, f.modified,
                   f.revision)
@@ -182,15 +192,10 @@ def index(src: DriveSource, conn: sqlite3.Connection, now: datetime,
             + (", attempts = 0, last_error = NULL" if changed else "")
             + " WHERE source_id = ? AND file_key = ?",
             (*values, stamp, src.source_id, f.file_key))
-    gone = set(listing.deleted)
     if listing.full:
         seen = {f.file_key for f in listing.files}
-        gone |= {k for k, r in known.items() if k not in seen and r["deleted_at"] is None}
-    for key in sorted(gone):
-        result.deleted += conn.execute(
-            "UPDATE drive_files SET deleted_at = ? WHERE source_id = ? AND deleted_at IS NULL "
-            "AND (file_key = ? OR file_key LIKE ? ESCAPE '\\')",
-            (stamp, src.source_id, key, _under(key))).rowcount
+        mark_gone(set(listing.deleted)
+                  | {k for k, r in known.items() if k not in seen and r["deleted_at"] is None})
     conn.execute(
         "INSERT INTO drive_cursors (source_id, cursor, started_on, updated_at) "
         "VALUES (?, ?, ?, ?) ON CONFLICT(source_id) DO UPDATE SET "

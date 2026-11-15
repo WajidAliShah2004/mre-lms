@@ -101,7 +101,7 @@ class GoogleDriveAPI:
         req = self._svc().files().list(
             corpora="allDrives", includeItemsFromAllDrives=True, supportsAllDrives=True,
             q="trashed = false", pageSize=1000, pageToken=page_token,
-            fields=f"nextPageToken, files({FIELDS})")
+            fields=f"nextPageToken, incompleteSearch, files({FIELDS})")
         return _with_backoff(req.execute, note=_note)
 
     def start_page_token(self) -> str:
@@ -176,6 +176,10 @@ class GDrive:
         token = None
         while True:
             page = self.api.list_files(token)
+            if page.get("incompleteSearch"):
+                raise DriveError(
+                    f"Google Drive returned an incomplete listing for {self.address} "
+                    "(incompleteSearch); nothing was marked deleted. Try again later.")
             for item in page.get("files", []):
                 if item.get("mimeType") == FOLDER:
                     self._remember(item)

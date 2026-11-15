@@ -893,7 +893,7 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 - **One engine, three adapters** (`core/pipeline/drives.py`), as the chat-day engine serves WhatsApp and iMessage.
 - **Indexed only:** Google's "Shared with me" (others own and edit those files) and the two iCloud Drive copies macOS kept on Jul 30 and Oct 5.
 - **The start date is the day of a drive's first pass** (`drive_cursors.started_on`); "switched on" is `status: active` in the register. Job `com.lms.drives` every 3 hours; `DRIVES_CHECKED` watched by the brief (7 hours).
-- **Each grant stands alone:** `lms/gdrive-oauth/<address>` apart from the Gmail grant; `lms/dropbox-oauth/<address>` holds an offline PKCE refresh token and the app key, no secret. Each authorise script refuses a token for the wrong account.
+- **Each grant stands alone:** `lms/gdrive-oauth/<address>` apart from the Gmail grant; `lms/dropbox-oauth/<address>` holds an offline PKCE refresh token and the app key, no secret. Each authorise script refuses a token for the wrong account. At Google the two grants share one OAuth app: removing the app at myaccount.google.com/permissions revokes Gmail too, so Drive access is removed by deleting its Keychain item (DRIVES_APPLY.md).
 - **Network:** the readers need `www.googleapis.com`, `oauth2.googleapis.com`, `api.dropboxapi.com` and `content.dropboxapi.com`, for the outbound allowlist when Phase 8 builds it.
 - **Setup** waits on the developer (Drive API and scope on the two Workspace apps; a Dropbox app) and one Allow per account by Matthew ([lms/ops/DRIVES_APPLY.md](lms/ops/DRIVES_APPLY.md)). iCloud Drive needs neither.
 - **Decided while building (Nov 15, with the developer):**

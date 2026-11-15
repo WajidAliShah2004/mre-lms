@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from core.adapters.drive import Listing
 from core.adapters.lmstudio import Completion
 from core.db import database as db
 from core.pipeline import drives, filing
@@ -177,15 +178,38 @@ def test_deleted_files_are_marked_never_removed(conn, pipe):
     for k in ("keep.txt", "Old/a.txt", "Old/b.txt", "gone.txt"):
         d.put(k, k.encode(), modified="2026-10-01T09:00:00-04:00")
     run(conn, pipe, source(d))
+    del d.files["Old/a.txt"], d.files["Old/b.txt"]
     d.full, d.deleted = False, ["Old"]
     assert run(conn, pipe, source(d)).deleted == 2
     d.full, d.deleted = True, []
-    for k in ("gone.txt", "Old/a.txt", "Old/b.txt"):
-        del d.files[k]
+    del d.files["gone.txt"]
     assert run(conn, pipe, source(d)).deleted == 1
     assert count(conn, "SELECT COUNT(*) FROM drive_files") == 4
     assert row(conn, "keep.txt")["deleted_at"] is None
     assert row(conn, "gone.txt")["deleted_at"] is not None
+
+
+def test_an_incremental_deletion_is_applied_before_the_files_listed_with_it(conn, pipe):
+    d = FakeDrive()
+    for k in ("Old/a.txt", "Old/b.txt"):
+        d.put(k, k.encode(), modified="2026-10-01T09:00:00-04:00")
+    run(conn, pipe, source(d))
+    del d.files["Old/b.txt"]
+    d.full, d.deleted = False, ["Old"]
+    run(conn, pipe, source(d))
+    assert row(conn, "Old/a.txt")["deleted_at"] is None
+    assert row(conn, "Old/b.txt")["deleted_at"] is not None
+
+
+def test_one_key_listed_twice_indexes_one_row_with_the_last_revision(conn, pipe):
+    d = FakeDrive()
+    a = d.put("a.txt", b"a", modified="2026-10-01T09:00:00-04:00", revision="r1")
+    b = d.put("a.txt", b"a", modified="2026-10-01T09:00:00-04:00", revision="r2")
+    d.list = lambda cursor: Listing((a, b), (), True, "c1")
+    res = run(conn, pipe, source(d))
+    assert res.result == "OK", res.error
+    assert count(conn, "SELECT COUNT(*) FROM drive_files") == 1
+    assert row(conn, "a.txt")["revision"] == "r2"
 
 
 def test_the_cursor_is_kept_for_the_next_listing(conn, pipe):

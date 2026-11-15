@@ -196,3 +196,20 @@ def test_a_failed_download_is_a_fetch_error(tmp_path):
 def test_the_keychain_item_is_apart_from_gmail():
     assert gdrive.keychain_service("matthew@mleca.com") == "lms/gdrive-oauth/matthew@mleca.com"
     assert gdrive.SCOPES == ("https://www.googleapis.com/auth/drive.readonly",)
+
+
+def test_an_incomplete_full_listing_is_an_error():
+    api = full_api()
+    api.pages[1] = dict(api.pages[1], incompleteSearch=True)
+    with pytest.raises(DriveError, match="incomplete"):
+        drive(api).list(None)
+
+
+def test_a_shortcut_is_not_a_document_but_a_native_doc_is():
+    shortcut = dict(LEASE, id="Z", name="lease.pdf", parents=["root"],
+                    mimeType="application/vnd.google-apps.shortcut")
+    api = FakeAPI()
+    api.pages = [{"files": [shortcut, NOTES]}]
+    by = {f.file_key: f for f in drive(api).list(None).files}
+    assert not by["Z"].is_document
+    assert by["D"].is_document

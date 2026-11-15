@@ -14,6 +14,8 @@ cd ~/lms-repo && git pull && cd lms
 
 Needs nothing from Matthew: Python already has Full Disk Access.
 
+Before the first pass, check that `grep LMS_INBOX ~/lms-repo/lms/ops/lms.env` shows a path under iCloud Drive's `LMS` folder (the reader skips that folder).
+
 ```bash
 ./ops/drives.py --source storage:icloud-drive --probe
 ```
@@ -30,7 +32,7 @@ On a drive with no start date yet, "would be filed now" is 0: the start date is 
 ./ops/drives.py --source storage:icloud-drive
 ```
 
-The first pass: it indexes everything and sets today as the start date. Then tell the developer: they set `storage:icloud-drive` to `status: active` in `config/sources.yaml`. After the next `git pull`, install the job:
+The first pass: it indexes everything and sets today as the start date. Then tell the developer: they set `storage:icloud-drive` to `status: active` in `config/sources.yaml`. Install the job in the same sitting, or the brief will flag the drives as stalled after 7 hours. After the next `git pull`, install the job:
 
 ```bash
 cp ops/com.lms.drives.plist ~/Library/LaunchAgents/
@@ -75,7 +77,7 @@ Then, per account, as for iCloud: `--probe`, `--dry-run`, a first pass with `--s
 
 ## 5. Dropbox
 
-**Developer, once:** at dropbox.com/developers, **Create app** → **Scoped access** → **Full Dropbox** → a name such as "MRE LMS reader". In **Permissions**, tick only `files.metadata.read`, `files.content.read` and `account_info.read`, and **Submit**. Development status is enough. Note the **App key**; the secret is not used.
+**Developer, once:** at dropbox.com/developers, **Create app** → **Scoped access** → **Full Dropbox** → a name such as "MRE LMS reader". In **Permissions**, tick only `files.metadata.read`, `files.content.read` and `account_info.read`, and **Submit**. Development status is enough. Note the **App key**; the secret is not used. In the app's **Settings**, click **Enable additional users**: a development app otherwise links only its creator, and Matthew's Allow fails.
 
 **Matthew, once:**
 
@@ -83,7 +85,7 @@ Then, per account, as for iCloud: `--probe`, `--dry-run`, a first pass with `--s
 ./ops/authorise_dropbox.py matthew@mrecai.com --app-key APPKEY
 ```
 
-Open the printed address in a private window, sign in, Allow, paste the code. Then `--check`, `--probe`, `--dry-run`, a first pass with `--source storage:dropbox:matthew@mrecai.com`, and the developer sets the line `active`.
+Open the printed address in a private window, sign in, Allow, paste the code. Then `--check`, `--probe`, `--dry-run`, a first pass with `--source storage:dropbox:matthew@mrecai.com`, and the developer sets the line `active`. If `matthew@mrecai.com` is a Dropbox team account with a team space, compare the probe's counts with what Matthew sees: the reader lists his member folder.
 
 ## 6. Older documents (backfill)
 
@@ -112,4 +114,8 @@ launchctl bootout gui/$(id -u)/com.lms.drives
 rm ~/Library/LaunchAgents/com.lms.drives.plist
 ```
 
-Revoke the grants at myaccount.google.com/permissions and dropbox.com/account/connected_apps. Filed documents stay filed.
+Google: do NOT remove the app at myaccount.google.com/permissions. Drive and Gmail share that app, so removing it stops mail polling too. Instead delete the Keychain item (`security delete-generic-password -s lms/gdrive-oauth/<address>`) and, if wanted, remove `drive.readonly` from the app's consent screen.
+
+Dropbox: revoke the app at dropbox.com/account/connected_apps and delete the Keychain item `lms/dropbox-oauth/<address>`.
+
+Filed documents stay filed.

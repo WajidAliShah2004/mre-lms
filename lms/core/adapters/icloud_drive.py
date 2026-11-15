@@ -34,6 +34,10 @@ APP_CONTAINERS = (("com~apple~Pages", "Pages"), ("com~apple~Numbers", "Numbers")
                   ("com~apple~TextEdit", "TextEdit"))
 ARCHIVE_PREFIX = "iCloudDrive-iCloudDrive ("
 STUB_SUFFIX = ".icloud"
+# Folders that are really one document: listed as one entry, never walked into.
+PACKAGE_SUFFIXES = frozenset({".pages", ".numbers", ".key", ".rtfd", ".photoslibrary", ".app",
+                              ".bundle", ".pkg", ".framework", ".band", ".logicx",
+                              ".fcpbundle", ".imovielibrary"})
 
 
 class Root(NamedTuple):
@@ -103,11 +107,30 @@ class ICloudDrive:
         return Listing(tuple(files.values()), (), full=True, cursor=None)
 
     def _walk(self, root: Root, errors: list[OSError]):
-        for dirpath, dirnames, filenames in os.walk(root.path, onerror=errors.append):
+        def onerror(exc: OSError) -> None:
+            if not isinstance(exc, FileNotFoundError):     # removed mid-walk: not an error
+                errors.append(exc)
+
+        for dirpath, dirnames, filenames in os.walk(root.path, onerror=onerror):
             here = Path(dirpath)
             top = here == root.path
             dirnames[:] = sorted(d for d in dirnames
                                  if not d.startswith(".") and not (top and d in root.skip))
+            for d in list(dirnames):
+                if Path(d).suffix.lower() not in PACKAGE_SUFFIXES:
+                    continue
+                dirnames.remove(d)
+                try:
+                    st = os.stat(here / d, follow_symlinks=False)
+                except FileNotFoundError:
+                    continue
+                except OSError as exc:
+                    errors.append(exc)
+                    continue
+                key = f"{root.label}/{(here / d).relative_to(root.path).as_posix()}"
+                yield DriveFile(
+                    source_id=self.source_id, file_key=key, path=key, name=d, size=None,
+                    modified=_iso(st.st_mtime), revision=f"{st.st_mtime_ns}:pkg")
             for name in sorted(filenames):
                 real = real_name(name)
                 if real is None:

@@ -142,19 +142,27 @@ class Dropbox:
             raise DriveError(explain(exc, self.address)) from exc
 
     def _pages(self, page: dict, *, full: bool) -> Listing:
-        files: list[DriveFile] = []
+        files: dict[str, DriveFile] = {}
         deleted: list[str] = []
         while True:
+            # Entries apply in the order Dropbox gave them.
             for e in page.get("entries", []):
                 tag = e.get(".tag")
                 if tag == "file":
-                    files.append(self._file(e))
+                    f = self._file(e)
+                    files[f.file_key] = f
+                    if f.file_key in deleted:
+                        deleted.remove(f.file_key)
                 elif tag == "deleted":
-                    deleted.append(e["path_lower"])
+                    p = e["path_lower"]
+                    for k in [k for k in files if k == p or k.startswith(p + "/")]:
+                        del files[k]
+                    if p not in deleted:
+                        deleted.append(p)
             if not page.get("has_more"):
                 break
             page = self.api.rpc("files/list_folder/continue", {"cursor": page["cursor"]})
-        return Listing(tuple(files), tuple(deleted), full=full, cursor=page.get("cursor"))
+        return Listing(tuple(files.values()), tuple(deleted), full=full, cursor=page.get("cursor"))
 
     def _file(self, e: dict) -> DriveFile:
         return DriveFile(

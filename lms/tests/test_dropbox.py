@@ -157,3 +157,28 @@ def test_download_sends_the_path_in_the_header():
 def test_the_scopes_and_keychain_item():
     assert dbx.SCOPES == ("files.metadata.read", "files.content.read", "account_info.read")
     assert dbx.keychain_service("matthew@mrecai.com") == "lms/dropbox-oauth/matthew@mrecai.com"
+
+
+def _file(path):
+    return dict(LEASE, path_lower=path, path_display=path, name=path.rsplit("/", 1)[-1])
+
+
+def test_entries_apply_in_order_a_later_file_survives_an_earlier_folder_deletion():
+    api = FakeAPI()
+    api.pages["c2"] = {"entries": [_file("/old/a.txt"),
+                                   {".tag": "deleted", "name": "old", "path_lower": "/old"},
+                                   _file("/old/b.txt")],
+                       "cursor": "c3", "has_more": False}
+    listing = drive(api).list("c2")
+    assert [f.file_key for f in listing.files] == ["/old/b.txt"]
+    assert listing.deleted == ("/old",)
+
+
+def test_a_file_after_its_own_deletion_is_not_deleted():
+    api = FakeAPI()
+    api.pages["c2"] = {"entries": [{".tag": "deleted", "name": "x.pdf", "path_lower": "/x.pdf"},
+                                   _file("/x.pdf")],
+                       "cursor": "c3", "has_more": False}
+    listing = drive(api).list("c2")
+    assert [f.file_key for f in listing.files] == ["/x.pdf"]
+    assert listing.deleted == ()

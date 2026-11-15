@@ -22,6 +22,7 @@ def test_documents_are_known_by_extension_or_as_google_files():
 def test_safe_name_keeps_a_file_name_a_file_name():
     assert safe_name("a/b\\c:d.pdf") == "a_b_c_d.pdf"
     assert safe_name("") == "file"
+    assert safe_name("..") == "file" and safe_name(".") == "file"
     long = "x" * 300 + ".pdf"
     assert len(safe_name(long)) <= 200
     assert safe_name(long).endswith(".pdf")

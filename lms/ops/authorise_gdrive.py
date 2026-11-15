@@ -122,10 +122,12 @@ def main() -> int:
     creds = flow.run_local_server(port=0, prompt="consent", access_type="offline",
                                   login_hint=args.address)
     if not creds.refresh_token:
-        print("\nGoogle returned no refresh token. Revoke the old grant at "
-              "myaccount.google.com/permissions and run this again.", file=sys.stderr)
+        print("\nGoogle returned no refresh token. Delete the stored item "
+              f"(security delete-generic-password -s {service}) and run this again; do not "
+              "remove the app at myaccount.google.com/permissions, which would also stop "
+              "Gmail polling.", file=sys.stderr)
         return 1
-    problem = scope_problem(getattr(creds, "scopes", None))
+    problem = scope_problem(getattr(creds, "granted_scopes", None) or getattr(creds, "scopes", None))
     if problem:
         print(f"\n{problem}", file=sys.stderr)
         return 1
