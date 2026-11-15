@@ -884,6 +884,20 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 
 **302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
 
+### D-082 — Matthew's answers of Nov 15: the Mac is on mattyeps; there is no matthew@atlase.ai; calls arrive as email; the storage accounts
+**Status:** Recorded · Nov 15 2026 · Matthew, relayed to the developer · answers D-078's open list; bears on R1, R2, R3, R4, R5, R24, X2, D-046, D-081
+
+| Item | Answer | Consequence |
+|---|---|---|
+| Mac's iCloud | He signed the Mac Studio into "Maddy app's" iCloud account (dictated: read as `mattyeps@gmail.com`, D-078) and set up Messages, Photos and iCloud Drive | C12, X2 and R4's precondition are met; **confirm the account on the Mac**. The brief (D-046, `LMS/briefs`) and the watch folder (`LMS_INBOX`) live in iCloud Drive and both recreate their folders, but the running watcher must be restarted onto the new account's folder, and anything left in the old account's `LMS` folder is no longer on this Mac |
+| iMessage | Messages signed in on the Mac | R2 can go ahead: probe, then `ops/IMESSAGE_APPLY.md` from step 3. Not said: Messages in iCloud and Text Message Forwarding; the probe shows the first, the `messages:sms` line the second |
+| `matthew@atlase.ai` | "I don't have" it; his Atlase mailbox is `mre@atlase.ai`, signed in to his Chrome | **R1 closed: no such mailbox.** The Nov 7 note that it was its own mailbox was wrong; the `email:matthew@atlase.ai` source is removed. `mre@atlase.ai` is polled since Oct 6 through its own grant, so his Chrome sign-in is not needed by the LMS |
+| Calls and voicemail | Google Voice, Grasshopper and "Epocra" (his spelling; not identified); all go to one of the business mailboxes | Every business mailbox is already polled (D-061), so these emails are filed. R3 now turns on what the emails hold: a transcript in the body is content, a notice alone only proves contact. To check on the Mac |
+| Spark | Spark on the Mac has all his accounts | **The LMS does not read through Spark.** Mail is read by its own read-only Gmail grants; Spark's sign-ins grant the LMS nothing, and nothing needs to change in Spark |
+| Storage | iCloud; Google Drive `matthew@mrecai.com` and `matthew@mleca.com`; Dropbox `matthew@mrecai.com`; "all signed in" | R5's accounts are named. No Drive, Dropbox or iCloud Drive reader is built yet; each then needs one read-only Allow by him |
+
+Not answered: Text Message Forwarding (R2), the photo Shortcut install (R4), the ChatGPT files and account (R23), the routine-actions call (X1), the Atlase product names (X3), the Backblaze bucket and D-012 sign-off (R29).
+
 ### D-081 — iMessage and texts are read from the Mac's chat.db through a chat-day engine shared with WhatsApp
 **Status:** Decided Nov 7 2026 · designed and approved with the developer · R2, R7, R16 · spec [docs/superpowers/specs/2026-11-07-imessage-reader-design.md](docs/superpowers/specs/2026-11-07-imessage-reader-design.md) · plan [docs/superpowers/plans/2026-11-07-imessage-reader.md](docs/superpowers/plans/2026-11-07-imessage-reader.md)
 

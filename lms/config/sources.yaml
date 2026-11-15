@@ -91,21 +91,6 @@ sources:
       Some mail reaches it forwarded through iCloud (3 in 3 days on Oct 6);
       the forwarder is not identified. Calendar attachments are not read (R6).
 
-  - id: email:matthew@atlase.ai
-    label: Atlase mail (matthew@)
-    kind: email
-    account: matthew@atlase.ai
-    method: Gmail API, once authorised (ops/authorise_gmail.py)
-    permissions: none held; needs gmail.readonly via the Atlase app
-    cadence_hours: 12
-    status: pending
-    requirement: R1
-    blocked_on: >-
-      Its own mailbox, not an alias (developer, Nov 7). One sign-in to it
-      through ops/authorise_gmail.py in a private window (the Oct 6 attempt
-      signed in as mre@), then the mail job polls it.
-    gaps: Nothing sent only to this address is read.
-
   - id: email:mreconsultinginsurance@gmail.com
     label: Business Gmail (mreconsultinginsurance)
     kind: email
@@ -175,13 +160,19 @@ sources:
     label: Google Voice, voicemail, call transcripts
     kind: calls
     method: >-
-      none yet. Google Voice notification emails already arrive in MRECAI
-      mail and are filed, which proves contact, not content.
-    permissions: unknown until the source is named
+      none of its own. Matthew, Nov 15 (D-082): calls and voicemail come from
+      Google Voice, Grasshopper and "Epocra" (his spelling, unconfirmed), and
+      all of them email a business mailbox. Every business mailbox is
+      already polled, so those emails are filed; whether they carry the
+      transcript text or the audio is not yet checked.
+    permissions: none beyond the mailboxes' gmail.readonly
     cadence_hours: null
     status: pending
     requirement: R3
-    blocked_on: "Matthew: where call transcripts come from (C15); does he use Google Voice."
+    blocked_on: >-
+      Check on the Mac which mailbox receives the Google Voice, Grasshopper
+      and Epocra emails and whether they hold the transcript or an audio
+      attachment (D-082). Confirm the name "Epocra".
     gaps: >-
       A call without a transcript proves contact occurred, not what was
       promised (§6). Nothing promised on a call is captured.
@@ -249,16 +240,17 @@ sources:
   - id: storage:icloud-drive
     label: iCloud Drive
     kind: storage
-    account: the Mac's iCloud (mreconsultinginsurance@gmail.com today)
+    account: >-
+      the Mac's iCloud, mattyeps@gmail.com since Matthew moved it (Nov 15,
+      D-082; to be confirmed on the Mac)
     method: the synced folder on the Mac, read-only
     permissions: read access under Matthew's macOS user (D-009)
     cadence_hours: 3
-    status: blocked
+    status: pending
     requirement: R5
     blocked_on: >-
-      D-078: OpenClaw's Apple ID is mattyeps@gmail.com; the Mac is on
-      mreconsultinginsurance@gmail.com. Switch the Mac: needs the mattyeps
-      Apple ID password and approval on his iPhone (ADP).
+      Not built. The Mac's iCloud moved to mattyeps@gmail.com on Nov 15
+      (D-082), so the account no longer blocks it.
     gaps: Nothing in his iCloud Drive is read.
 
   - id: storage:google-drive
@@ -269,7 +261,10 @@ sources:
     cadence_hours: 3
     status: pending
     requirement: R5
-    blocked_on: "Matthew: which Google accounts (scope is everything, D-065); one Allow each."
+    account: matthew@mrecai.com and matthew@mleca.com (Matthew, Nov 15, D-082)
+    blocked_on: >-
+      Not built. Accounts named Nov 15 (D-082); then one read-only Allow per
+      account. Being signed in to Spark grants the LMS nothing.
     gaps: No Drive file is read.
 
   - id: storage:dropbox
@@ -280,7 +275,10 @@ sources:
     cadence_hours: 3
     status: pending
     requirement: R5
-    blocked_on: "Matthew: which Dropbox account (scope is everything, D-065); one Allow."
+    account: matthew@mrecai.com (Matthew, Nov 15, D-082)
+    blocked_on: >-
+      Not built. Account named Nov 15 (D-082); then one read-only Allow.
+      Being signed in to Spark grants the LMS nothing.
     gaps: No Dropbox file is read.
 
   # -------------------------------------------------------------------------
@@ -307,8 +305,9 @@ sources:
     status: blocked
     requirement: R4
     blocked_on: >-
-      Matthew installs the Shortcut; and the Mac must be on the same Apple ID
-      as the phone (D-065), or its photos never reach the watcher.
+      Matthew installs the Shortcut and sends a first photo. The Mac moved
+      to the phone's Apple ID, mattyeps@gmail.com, on Nov 15 (D-082); the
+      first photo reaching the watcher confirms both are on it.
     gaps: No phone capture arrives.
 
   # -------------------------------------------------------------------------

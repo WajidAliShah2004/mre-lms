@@ -118,7 +118,7 @@ businesses:
                                 # wrong. One letter here means mail never arrives.
       - "mreconsultinginsurance@gmail.com"   # business mail (Matthew, Oct 19, D-065);
                                              # routed here Nov 5 (R39): the name is this
-                                             # entity's. Also the Mac's current iCloud ID.
+                                             # entity's. The Mac's iCloud ID until Nov 15 (D-082).
     aliases:
       - "MRECAI"
       - "MRE Consulting"
@@ -166,7 +166,6 @@ businesses:
       - "mrecai.tech"           # *** VERIFY BEFORE TRUSTING — see note below ***
     emails:
       - "mre@atlase.ai"
-      - "matthew@atlase.ai"
     aliases:
       - "Atlase"
       - "Atlas"
