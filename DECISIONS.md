@@ -884,6 +884,26 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 
 **302 passed, 1 xfailed** — 46 new tests. Three defects in this feature, all found by running it against the real mailbox, none by the suite.
 
+### D-083 — Drives are read in place: every file indexed, new documents filed, nothing in a drive ever changed
+**Status:** Decided Nov 15 2026 · designed and approved with the developer · R5, R7, R28, addendum §2.3 · spec [docs/superpowers/specs/2026-11-15-drive-readers-design.md](docs/superpowers/specs/2026-11-15-drive-readers-design.md) · plan [docs/superpowers/plans/2026-11-15-drive-readers.md](docs/superpowers/plans/2026-11-15-drive-readers.md)
+
+- **Index everything, file new.** Every file in iCloud Drive, Google Drive (`matthew@mrecai.com`, `matthew@mleca.com`) and Dropbox (`matthew@mrecai.com`) is listed into `drive_files`. Documents (PDF, images, Office, text, email files, Google Docs, Sheets and Slides as PDF) created or changed from the drive's start date are filed once unchanged for 24 hours, at most 100 MB. Older ones are filed by `ops/backfill_drives.py`. Rejected: filing everything (1.6 TB in iCloud Drive alone: weeks of model time and a second copy) and index-only (drive documents would never reach tasks).
+- **Read-only by construction.** Google: `drive.readonly`. Dropbox: `files.metadata.read`, `files.content.read`, `account_info.read`. iCloud: listed with stat, copied out with `copyfile`. A test fails if a reader calls anything that could change a drive. This is the read-only source mode the addendum (§2.3) requires.
+- **APIs, not sync apps,** for Google and Dropbox: neither desktop app is on the Mac, a sync app holds read-write access, and the API lists without downloading.
+- **One engine, three adapters** (`core/pipeline/drives.py`), as the chat-day engine serves WhatsApp and iMessage.
+- **Indexed only:** Google's "Shared with me" (others own and edit those files) and the two iCloud Drive copies macOS kept on Jul 30 and Oct 5.
+- **The start date is the day of a drive's first pass** (`drive_cursors.started_on`); "switched on" is `status: active` in the register. Job `com.lms.drives` every 3 hours; `DRIVES_CHECKED` watched by the brief (7 hours).
+- **Each grant stands alone:** `lms/gdrive-oauth/<address>` apart from the Gmail grant; `lms/dropbox-oauth/<address>` holds an offline PKCE refresh token and the app key, no secret. Each authorise script refuses a token for the wrong account.
+- **Network:** the readers need `www.googleapis.com`, `oauth2.googleapis.com`, `api.dropboxapi.com` and `content.dropboxapi.com`, for the outbound allowlist when Phase 8 builds it.
+- **Setup** waits on the developer (Drive API and scope on the two Workspace apps; a Dropbox app) and one Allow per account by Matthew ([lms/ops/DRIVES_APPLY.md](lms/ops/DRIVES_APPLY.md)). iCloud Drive needs neither.
+- **Decided while building (Nov 15, with the developer):**
+  - The iCloud reader fails the pass, naming the folder, if any folder or file cannot be read or the iCloud Drive folder itself is missing; a partial walk is never taken as a complete listing (so nothing is wrongly marked deleted).
+  - A drive document the pipeline quarantines or flags as phishing is counted "to review", not "filed"; like mail, it is not retried.
+  - The engine refuses a fetched path outside its own temp directory, so the read-only rule never depends on a reader returning a copy.
+  - Google: a folder lookup turns only 403/404 into "unknown"; any other error fails the listing. A 400 from the change feed is treated like 410: a full relisting.
+  - When any drive fails in a run, the job writes one last DRIVES_FAILED row naming it, so a later drive's success cannot hide it in the brief. The probe honours a halt.
+  - `tests/test_hard_stops.py` exempts `shutil.rmtree` in `pipeline/drives.py`: it removes only the engine's own temp directories of fetched copies (approved by the developer).
+
 ### D-082 — Matthew's answers of Nov 15: the Mac is on mattyeps; there is no matthew@atlase.ai; calls arrive as email; the storage accounts
 **Status:** Recorded · Nov 15 2026 · Matthew, relayed to the developer · answers D-078's open list; bears on R1, R2, R3, R4, R5, R24, X2, D-046, D-081
 

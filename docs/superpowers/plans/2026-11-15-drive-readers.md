@@ -365,12 +365,14 @@ def test_no_icloud_folder_at_all_is_a_drive_error(tmp_path):
 
 
 def test_archive_roots_are_the_saved_copies_only(tmp_path):
-    (tmp_path / "iCloudDrive-iCloudDrive (10-5-26 11:47 AM)").mkdir()
-    (tmp_path / "iCloudDrive-iCloudDrive (7-30-26 5:55 PM)").mkdir()
+    # The real names hold "11:47 AM"; Windows cannot create a ":" in a name,
+    # and only the prefix matters here.
+    (tmp_path / "iCloudDrive-iCloudDrive (10-5-26 11.47 AM)").mkdir()
+    (tmp_path / "iCloudDrive-iCloudDrive (7-30-26 5.55 PM)").mkdir()
     (tmp_path / "GoogleDrive-someone").mkdir()
     labels = [r.label for r in ic.archive_roots(tmp_path)]
-    assert labels == ["iCloudDrive-iCloudDrive (10-5-26 11:47 AM)",
-                      "iCloudDrive-iCloudDrive (7-30-26 5:55 PM)"]
+    assert labels == ["iCloudDrive-iCloudDrive (10-5-26 11.47 AM)",
+                      "iCloudDrive-iCloudDrive (7-30-26 5.55 PM)"]
     assert ic.archive_roots(tmp_path / "missing") == []
 
 
@@ -2646,9 +2648,9 @@ def backfill(src, conn, roots, registry, classifier, *, now: datetime, tmp_root:
                 return total
             result = drives.PassResult(src.source_id)
             drives.file_rows(src, conn, roots, registry, classifier, files, tmp, result)
-            total += result.filed + result.duplicates
+            total += result.filed + result.duplicates + result.review
             print(f"batch: {result.filed} filed, {result.duplicates} already in the "
-                  f"archive, {result.failed} failed", flush=True)
+                  f"archive, {result.review} to review, {result.failed} failed", flush=True)
             if halted():
                 print("HALTED: stopped between batches.", flush=True)
                 return total
@@ -3121,12 +3123,13 @@ def scope_problem(granted, wanted=gdrive.SCOPES) -> str | None:
     got = set(granted or ())
     if not got or got == set(wanted):
         return None
+    missing = sorted(set(wanted) - got)
+    if missing:
+        return (f"Google did not grant {', '.join(missing)}. Is drive.readonly on the "
+                "app's consent screen? Nothing was stored.")
     extra = sorted(got - set(wanted))
-    if extra:
-        return (f"Google granted more than asked ({', '.join(extra)}). Nothing was "
-                "stored: the read-only guarantee is the point of this.")
-    return (f"Google did not grant {', '.join(sorted(set(wanted) - got))}. Is "
-            "drive.readonly on the app's consent screen? Nothing was stored.")
+    return (f"Google granted more than asked ({', '.join(extra)}). Nothing was "
+            "stored: the read-only guarantee is the point of this.")
 
 
 def credentials(stored: dict):
