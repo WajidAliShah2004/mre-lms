@@ -151,6 +151,7 @@ def run(conn, roots, registry, classifier, sids: list[str], now: datetime, *,
     from core.db import database as db
     from core.pipeline import coverage, drives
     bad = 0
+    failed: list[str] = []
     for sid in sids:
         if halted():
             print("HALTED: stopped between drives.")
@@ -164,12 +165,21 @@ def run(conn, roots, registry, classifier, sids: list[str], now: datetime, *,
             conn.commit()
             print(f"{sid}: FAIL  {exc}")
             bad += 1
+            failed.append(sid)
             continue
         r = drives.run_pass(src, conn, roots, registry, classifier, now=now,
                             tmp_root=roots.archive.parent / "tmp" / "drives", halted=halted)
         print(f"{sid}: {r.summary()}")
         if r.error or r.failed:
             bad += 1
+        if r.error:
+            failed.append(sid)
+    if failed:
+        # The brief reads only the newest row of the pair, so a failure must be
+        # the last one written, whatever drive ran after it.
+        db.log_action(conn, drives.FAILED,
+                      detail=f"{len(failed)} drive(s) failed this run: {', '.join(failed)}"[:400])
+        conn.commit()
     return 1 if bad else 0
 
 
@@ -186,6 +196,11 @@ def main() -> int:
     if (args.probe or args.dry_run) and not args.source:
         p.error("--probe and --dry-run need --source")
 
+    flag = _halt.read_flag()
+    if flag is not None:
+        print(f"HALTED since {flag.get('ts')} (by {flag.get('by')}): nothing read.")
+        return 0
+
     if args.probe:
         rc = 0
         for sid in args.source:
@@ -196,10 +211,6 @@ def main() -> int:
                 rc = 1
         return rc
 
-    flag = _halt.read_flag()
-    if flag is not None:
-        print(f"HALTED since {flag.get('ts')} (by {flag.get('by')}): nothing read.")
-        return 0
     problem = archive_volume_problem()
     if problem:
         print(f"archive unavailable: {problem}", file=sys.stderr)

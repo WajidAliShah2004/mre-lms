@@ -37,5 +37,6 @@ def test_drive_sources_are_measured_from_the_index(tmp_path):
     rec = [x for x in r.reclaimable if x.label.startswith("storage:test")]
     assert len(rec) == 1 and (rec[0].files, rec[0].bytes) == (1, 1000)
     assert "read-only" in rec[0].note
+    assert "NOT reclaimable" in rec[0].label
     assert not any("Dropbox, the wider iCloud Drive" in n for n in r.not_measured)
     conn.close()

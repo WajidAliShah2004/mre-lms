@@ -216,7 +216,8 @@ def drive_reclaim(conn, source_id: str, filed_shas: set[str]) -> Reclaim:
         if r["sha256"] in filed_shas:
             n += 1
             size += int(r["size"] or 0)
-    return Reclaim(f"{source_id} — drive files whose current bytes are filed", n, size,
+    return Reclaim(f"{source_id} — drive files whose current bytes are filed "
+                   "(NOT reclaimable: the readers are read-only)", n, size,
                    "sha256 recorded when the reader fetched them; files never fetched "
                    f"are {NOT_MEASURED}. Not removable from here: the drive readers "
                    "are read-only")

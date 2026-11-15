@@ -131,3 +131,31 @@ def test_the_backfill_needs_an_index_first(conn):
     assert "drives.py --source storage:test" in bf.index_problem(conn, SID)
     begin(conn)
     assert bf.index_problem(conn, SID) is None
+
+
+def test_a_failed_drive_is_the_newest_row_even_when_a_later_drive_succeeds(conn, pipe):
+    roots, registry, clf = pipe
+    d = FakeDrive()
+
+    def build(sid):
+        if sid == "storage:broken":
+            raise job.DriveError("no Drive grant for someone@example.com")
+        return src(d)
+
+    assert job.run(conn, roots, registry, clf, ["storage:broken", SID], NOW, build=build) == 1
+    row = conn.execute("SELECT action, detail FROM actions_log WHERE action IN "
+                       "('DRIVES_CHECKED', 'DRIVES_FAILED') ORDER BY id DESC LIMIT 1").fetchone()
+    assert row["action"] == "DRIVES_FAILED" and "storage:broken" in row["detail"]
+
+
+def test_the_probe_reads_nothing_when_halted(monkeypatch, capsys):
+    def boom(sid):
+        raise AssertionError("build_source was called")
+
+    monkeypatch.setattr(job._halt, "read_flag", lambda: {"ts": "now", "by": "telegram"})
+    monkeypatch.setattr(job, "ensure_venv", lambda *a, **k: None)
+    monkeypatch.setattr(job, "load_lms_env", lambda: {})
+    monkeypatch.setattr(job, "build_source", boom)
+    monkeypatch.setattr(sys, "argv", ["drives.py", "--source", "storage:icloud-drive", "--probe"])
+    assert job.main() == 0
+    assert "HALTED" in capsys.readouterr().out
