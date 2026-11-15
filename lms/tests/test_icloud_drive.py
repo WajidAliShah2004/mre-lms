@@ -121,3 +121,36 @@ def test_listing_and_fetching_never_change_the_drive(tmp_path, monkeypatch):
     monkeypatch.setattr(shutil, "move", refuse)
     files = d.list(None).files
     d.fetch(next(f for f in files if f.name == "lease.pdf"), tmp_path / "work")
+
+
+def test_a_missing_main_icloud_folder_is_an_error_even_with_an_app_folder(tmp_path):
+    mobile = tmp_path / "Mobile Documents"
+    (mobile / "com~apple~Pages" / "Documents").mkdir(parents=True)
+    (mobile / "com~apple~Pages" / "Documents" / "Plan.pages").write_bytes(b"pages")
+    with pytest.raises(DriveError, match="iCloud Drive on"):
+        drive(mobile).list(None)
+
+
+def test_an_unreadable_folder_is_an_error_not_a_silent_partial_listing(tmp_path, monkeypatch):
+    mobile = tree(tmp_path)
+    d = drive(mobile)
+    real_walk = os.walk
+
+    def walk(top, *a, onerror=None, **k):
+        if onerror is not None:
+            onerror(PermissionError(13, "Permission denied", "<some path>"))
+        yield from real_walk(top, *a, onerror=onerror, **k)
+
+    monkeypatch.setattr(ic.os, "walk", walk)
+    with pytest.raises(DriveError, match="could not be read"):
+        d.list(None)
+
+
+def test_archive_roots_where_only_one_exists_still_list(tmp_path):
+    present = tmp_path / "iCloudDrive-iCloudDrive (10-5-26 11.47 AM)"
+    (present / "Clients").mkdir(parents=True)
+    (present / "Clients" / "lease.pdf").write_bytes(b"%PDF lease")
+    roots = [ic.Root("iCloudDrive-iCloudDrive (10-5-26 11.47 AM)", present),
+             ic.Root("iCloudDrive-iCloudDrive (7-30-26 5.55 PM)", tmp_path / "gone")]
+    listing = ic.ICloudDrive("storage:archive", roots).list(None)
+    assert {f.name for f in listing.files} == {"lease.pdf"}

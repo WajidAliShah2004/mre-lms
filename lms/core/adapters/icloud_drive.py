@@ -40,10 +40,11 @@ class Root(NamedTuple):
     label: str
     path: Path
     skip: tuple[str, ...] = ()      # top-level folder names not read
+    required: bool = False          # must exist, or the listing is an error
 
 
 def icloud_roots(mobile: Path = MOBILE_DOCUMENTS) -> list[Root]:
-    roots = [Root("iCloud Drive", mobile / CLOUD_DOCS, ("LMS",))]
+    roots = [Root("iCloud Drive", mobile / CLOUD_DOCS, ("LMS",), required=True)]
     roots += [Root(label, mobile / folder / "Documents") for folder, label in APP_CONTAINERS]
     return roots
 
@@ -80,17 +81,29 @@ class ICloudDrive:
         if not present:
             where = ", ".join(str(r.path) for r in self.roots) or "no folder given"
             raise DriveError(f"none of {where} is on this Mac (is iCloud Drive on?)")
+        for root in self.roots:
+            if root.required and not root.path.is_dir():
+                raise DriveError(f"{root.path} is not on this Mac (is iCloud Drive on?)")
         files: dict[str, DriveFile] = {}
+        errors: list[OSError] = []
         for root in present:
-            for f in self._walk(root):
+            for f in self._walk(root, errors):
                 old = files.get(f.file_key)
                 # A file and its own placeholder side by side: keep the file.
                 if old is None or old.size is None:
                     files[f.file_key] = f
+        # A partial walk must not look like a full listing: the engine would
+        # count every file it could not read as deleted.
+        if errors:
+            first = errors[0]
+            raise DriveError(
+                f"{len(errors)} folder(s) or file(s) could not be read, first: "
+                f"{getattr(first, 'filename', '?')}: {getattr(first, 'strerror', first)} "
+                "(is Full Disk Access granted to the LMS's Python?)")
         return Listing(tuple(files.values()), (), full=True, cursor=None)
 
-    def _walk(self, root: Root):
-        for dirpath, dirnames, filenames in os.walk(root.path):
+    def _walk(self, root: Root, errors: list[OSError]):
+        for dirpath, dirnames, filenames in os.walk(root.path, onerror=errors.append):
             here = Path(dirpath)
             top = here == root.path
             dirnames[:] = sorted(d for d in dirnames
@@ -101,7 +114,10 @@ class ICloudDrive:
                     continue
                 try:
                     st = os.stat(here / name, follow_symlinks=False)
-                except OSError:
+                except FileNotFoundError:
+                    continue            # removed between the walk and the stat
+                except OSError as exc:
+                    errors.append(exc)
                     continue
                 if not stat.S_ISREG(st.st_mode):
                     continue
