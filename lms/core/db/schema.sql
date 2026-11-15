@@ -561,3 +561,41 @@ CREATE TABLE IF NOT EXISTS imessage_messages (
 
 CREATE INDEX IF NOT EXISTS idx_imessage_unfiled
     ON imessage_messages(chat_jid, day) WHERE artifact_id IS NULL;
+
+-- ---------------------------------------------------------------------------
+-- drive_files — every file in every drive the LMS reads (R5, D-083). One row
+-- per file per drive. A row is never deleted: a file gone from its drive gets
+-- deleted_at. filed_revision is the revision last filed; a new revision is
+-- filed again once settled.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS drive_files (
+    source_id       TEXT    NOT NULL,          -- sources.yaml id, e.g. storage:icloud-drive
+    file_key        TEXT    NOT NULL,
+    path            TEXT    NOT NULL,
+    name            TEXT    NOT NULL,
+    area            TEXT    NOT NULL,          -- own | shared_drive | shared_with_me
+    mime            TEXT,
+    native          INTEGER NOT NULL DEFAULT 0,
+    size            INTEGER,
+    modified        TEXT    NOT NULL,
+    revision        TEXT    NOT NULL,
+    first_seen      TEXT    NOT NULL,
+    last_seen       TEXT    NOT NULL,
+    deleted_at      TEXT,
+    filed_revision  TEXT,
+    artifact_id     INTEGER REFERENCES artifacts(id),
+    sha256          TEXT,
+    attempts        INTEGER NOT NULL DEFAULT 0,
+    last_error      TEXT,
+    PRIMARY KEY (source_id, file_key)
+);
+CREATE INDEX IF NOT EXISTS idx_drive_files_modified ON drive_files(source_id, modified);
+
+-- Per drive: where its incremental listing resumes, and the day of its first
+-- pass, which is its start date (D-083).
+CREATE TABLE IF NOT EXISTS drive_cursors (
+    source_id       TEXT    PRIMARY KEY,
+    cursor          TEXT,
+    started_on      TEXT    NOT NULL,          -- YYYY-MM-DD, America/New_York
+    updated_at      TEXT    NOT NULL
+);
