@@ -127,6 +127,46 @@ def test_cursor_gone_reads_the_http_status():
     assert not gdrive.cursor_gone(ValueError())
 
 
+class HttpErr(Exception):
+    """An exception carrying a fake HTTP response with a status, like HttpError."""
+
+    def __init__(self, status, message=""):
+        super().__init__(message)
+        self.resp = type("Resp", (), {"status": status})()
+
+
+def test_http_status_reads_the_status_or_none():
+    assert gdrive.http_status(HttpErr(410)) == 410
+    assert gdrive.http_status(HttpErr(400)) == 400
+    assert gdrive.http_status(HttpErr("404")) == 404
+    assert gdrive.http_status(HttpErr("oops")) is None
+    assert gdrive.http_status(ValueError()) is None
+
+
+def test_a_parent_folder_that_is_gone_stops_the_path_without_failing():
+    api = FakeAPI()
+    api.pages = [{"files": [dict(LEASE, parents=["GONE"])]}]
+
+    def get_file(file_id):
+        raise HttpErr(404, "File not found")
+
+    api.get_file = get_file
+    listing = drive(api).list(None)
+    assert [f.path for f in listing.files] == ["lease.pdf"]
+
+
+def test_a_folder_lookup_failing_for_another_reason_fails_the_listing():
+    api = FakeAPI()
+    api.pages = [{"files": [LEASE]}]
+
+    def get_file(file_id):
+        raise ConnectionError("network down")
+
+    api.get_file = get_file
+    with pytest.raises(DriveError, match="ConnectionError"):
+        drive(api).list(None)
+
+
 def test_a_revoked_grant_says_how_to_re_authorise():
     api = full_api()
     api.fail = RefreshError("invalid_grant: Token has been expired or revoked.")

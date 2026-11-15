@@ -42,12 +42,16 @@ class CursorExpired(Exception):
     """The stored changes token is no longer valid: list everything again."""
 
 
-def cursor_gone(exc: Exception) -> bool:
+def http_status(exc: Exception) -> int | None:
     status = getattr(getattr(exc, "resp", None), "status", None)
     try:
-        return int(status) == 410
+        return int(status)
     except (TypeError, ValueError):
-        return False
+        return None
+
+
+def cursor_gone(exc: Exception) -> bool:
+    return http_status(exc) == 410
 
 
 def explain(exc: Exception, address: str) -> str:
@@ -105,6 +109,7 @@ class GoogleDriveAPI:
         return _with_backoff(req.execute, note=_note)["startPageToken"]
 
     def list_changes(self, page_token: str) -> dict:
+        """Raises CursorExpired when Google rejects the changes token (400 or 410)."""
         req = self._svc().changes().list(
             pageToken=page_token, includeItemsFromAllDrives=True, supportsAllDrives=True,
             pageSize=1000,
@@ -112,7 +117,7 @@ class GoogleDriveAPI:
         try:
             return _with_backoff(req.execute, note=_note)
         except Exception as exc:
-            if cursor_gone(exc):
+            if cursor_gone(exc) or http_status(exc) == 400:
                 raise CursorExpired() from exc
             raise
 
@@ -211,7 +216,9 @@ class GDrive:
         if folder_id not in self._folders:
             try:
                 self._remember(self.api.get_file(folder_id))
-            except Exception:                                 # noqa: BLE001
+            except Exception as exc:                          # noqa: BLE001
+                if http_status(exc) not in (403, 404):
+                    raise
                 self._folders[folder_id] = None
         return self._folders[folder_id]
 
