@@ -235,46 +235,92 @@ sources:
   - id: storage:icloud-drive
     label: iCloud Drive
     kind: storage
-    account: >-
-      the Mac's iCloud, mattyeps@gmail.com since Matthew moved it (Nov 15,
-      D-082; to be confirmed on the Mac)
-    method: the synced folder on the Mac, read-only
-    permissions: read access under Matthew's macOS user (D-009)
+    account: the Mac's iCloud, mattyeps@gmail.com (D-082)
+    method: >-
+      the iCloud Drive folder on the Mac and the Documents folders of Pages,
+      Numbers, Keynote, Preview and TextEdit, listed without opening files
+      (ops/drives.py, D-083); the LMS folder is skipped. Every file indexed;
+      documents created or changed from the start date filed once unchanged
+      for 24 hours
+    permissions: Full Disk Access for the venv's Python (already granted); read only
     cadence_hours: 3
     status: pending
     requirement: R5
-    blocked_on: >-
-      Not built. The Mac's iCloud moved to mattyeps@gmail.com on Nov 15
-      (D-082), so the account no longer blocks it.
-    gaps: Nothing in his iCloud Drive is read.
+    blocked_on: Built, not switched on (ops/DRIVES_APPLY.md step 2).
+    gaps: >-
+      Documents older than the start date are filed only by a backfill
+      (ops/backfill_drives.py). Files over 100 MB, videos, audio and other
+      non-documents are indexed, not filed.
 
-  - id: storage:google-drive
-    label: Google Drive
+  - id: storage:icloud-archive
+    label: iCloud Drive, saved copies (Jul 30 and Oct 5)
     kind: storage
-    method: Drive API, read-only
-    permissions: drive.readonly per Google account, not yet granted
+    account: the two folders macOS kept in ~/Library/CloudStorage when iCloud was signed out
+    method: listed by ops/drives.py --source storage:icloud-archive, index only (D-083)
+    permissions: Full Disk Access (already granted); read only
+    status: pending
+    requirement: R5
+    blocked_on: Built, not run yet (ops/DRIVES_APPLY.md step 3).
+    gaps: Indexed only; nothing in them is filed.
+
+  - id: storage:gdrive:matthew@mrecai.com
+    label: Google Drive (MRECAI)
+    kind: storage
+    account: matthew@mrecai.com (D-082)
+    method: >-
+      Drive API, read-only (ops/drives.py, D-083): every file in My Drive,
+      shared drives and Shared with me indexed; documents from My Drive and
+      shared drives filed once unchanged for 24 hours; Docs, Sheets and
+      Slides filed as PDF
+    permissions: drive.readonly via the MRECAI Workspace internal app, not yet granted
     cadence_hours: 3
     status: pending
     requirement: R5
-    account: matthew@mrecai.com and matthew@mleca.com (Matthew, Nov 15, D-082)
     blocked_on: >-
-      Not built. Accounts named Nov 15 (D-082); then one read-only Allow per
-      account. Being signed in to Spark grants the LMS nothing.
-    gaps: No Drive file is read.
+      The Drive API and the drive.readonly scope on the MRECAI app, then one
+      Allow by Matthew (ops/DRIVES_APPLY.md step 4).
+    gaps: >-
+      Shared with me is indexed, not filed. Documents older than the start
+      date are filed only by a backfill. Exports over Google's 10 MB limit
+      and files over 100 MB are not filed.
 
-  - id: storage:dropbox
+  - id: storage:gdrive:matthew@mleca.com
+    label: Google Drive (MLECA)
+    kind: storage
+    account: matthew@mleca.com (D-082)
+    method: >-
+      Drive API, read-only (ops/drives.py, D-083): every file in My Drive,
+      shared drives and Shared with me indexed; documents from My Drive and
+      shared drives filed once unchanged for 24 hours; Docs, Sheets and
+      Slides filed as PDF
+    permissions: drive.readonly via the MLECA Workspace internal app, not yet granted
+    cadence_hours: 3
+    status: pending
+    requirement: R5
+    blocked_on: >-
+      The Drive API and the drive.readonly scope on the MLECA app, then one
+      Allow by Matthew (ops/DRIVES_APPLY.md step 4).
+    gaps: >-
+      Shared with me is indexed, not filed. Documents older than the start
+      date are filed only by a backfill. Exports over Google's 10 MB limit
+      and files over 100 MB are not filed.
+
+  - id: storage:dropbox:matthew@mrecai.com
     label: Dropbox
     kind: storage
-    method: Dropbox API, read-only
-    permissions: Dropbox read scope, not yet granted
+    account: matthew@mrecai.com (D-082)
+    method: >-
+      Dropbox API, read-only (ops/drives.py, D-083): every file indexed;
+      documents filed once unchanged for 24 hours
+    permissions: files.metadata.read, files.content.read, account_info.read; not yet granted
     cadence_hours: 3
     status: pending
     requirement: R5
-    account: matthew@mrecai.com (Matthew, Nov 15, D-082)
     blocked_on: >-
-      Not built. Account named Nov 15 (D-082); then one read-only Allow.
-      Being signed in to Spark grants the LMS nothing.
-    gaps: No Dropbox file is read.
+      A Dropbox app, then one Allow by Matthew (ops/DRIVES_APPLY.md step 5).
+    gaps: >-
+      Documents older than the start date are filed only by a backfill.
+      Files over 100 MB are not filed.
 
   # -------------------------------------------------------------------------
   # Capture — pushed to us, so there is no interval to miss

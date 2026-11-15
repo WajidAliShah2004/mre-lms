@@ -454,6 +454,8 @@ WATCHED_JOBS: dict[str, tuple[str, int]] = {
     "WHATSAPP_CHECKED": ("whatsapp", 3),
     # iMessage and texts (R2, D-081): hourly; every pass writes a row.
     "IMESSAGE_CHECKED": ("imessage", 3),
+    # The drive readers (R5, D-083): every 3 hours; every pass writes a row.
+    "DRIVES_CHECKED":   ("drives", 7),
 }
 
 # Jobs that also record their own failure. While the failure row is newer than
@@ -468,6 +470,7 @@ JOB_FAILURES: dict[str, str] = {
     "NOTIFY_FAILED":       "NOTIFY_CHECKED",
     "WHATSAPP_FAILED":     "WHATSAPP_CHECKED",
     "IMESSAGE_FAILED":     "IMESSAGE_CHECKED",
+    "DRIVES_FAILED":       "DRIVES_CHECKED",
 }
 
 

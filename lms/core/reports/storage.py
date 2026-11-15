@@ -189,6 +189,39 @@ class StorageReport:
         return sum(t.bytes or 0 for t in self.managed)
 
 
+# Drives are read in place by read-only readers (D-083); what they hold is
+# measured from the index the readers keep, not from the archive.
+DRIVE_WHERE = "a drive, read in place by a read-only reader (D-083); originals stay there"
+
+
+def drive_tree(conn, source_id: str) -> Tree:
+    """What a drive holds, from its index."""
+    r = conn.execute(
+        "SELECT COUNT(*) AS n, COALESCE(SUM(size), 0) AS b, "
+        "COALESCE(SUM(size IS NULL), 0) AS u FROM drive_files "
+        "WHERE source_id = ? AND deleted_at IS NULL", (source_id,)).fetchone()
+    note = "from the drive index"
+    if r["u"]:
+        note += (f"; {r['u']} file(s) have no size (Google Docs, iCloud placeholders) "
+                 "and are not in the total")
+    return Tree(f"{source_id} (indexed)", None, files=int(r["n"]), bytes=int(r["b"]),
+                note=note)
+
+
+def drive_reclaim(conn, source_id: str, filed_shas: set[str]) -> Reclaim:
+    n = size = 0
+    for r in conn.execute(
+            "SELECT sha256, size FROM drive_files WHERE source_id = ? AND deleted_at IS NULL "
+            "AND sha256 IS NOT NULL AND filed_revision = revision", (source_id,)):
+        if r["sha256"] in filed_shas:
+            n += 1
+            size += int(r["size"] or 0)
+    return Reclaim(f"{source_id} — drive files whose current bytes are filed", n, size,
+                   "sha256 recorded when the reader fetched them; files never fetched "
+                   f"are {NOT_MEASURED}. Not removable from here: the drive readers "
+                   "are read-only")
+
+
 # ---------------------------------------------------------------------------
 # Exact duplicates (already collapsed at ingest; counted here)
 # ---------------------------------------------------------------------------
@@ -344,9 +377,13 @@ def source_lines(conn, dedup: ExactDedup) -> list[SourceLine]:
             "SUM(byte_size IS NULL) AS u "
             "FROM artifacts WHERE status != 'DUPLICATE' GROUP BY source ORDER BY source"):
         lines[r["source"]] = SourceLine(
-            source=r["source"], where=WHERE.get(r["source"], "not described"),
+            source=r["source"],
+            where=WHERE.get(r["source"], DRIVE_WHERE if r["source"].startswith("storage:")
+                            else "not described"),
             artifacts=int(r["n"]), bytes=int(r["b"]), filed=int(r["f"] or 0),
             filed_bytes=int(r["fb"]), unsized=int(r["u"] or 0))
+    for r in conn.execute("SELECT DISTINCT source_id FROM drive_files ORDER BY source_id"):
+        lines.setdefault(r["source_id"], SourceLine(source=r["source_id"], where=DRIVE_WHERE))
     for g in dedup.groups:
         for source, _ref, _seen in g.locations:
             line = lines.setdefault(source, SourceLine(
@@ -378,6 +415,8 @@ def build_report(conn, roots, *, inbox: Path | None = None,
             s.at_source = Tree("Gmail", None, note=(
                 f"{NOT_MEASURED}: Gmail's storage of the original message is not "
                 "visible through a read-only grant"))
+        elif s.source.startswith("storage:"):
+            s.at_source = drive_tree(conn, s.source)
         else:
             s.at_source = Tree(s.source, None, note=f"{NOT_MEASURED}: no reader "
                                                     "for this source's storage")
@@ -386,9 +425,7 @@ def build_report(conn, roots, *, inbox: Path | None = None,
         if s.unsized:
             checks.append(f"{s.unsized} {s.source} artifact(s) have no recorded "
                           "size; their bytes are missing from the totals above")
-    not_measured.append(
-        "sources not connected yet (Dropbox, the wider iCloud Drive, the managed "
-        "OpenClaw root — R24): " + NOT_MEASURED)
+    not_measured.append("the managed OpenClaw root (R24), not built: " + NOT_MEASURED)
 
     # ---- what the LMS holds ------------------------------------------------
     docs, side = measure_archive(roots.archive)
@@ -449,6 +486,9 @@ def build_report(conn, roots, *, inbox: Path | None = None,
                            f"{NOT_MEASURED}: and not removable — the grant is "
                            "read-only (D-039)"))
     not_measured.append("Gmail originals — reclaimable bytes " + NOT_MEASURED)
+    for s in sources:
+        if s.source.startswith("storage:"):
+            reclaim.append(drive_reclaim(conn, s.source, filed_shas))
 
     # LMS-internal copies are not "originals", and are kept apart so the two
     # numbers cannot be added together by accident.
