@@ -258,10 +258,11 @@ sources:
     account: the two folders macOS kept in ~/Library/CloudStorage when iCloud was signed out
     method: listed by ops/drives.py --source storage:icloud-archive, index only (D-083)
     permissions: Full Disk Access (already granted); read only
-    status: pending
+    status: active
     requirement: R5
-    blocked_on: Built, not run yet (ops/DRIVES_APPLY.md step 3).
-    gaps: Indexed only; nothing in them is filed.
+    gaps: >-
+      Indexed only, once (Nov 15: 244,756 files); nothing in them is filed.
+      Run again by hand only if the copies change.
 
   - id: storage:gdrive:matthew@mrecai.com
     label: Google Drive (MRECAI)
