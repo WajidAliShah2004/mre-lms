@@ -244,13 +244,13 @@ sources:
       for 24 hours
     permissions: Full Disk Access for the venv's Python (already granted); read only
     cadence_hours: 3
-    status: pending
+    status: active
     requirement: R5
-    blocked_on: Built, not switched on (ops/DRIVES_APPLY.md step 2).
     gaps: >-
-      Documents older than the start date are filed only by a backfill
-      (ops/backfill_drives.py). Files over 100 MB, videos, audio and other
-      non-documents are indexed, not filed.
+      Documents older than the start date (Nov 15 2026) are filed only by a
+      backfill (ops/backfill_drives.py). Files over 100 MB, videos, audio and
+      other non-documents are indexed, not filed. A file dated in the future
+      (one is dated 2086) never settles, so it is never filed.
 
   - id: storage:icloud-archive
     label: iCloud Drive, saved copies (Jul 30 and Oct 5)
