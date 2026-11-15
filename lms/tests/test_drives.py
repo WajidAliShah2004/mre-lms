@@ -11,6 +11,7 @@ from core.adapters.lmstudio import Completion
 from core.db import database as db
 from core.pipeline import drives, filing
 from core.pipeline.classify import Classifier
+from core.pipeline.ingest import IngestResult
 from core.pipeline.registry import load_registry
 from tests.drive_fixture import SID, FakeDrive
 
@@ -245,3 +246,38 @@ def test_choose_narrows_by_dates_and_folder_for_the_backfill(conn, pipe):
 def test_when_reads_z_and_offsets():
     assert drives.when("2026-11-18T14:00:00Z").isoformat() == "2026-11-18T14:00:00+00:00"
     assert drives.local_day(drives.when("2026-11-18T03:00:00Z")) == "2026-11-17"
+
+
+def test_files_sent_to_review_are_counted_apart_and_not_retried(conn, pipe):
+    import hashlib
+    begin(conn)
+    d = FakeDrive()
+    body = b"Something the classifier doubts"
+    d.put("odd.txt", body, modified="2026-11-17T09:00:00-05:00")
+    stub = lambda *a, **kw: IngestResult(sha256=hashlib.sha256(body).hexdigest(),
+                                         status="QUARANTINED")
+    r = run(conn, pipe, source(d), ingest=stub)
+    assert (r.filed, r.review) == (0, 1)
+    assert row(conn, "odd.txt")["filed_revision"] == row(conn, "odd.txt")["revision"]
+    assert "1 to review" in r.summary()
+    run(conn, pipe, source(d), ingest=stub)
+    assert d.fetched == ["odd.txt"]
+
+
+def test_a_fetched_path_outside_the_temp_directory_is_refused(conn, pipe, tmp_path):
+    begin(conn)
+
+    class Careless(FakeDrive):
+        def fetch(self, f, dest_dir):
+            out = tmp_path / "drive" / f.name
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_bytes(self.data[f.file_key])
+            return out
+
+    d = Careless()
+    d.put("a.txt", b"The original, in the drive", modified="2026-11-17T09:00:00-05:00")
+    calls = []
+    r = run(conn, pipe, source(d), ingest=lambda *a, **kw: calls.append(a))
+    assert (r.result, r.failed) == ("PARTIAL", 1)
+    assert (tmp_path / "drive" / "a.txt").read_bytes() == b"The original, in the drive"
+    assert calls == []

@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Callable
 from zoneinfo import ZoneInfo
 
-from ..adapters.drive import DriveFile, Fetcher, Lister
+from ..adapters.drive import DriveFile, FetchError, Fetcher, Lister
 from ..db import database as db
 from . import coverage
 from .classify import Artifact
@@ -68,6 +68,7 @@ class PassResult:
     full: bool = False
     filed: int = 0
     duplicates: int = 0
+    review: int = 0
     failed: int = 0
     too_large: int = 0
     error: str | None = None
@@ -85,6 +86,8 @@ class PassResult:
         s = (f"{self.listed} file(s) listed ({'full' if self.full else 'changes'}): "
              f"{self.new} new, {self.changed} changed, {self.deleted} deleted; "
              f"{self.filed} filed, {self.duplicates} already in the archive")
+        if self.review:
+            s += f", {self.review} to review"
         if self.too_large:
             s += f", {self.too_large} over 100 MB not filed"
         if self.failed:
@@ -234,6 +237,8 @@ def file_rows(src: DriveSource, conn: sqlite3.Connection, roots, registry, class
         work = Path(tempfile.mkdtemp(prefix="file-", dir=tmp))
         try:
             copy = src.fetcher.fetch(f, work)
+            if not Path(copy).resolve().is_relative_to(work.resolve()):
+                raise FetchError(f"{f.path}: the reader returned a path outside its temp directory")
             art = Artifact(source=src.source_id, source_ref=ref,
                            subject=f"{src.label}: {f.path}",
                            received_date=local_day(when(f.modified)))
@@ -259,6 +264,8 @@ def file_rows(src: DriveSource, conn: sqlite3.Connection, roots, registry, class
         conn.commit()
         if res.status == "DUPLICATE":
             result.duplicates += 1
+        elif res.status in ("QUARANTINED", "SUSPECTED_PHISHING"):
+            result.review += 1
         else:
             result.filed += 1
         done += 1
