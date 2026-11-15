@@ -896,7 +896,14 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 | Spark | Spark on the Mac has all his accounts | **The LMS does not read through Spark.** Mail is read by its own read-only Gmail grants; Spark's sign-ins grant the LMS nothing, and nothing needs to change in Spark |
 | Storage | iCloud; Google Drive `matthew@mrecai.com` and `matthew@mleca.com`; Dropbox `matthew@mrecai.com`; "all signed in" | R5's accounts are named. No Drive, Dropbox or iCloud Drive reader is built yet; each then needs one read-only Allow by him |
 
-Not answered: Text Message Forwarding (R2), the photo Shortcut install (R4), the ChatGPT files and account (R23), the routine-actions call (X1), the Atlase product names (X3), the Backblaze bucket and D-012 sign-off (R29).
+**Checked on the Mac, Nov 14–15:**
+- **Apple Account:** System Settings shows `mattyeps@gmail.com`, **iCloud+ 12 TB** (3.3 TB used), Messages in iCloud on (138.6 GB), iCloud Drive 1.6 TB, Photos 60,185 items, **Advanced Data Protection off** (on the old account it was on; his call). A one-off "can't connect to iCloud" alert and a "not subscribed to iCloud+" notice were stale; the iCloud page showed no problem. `defaults read MobileMeAccounts` no longer works on this macOS and is not a check.
+- **iMessage probe:** 240,884 messages (iMessage 211,006, SMS 26,066, RCS 3,812); newest iMessage and SMS Nov 15, RCS Nov 14, so Messages is signed in and SMS arrives. 6,662 texts only in `attributedBody`, all decoded; 3,762 link previews skipped; 1,502 contacts read; no chat identifier split across rows. **Only 666 of 13,858 attachment files are on the Mac**: Messages in iCloud keeps the rest in iCloud until opened, so most attachments will be listed, not filed. `chat.db` is 419 MB; 367 GB free on the internal disk.
+- **iCloud Drive:** `LMS` exists in the new account's iCloud Drive; the watcher was restarted.
+- **Calls in the archive** (files mentioning each sender, by entity folder): Google Voice (`voice-noreply@google.com`) MLECA 3, MRECAI 2; Grasshopper MLECA 2, MRECAI 75; **Epocra** MLECA 39, MRECAI 1. "Epocra" is the sender's real name. Whether these hold transcripts or audio is the next check.
+- `git pull` on the Mac asked for a GitHub login once, then worked over HTTPS. A read-only deploy key was generated (`~/.ssh/lms_deploy`) and is not in use.
+
+Not answered: the photo Shortcut install (R4), the ChatGPT files and account (R23), the routine-actions call (X1), the Atlase product names (X3), the Backblaze bucket and D-012 sign-off (R29).
 
 ### D-081 — iMessage and texts are read from the Mac's chat.db through a chat-day engine shared with WhatsApp
 **Status:** Decided Nov 7 2026 · designed and approved with the developer · R2, R7, R16 · spec [docs/superpowers/specs/2026-11-07-imessage-reader-design.md](docs/superpowers/specs/2026-11-07-imessage-reader-design.md) · plan [docs/superpowers/plans/2026-11-07-imessage-reader.md](docs/superpowers/plans/2026-11-07-imessage-reader.md)

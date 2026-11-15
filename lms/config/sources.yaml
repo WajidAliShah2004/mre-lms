@@ -161,18 +161,18 @@ sources:
     kind: calls
     method: >-
       none of its own. Matthew, Nov 15 (D-082): calls and voicemail come from
-      Google Voice, Grasshopper and "Epocra" (his spelling, unconfirmed), and
-      all of them email a business mailbox. Every business mailbox is
-      already polled, so those emails are filed; whether they carry the
-      transcript text or the audio is not yet checked.
+      Google Voice, Grasshopper and Epocra, and all of them email a business
+      mailbox. Every business mailbox is already polled, so those emails are
+      filed (archive, Nov 15: Grasshopper 77, mostly MRECAI; Epocra 40,
+      mostly MLECA; Google Voice 5); whether they carry the transcript text
+      or the audio is not yet checked.
     permissions: none beyond the mailboxes' gmail.readonly
     cadence_hours: null
     status: pending
     requirement: R3
     blocked_on: >-
-      Check on the Mac which mailbox receives the Google Voice, Grasshopper
-      and Epocra emails and whether they hold the transcript or an audio
-      attachment (D-082). Confirm the name "Epocra".
+      Check on the Mac whether the Google Voice, Grasshopper and Epocra
+      emails hold the transcript or an audio attachment (D-082).
     gaps: >-
       A call without a transcript proves contact occurred, not what was
       promised (§6). Nothing promised on a call is captured.
