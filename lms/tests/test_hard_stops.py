@@ -277,6 +277,15 @@ EXEMPT = {
         "read-only by construction (D-079, D-081). Leaving it would grow disk "
         "use every hour and keep plaintext copies of messages on disk."
     ),
+    ("pipeline/drives.py", "shutil.rmtree"): (
+        "run_pass and file_rows remove only their own scratch directories: "
+        "the exact paths tempfile.mkdtemp returned under tmp_root in the same "
+        "call. They hold only the fetcher's copies of drive files, which "
+        "ingest_file then moves into the archive. Nothing in a drive, the "
+        "archive or _originals is ever removed: every drive reader is "
+        "read-only by construction (D-083). Leaving them would keep plaintext "
+        "copies of documents on disk after every pass."
+    ),
 }
 
 
