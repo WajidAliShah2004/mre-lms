@@ -123,17 +123,13 @@ sources:
       with Messages in iCloud on. Nothing is written to Messages and nothing
       is sent
     cadence_hours: 1
-    status: blocked
+    status: active
     requirement: R2
-    blocked_on: >-
-      Messages on the Mac has been signed out since Oct 5 (D-068, Nov 7
-      probe). Matthew signs it in with the account his iPhone uses and turns
-      on Messages in iCloud; then ops/IMESSAGE_APPLY.md installs the reader.
-      Scope is all chats, hourly (D-065).
     gaps: >-
       Only what this Mac's Messages holds; nothing while it is signed out.
       Videos are listed, not filed. Attachments not on the Mac are listed,
-      not filed. A message deleted after filing stays filed. The hourly job
+      not filed, and make the pass PARTIAL: with Messages in iCloud most
+      older attachments stay in iCloud (666 of 13,858 on the Mac, Nov 15). A message deleted after filing stays filed. The hourly job
       reads the last 3 days; a message that reaches the Mac later is filed
       only by a backfill run. A pass with nothing newer than 48 hours is
       PARTIAL.
@@ -147,11 +143,8 @@ sources:
       Message Forwarding is on; each iMessage pass records this line too
     permissions: Text Message Forwarding on the iPhone for this Mac
     cadence_hours: 1
-    status: blocked
+    status: active
     requirement: R2
-    blocked_on: >-
-      The iMessage reader's install (messages:imessage), and Matthew turning
-      on Text Message Forwarding for the Mac Studio.
     gaps: >-
       SMS and RCS only while Text Message Forwarding is on: a pass where
       iMessage arrives and no SMS or RCS has for 7 days is PARTIAL.
@@ -171,8 +164,10 @@ sources:
     status: pending
     requirement: R3
     blocked_on: >-
-      Check on the Mac whether the Google Voice, Grasshopper and Epocra
-      emails hold the transcript or an audio attachment (D-082).
+      Epocra emails carry transcripts; Grasshopper and Google Voice send
+      notices only, with no audio (D-082). Matthew: Grasshopper
+      voicemail-to-email with audio or transcription, and Google Voice
+      "Get voicemail via email".
     gaps: >-
       A call without a transcript proves contact occurred, not what was
       promised (§6). Nothing promised on a call is captured.

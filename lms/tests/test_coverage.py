@@ -75,9 +75,9 @@ def test_imessage_and_sms_are_listed_with_their_reader_and_read_hourly():
     assert "chat.db" in im.method and "ops/imessage.py" in im.method
     assert "chat.db" in sms.method
     assert im.cadence_hours == sms.cadence_hours == 1
-    # Built, not installed: Messages on the Mac is signed out (D-068).
-    assert im.status == "blocked" and "signed out" in im.blocked_on
-    assert "Text Message Forwarding" in sms.blocked_on
+    # Installed Nov 15 (D-082): first pass 195 messages, SMS line OK.
+    assert im.status == sms.status == "active"
+    assert "Text Message Forwarding" in sms.gaps
 
 
 @pytest.mark.parametrize("raw,why", [

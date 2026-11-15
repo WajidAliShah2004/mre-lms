@@ -903,7 +903,10 @@ auth["dmarc_none"] = seen.get("dmarc") == "none"             # right
 - **Calls in the archive** (files mentioning each sender, by entity folder): Google Voice (`voice-noreply@google.com`) MLECA 3, MRECAI 2; Grasshopper MLECA 2, MRECAI 75; **Epocra** MLECA 39, MRECAI 1. "Epocra" is the sender's real name. Whether these hold transcripts or audio is the next check.
 - `git pull` on the Mac asked for a GitHub login once, then worked over HTTPS. A read-only deploy key was generated (`~/.ssh/lms_deploy`) and is not in use.
 
-Not answered: the photo Shortcut install (R4), the ChatGPT files and account (R23), the routine-actions call (X1), the Atlase product names (X3), the Backblaze bucket and D-012 sign-off (R29).
+- **iMessage installed, Nov 15:** the Oct 6 to Nov 15 gap synced back (every day has messages; count steady at 240,884). 90-day backfill started; hourly job `com.lms.imessage` installed, first pass 195 messages, 34 chat days filed, 0 alerts, PARTIAL only for 11 attachments not on the Mac; `messages:sms` OK (newest SMS Nov 14), so Text Message Forwarding is on. `messages:imessage` and `messages:sms` set **active**. A backfill and the hourly job can overlap safely (a chat day filed twice is a duplicate), but two backfills at once only compete for the model.
+- **Calls, transcripts:** Epocra emails carry a transcript in 19 of 40; Grasshopper 1 of 77; Google Voice 0 of 5. No voicemail audio anywhere in the LMS (the archive, review queue and originals hold none), so Grasshopper and Google Voice send notices only. Content needs Matthew's settings: Grasshopper voicemail-to-email with audio or transcription, Google Voice "Get voicemail via email".
+
+Not answered: Grasshopper and Google Voice voicemail settings (R3), the photo Shortcut install (R4), the ChatGPT files and account (R23), the routine-actions call (X1), the Atlase product names (X3), the Backblaze bucket and D-012 sign-off (R29).
 
 ### D-081 — iMessage and texts are read from the Mac's chat.db through a chat-day engine shared with WhatsApp
 **Status:** Decided Nov 7 2026 · designed and approved with the developer · R2, R7, R16 · spec [docs/superpowers/specs/2026-11-07-imessage-reader-design.md](docs/superpowers/specs/2026-11-07-imessage-reader-design.md) · plan [docs/superpowers/plans/2026-11-07-imessage-reader.md](docs/superpowers/plans/2026-11-07-imessage-reader.md)
