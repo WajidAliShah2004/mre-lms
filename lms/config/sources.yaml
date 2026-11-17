@@ -294,17 +294,14 @@ sources:
       shared drives and Shared with me indexed; documents from My Drive and
       shared drives filed once unchanged for 24 hours; Docs, Sheets and
       Slides filed as PDF
-    permissions: drive.readonly via the MLECA Workspace internal app, not yet granted
+    permissions: drive.readonly via the MLECA Workspace internal app, granted Nov 17
     cadence_hours: 3
-    status: pending
+    status: active
     requirement: R5
-    blocked_on: >-
-      The Drive API and the drive.readonly scope on the MLECA app, then one
-      Allow by Matthew (ops/DRIVES_APPLY.md step 4).
     gaps: >-
       Shared with me is indexed, not filed. Documents older than the start
-      date are filed only by a backfill. Exports over Google's 10 MB limit
-      and files over 100 MB are not filed.
+      date (Nov 17 2026) are filed only by a backfill. Exports over Google's
+      10 MB limit and files over 100 MB are not filed.
 
   - id: storage:dropbox:matthew@mrecai.com
     label: Dropbox
