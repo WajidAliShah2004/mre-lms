@@ -14,7 +14,10 @@ class RefreshError(Exception):
 
 class FakeAPI:
     def __init__(self):
-        self.pages = []
+        self.pages = []              # My Drive and "Shared with me"
+        self.drives = []             # [{"id", "name"}]
+        self.drive_pages = {}        # drive id -> pages
+        self.listed = []             # (page token, drive id) per list_files call
         self.changes = {}
         self.start = "s1"
         self.meta = {"root": {"id": "root", "name": "My Drive"},
@@ -24,12 +27,17 @@ class FakeAPI:
         self.email = "matthew@mrecai.com"
         self.fail = None
 
-    def list_files(self, page_token):
+    def list_drives(self):
         if self.fail:
             raise self.fail
+        return list(self.drives)
+
+    def list_files(self, page_token, drive_id=None):
+        self.listed.append((page_token, drive_id))
+        pages = self.drive_pages.get(drive_id, []) if drive_id else self.pages
         i = int(page_token or 0)
-        page = dict(self.pages[i])
-        if i + 1 < len(self.pages):
+        page = dict(pages[i]) if pages else {"files": []}
+        if i + 1 < len(pages):
             page["nextPageToken"] = str(i + 1)
         return page
 
@@ -69,13 +77,16 @@ CLIENTS = {"id": "F1", "name": "Clients", "mimeType": gdrive.FOLDER, "parents": 
            "modifiedTime": "2026-01-01T00:00:00.000Z", "ownedByMe": True}
 
 
-def drive(api):
-    return gdrive.GDrive("storage:gdrive:matthew@mrecai.com", "matthew@mrecai.com", api)
+def drive(api, note=None):
+    return gdrive.GDrive("storage:gdrive:matthew@mrecai.com", "matthew@mrecai.com", api,
+                         note=note or (lambda m: None))
 
 
 def full_api():
     api = FakeAPI()
-    api.pages = [{"files": [CLIENTS, LEASE, NOTES]}, {"files": [POLICY, QUOTE]}]
+    api.pages = [{"files": [CLIENTS, LEASE, NOTES]}, {"files": [QUOTE]}]
+    api.drives = [{"id": "SD1", "name": "MRECAI Team"}]
+    api.drive_pages = {"SD1": [{"files": [POLICY]}]}
     return api
 
 
@@ -203,6 +214,89 @@ def test_an_incomplete_full_listing_is_an_error():
     api.pages[1] = dict(api.pages[1], incompleteSearch=True)
     with pytest.raises(DriveError, match="incomplete"):
         drive(api).list(None)
+
+
+def test_an_incomplete_shared_drive_listing_is_an_error():
+    api = full_api()
+    api.drive_pages["SD1"] = [{"files": [POLICY], "incompleteSearch": True}]
+    with pytest.raises(DriveError, match="incomplete"):
+        drive(api).list(None)
+
+
+def test_each_shared_drive_is_listed_on_its_own():
+    """Nov 17: one allDrives listing across 59 shared drives never returned."""
+    api = full_api()
+    api.drives.append({"id": "SD2", "name": "Archive"})
+    api.drive_pages["SD2"] = [{"files": [dict(POLICY, id="S2", driveId="SD2",
+                                              parents=["SD2"])]}, {"files": []}]
+    del api.meta["SD1"]          # the drive's name comes from the drive list
+    by = {f.file_key: f for f in drive(api).list(None).files}
+    assert by["S"].path == "MRECAI Team/policy.pdf"
+    assert by["S2"].path == "Archive/policy.pdf"
+    assert [d for _, d in api.listed] == [None, None, "SD1", "SD2", "SD2"]
+
+
+def test_a_file_in_two_listings_is_one_file():
+    api = full_api()
+    api.pages = [{"files": [CLIENTS, LEASE, POLICY]}]
+    files = drive(api).list(None).files
+    assert sorted(f.file_key for f in files) == ["A", "S"]
+
+
+def test_the_listing_reports_progress_in_counts_only():
+    notes = []
+    drive(full_api(), note=notes.append).list(None)
+    assert notes == [
+        "Google Drive matthew@mrecai.com: My Drive and shared with me listed, "
+        "3 file(s) so far",
+        "Google Drive matthew@mrecai.com: shared drive 1 of 1 listed, 4 file(s) so far"]
+
+
+class FakeRequest:
+    def __init__(self, result):
+        self.result = result
+
+    def execute(self):
+        return self.result
+
+
+class FakeService:
+    """Records the arguments the real API object sends to Google."""
+
+    def __init__(self):
+        self.calls = []
+        self.drive_pages = [{"drives": [{"id": "SD1", "name": "A"}], "nextPageToken": "t"},
+                            {"drives": [{"id": "SD2", "name": "B"}]}]
+
+    def files(self):
+        return self
+
+    def drives(self):
+        outer = self
+
+        class Drives:
+            def list(self, **kw):
+                outer.calls.append(("drives", kw))
+                return FakeRequest(outer.drive_pages[1 if kw.get("pageToken") else 0])
+        return Drives()
+
+    def list(self, **kw):
+        self.calls.append(("files", kw))
+        return FakeRequest({"files": []})
+
+
+def test_the_real_api_never_lists_all_drives_in_one_request():
+    api = gdrive.GoogleDriveAPI(credentials=None)
+    svc = api._service = FakeService()
+    assert [d["id"] for d in api.list_drives()] == ["SD1", "SD2"]
+    api.list_files(None)
+    api.list_files("p2", "SD1")
+    files = [kw for kind, kw in svc.calls if kind == "files"]
+    assert all(kw["corpora"] != "allDrives" for kw in files)
+    assert files[0]["corpora"] == "user" and "driveId" not in files[0]
+    assert (files[1]["corpora"], files[1]["driveId"], files[1]["pageToken"]) == \
+        ("drive", "SD1", "p2")
+    assert files[1]["supportsAllDrives"] and files[1]["includeItemsFromAllDrives"]
 
 
 def test_a_shortcut_is_not_a_document_but_a_native_doc_is():

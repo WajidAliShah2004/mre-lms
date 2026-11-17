@@ -6,10 +6,17 @@ that would create, change, move, share or delete one. It is stored apart
 from the account's Gmail grant (lms/gdrive-oauth/<address>), so each grant
 stays as narrow as its job (ops/authorise_gdrive.py).
 
-The first listing reads every file in My Drive, the shared drives and
-"Shared with me", and takes a changes token first so nothing changed during
-the listing is missed. Later listings read only the changes since that
-token. Google Docs, Sheets and Slides have no file of their own: fetching
+The first listing reads every file in My Drive and "Shared with me", then
+each shared drive on its own, and takes a changes token first so nothing
+changed during the listing is missed. Later listings read only the changes
+since that token.
+
+Not one corpora=allDrives listing: Google warns it can be slow, and for
+matthew@mrecai.com (59 shared drives) its first 1000-file page never came
+back (Nov 17), while a page of each corpus alone took under a second. A
+shared-drive file shared with him from a drive he is not a member of is the
+one thing the per-drive listing misses; "Shared with me" is indexed only,
+never filed (D-083), so nothing that would be filed is lost. Google Docs, Sheets and Slides have no file of their own: fetching
 one exports it as PDF (Google allows up to 10 MB per export).
 
 The Google libraries are imported lazily, as in gmail.py: this file must
@@ -71,7 +78,8 @@ def _iso(value: str) -> str:
 
 
 class DriveAPI(Protocol):
-    def list_files(self, page_token: str | None) -> dict: ...
+    def list_drives(self) -> list[dict]: ...
+    def list_files(self, page_token: str | None, drive_id: str | None = None) -> dict: ...
     def start_page_token(self) -> str: ...
     def list_changes(self, page_token: str) -> dict: ...
     def get_file(self, file_id: str) -> dict: ...
@@ -97,11 +105,30 @@ class GoogleDriveAPI:
                                   cache_discovery=False)
         return self._service
 
-    def list_files(self, page_token: str | None) -> dict:
+    def list_drives(self) -> list[dict]:
+        """The shared drives he is a member of: id and name."""
+        drives: list[dict] = []
+        token = None
+        while True:
+            req = self._svc().drives().list(pageSize=100, pageToken=token,
+                                            fields="nextPageToken, drives(id,name)")
+            page = _with_backoff(req.execute, note=_note)
+            drives.extend(page.get("drives", []))
+            token = page.get("nextPageToken")
+            if not token:
+                return drives
+
+    def list_files(self, page_token: str | None, drive_id: str | None = None) -> dict:
+        """One page of My Drive and "Shared with me" (drive_id None), or of
+        one shared drive."""
+        if drive_id:
+            where = dict(corpora="drive", driveId=drive_id,
+                         includeItemsFromAllDrives=True, supportsAllDrives=True)
+        else:
+            where = dict(corpora="user")
         req = self._svc().files().list(
-            corpora="allDrives", includeItemsFromAllDrives=True, supportsAllDrives=True,
             q="trashed = false", pageSize=1000, pageToken=page_token,
-            fields=f"nextPageToken, incompleteSearch, files({FIELDS})")
+            fields=f"nextPageToken, incompleteSearch, files({FIELDS})", **where)
         return _with_backoff(req.execute, note=_note)
 
     def start_page_token(self) -> str:
@@ -150,10 +177,13 @@ class GoogleDriveAPI:
 class GDrive:
     """One account's Drive, as a Lister and a Fetcher."""
 
-    def __init__(self, source_id: str, address: str, api: DriveAPI) -> None:
+    def __init__(self, source_id: str, address: str, api: DriveAPI, *, note=None) -> None:
         self.source_id = source_id
         self.address = address
         self.api = api
+        # Progress of a full listing, counts only: a listing of a few hundred
+        # thousand files is minutes of silence otherwise, and looks like a hang.
+        self.note = note or (lambda m: print(m, file=sys.stderr, flush=True))
         self._folders: dict[str, tuple[str, str | None] | None] = {}
 
     def list(self, cursor: str | None) -> Listing:
@@ -171,11 +201,28 @@ class GDrive:
 
     def _full(self) -> Listing:
         start = self.api.start_page_token()
-        items: list[dict] = []
+        items: dict[str, dict] = {}
         self._folders = {}
+        drives = self.api.list_drives()
+        for d in drives:
+            # A shared drive's root folder has the drive's id; its name is the
+            # drive's name, the first part of every path in it.
+            self._folders[d["id"]] = (d.get("name") or d["id"], None)
+        self._corpus(None, items)
+        self.note(f"Google Drive {self.address}: My Drive and shared with me listed, "
+                  f"{len(items)} file(s) so far")
+        for n, d in enumerate(drives, 1):
+            self._corpus(d["id"], items)
+            self.note(f"Google Drive {self.address}: shared drive {n} of {len(drives)} "
+                      f"listed, {len(items)} file(s) so far")
+        return Listing(tuple(self._file(i) for i in items.values()), (), full=True,
+                       cursor=start)
+
+    def _corpus(self, drive_id: str | None, items: dict[str, dict]) -> None:
         token = None
+        pages = 0
         while True:
-            page = self.api.list_files(token)
+            page = self.api.list_files(token, drive_id)
             if page.get("incompleteSearch"):
                 raise DriveError(
                     f"Google Drive returned an incomplete listing for {self.address} "
@@ -184,11 +231,13 @@ class GDrive:
                 if item.get("mimeType") == FOLDER:
                     self._remember(item)
                 else:
-                    items.append(item)
+                    items[item["id"]] = item     # in two listings, it is one file
             token = page.get("nextPageToken")
             if not token:
-                break
-        return Listing(tuple(self._file(i) for i in items), (), full=True, cursor=start)
+                return
+            pages += 1
+            if pages % 10 == 0:
+                self.note(f"Google Drive {self.address}: {len(items)} file(s) so far")
 
     def _changes(self, cursor: str) -> Listing:
         items: list[dict] = []
