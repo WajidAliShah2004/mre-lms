@@ -180,6 +180,13 @@ def test_poll_mail_sets_a_network_timeout():
     assert "socket.setdefaulttimeout(" in src
 
 
+def test_the_drive_scripts_set_a_network_timeout():
+    """The same httplib2 trap for Google Drive (Nov 17: a probe sat silent)."""
+    ops = Path(__file__).resolve().parents[1] / "ops"
+    for name in ("drives.py", "backfill_drives.py"):
+        assert "socket.setdefaulttimeout(" in (ops / name).read_text(encoding="utf-8"), name
+
+
 # --- Oct 3: more than one mailbox -------------------------------------------
 
 def _registry_with(*emails):

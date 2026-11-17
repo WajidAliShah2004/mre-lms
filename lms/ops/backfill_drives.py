@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import os
 import shutil
+import socket
 import sys
 import tempfile
 from datetime import date, datetime
@@ -78,6 +79,7 @@ def _day(value: str) -> str:
 
 def main() -> int:
     ensure_venv("LMS_BACKFILL_DRIVES_REEXEC", script=__file__)
+    socket.setdefaulttimeout(120)     # as drives.py: httplib2 has none otherwise
     load_lms_env()
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)

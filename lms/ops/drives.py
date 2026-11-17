@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import socket
 import subprocess
 import sys
 from collections import Counter
@@ -185,6 +186,11 @@ def run(conn, roots, registry, classifier, sids: list[str], now: datetime, *,
 
 def main() -> int:
     ensure_venv("LMS_DRIVES_REEXEC", script=__file__)
+    # The Google client (httplib2) has no timeout unless the socket default
+    # sets one, so a stalled connection hangs forever and launchd never starts
+    # the next run (poll_mail.py hit this Oct 3). Dropbox's urllib calls set
+    # their own; LM Studio's too.
+    socket.setdefaulttimeout(120)
     load_lms_env()
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
