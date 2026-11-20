@@ -273,17 +273,16 @@ sources:
       shared drives and Shared with me indexed; documents from My Drive and
       shared drives filed once unchanged for 24 hours; Docs, Sheets and
       Slides filed as PDF
-    permissions: drive.readonly via the MRECAI Workspace internal app, not yet granted
+    permissions: drive.readonly via the MRECAI Workspace internal app, granted Nov 17
     cadence_hours: 3
-    status: pending
+    status: active
     requirement: R5
-    blocked_on: >-
-      The Drive API and the drive.readonly scope on the MRECAI app, then one
-      Allow by Matthew (ops/DRIVES_APPLY.md step 4).
     gaps: >-
       Shared with me is indexed, not filed. Documents older than the start
-      date are filed only by a backfill. Exports over Google's 10 MB limit
-      and files over 100 MB are not filed.
+      date (the day of the first pass, Nov 17 2026) are filed only by a
+      backfill. Exports over Google's 10 MB limit and files over 100 MB are
+      not filed. A full listing (first pass, or after Google expires the
+      changes token) takes hours: 1,784,099 files across 59 shared drives.
 
   - id: storage:gdrive:matthew@mleca.com
     label: Google Drive (MLECA)
